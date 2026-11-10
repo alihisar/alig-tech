@@ -1,0 +1,11 @@
+---
+# current baglantisini atomik olarak degistirir (rename). 'hedef' kok_dizin'e gore goreli yol.
+- name: current baglantisini degistir
+  ansible.builtin.shell: |
+    set -e
+    cd {{ kok_dizin }}
+    t="$(readlink -f {{ hedef }})"
+    [ -d "$t" ] || { echo "hedef yok: {{ hedef }}"; exit 1; }
+    ln -sfn "$t" current.new
+    mv -T current.new current
+  changed_when: true

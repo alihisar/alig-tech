@@ -1,0 +1,135 @@
+---
+# Surum yayinlama: yukle, dogrula, ac, baglantiyi degistir, duman testi, hata olursa geri don.
+- name: Gerekli degiskenler
+  ansible.builtin.assert:
+    that:
+      - surum is defined
+      - surum is match('^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$')
+      - paket is defined
+    fail_msg: "ansible-playbook yayin.yml -e surum=1.0.0 -e paket=../../dist/alig-site-1.0.0.tar.gz"
+
+- name: Yerel paket ve ozet dosyasi var mi
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  delegate_to: localhost
+  become: false
+  loop: ["{{ paket }}", "{{ paket }}.sha256"]
+  register: yerel_paket
+- name: Eksikse dur
+  ansible.builtin.assert:
+    that: yerel_paket.results | map(attribute='stat.exists') | min
+    fail_msg: "Paket ya da .sha256 dosyasi yok: once deploy/paketle.py calistirin."
+
+- name: Paketi sunucuya kopyala
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ kok_dizin }}/yukle/{{ item | basename }}"
+    mode: "0600"
+  loop: ["{{ paket }}", "{{ paket }}.sha256"]
+
+- name: Paket ozetini sunucuda dogrula
+  ansible.builtin.command: sha256sum -c {{ (paket ~ '.sha256') | basename }}
+  args:
+    chdir: "{{ kok_dizin }}/yukle"
+  changed_when: false
+
+- name: Surum dizini
+  ansible.builtin.file:
+    path: "{{ kok_dizin }}/releases/{{ surum }}"
+    state: directory
+    mode: "0755"
+
+- name: Paketi ac
+  ansible.builtin.unarchive:
+    src: "{{ kok_dizin }}/yukle/{{ paket | basename }}"
+    dest: "{{ kok_dizin }}/releases/{{ surum }}"
+    remote_src: true
+    owner: root
+    group: root
+    creates: "{{ kok_dizin }}/releases/{{ surum }}/VERSION"
+
+- name: Acilan dosyalari manifest ile dogrula
+  ansible.builtin.shell: sha256sum -c --quiet MANIFEST.sha256
+  args:
+    chdir: "{{ kok_dizin }}/releases/{{ surum }}"
+  changed_when: false
+
+- name: Su anki surum (hata olursa buraya donulur)
+  ansible.builtin.shell: readlink -f {{ kok_dizin }}/current 2>/dev/null || true
+  register: simdiki
+  changed_when: false
+
+- name: Yayin (hata olursa onceki surume don)
+  block:
+    - name: Onceki baglantiyi kaydet
+      ansible.builtin.shell: |
+        set -e
+        cd {{ kok_dizin }}
+        if [ -L current ]; then ln -sfn "$(readlink current)" onceki.new && mv -T onceki.new onceki; fi
+      when: simdiki.stdout | length > 0
+      changed_when: true
+    - name: Baglantiyi degistir
+      ansible.builtin.include_tasks: baglanti.yml
+      vars:
+        hedef: "releases/{{ surum }}"
+    - name: Servisleri yeniden baslat
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: restarted
+        enabled: true
+        daemon_reload: true
+      loop: [alig-form, alig-tarama, alig-yonetim]
+    - name: nginx yeniden yukle
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+    - name: Duman testi (yerel)
+      ansible.builtin.command: >
+        python3 {{ kok_dizin }}/current/deploy/duman_testi.py
+        http://127.0.0.1:{{ yerel_izleme_portu }} --surum {{ surum }}
+      register: duman
+      retries: 5
+      delay: 3
+      until: duman.rc == 0
+      changed_when: false
+  rescue:
+    - name: Onceki surume don
+      ansible.builtin.include_tasks: baglanti.yml
+      vars:
+        hedef: "{{ simdiki.stdout }}"
+      when: simdiki.stdout | length > 0
+    - name: Servisleri yeniden baslat (geri alma)
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: restarted
+      loop: [alig-form, alig-tarama, alig-yonetim]
+      when: simdiki.stdout | length > 0
+    - name: Yayin basarisiz
+      ansible.builtin.fail:
+        msg: >-
+          Yayin {{ surum }} basarisiz oldu ve
+          {{ 'onceki surume donuldu (' ~ simdiki.stdout ~ ')' if simdiki.stdout | length > 0 else 'donulecek onceki surum yok (ilk yayin)' }}.
+          Ayrinti: journalctl -u alig-form -u alig-tarama -n 100
+
+- name: Disaridan dogrula (alan adi uzerinden)
+  ansible.builtin.uri:
+    url: "https://{{ alan_adi }}/surum.txt"
+    return_content: true
+  delegate_to: localhost
+  become: false
+  register: dis
+  until: dis.content | default('') | trim == surum
+  retries: 10
+  delay: 3
+  when: dis_kontrol | default(true) | bool
+
+- name: Eski surumleri temizle (son {{ surum_saklama_adet }} kalir, current ve onceki asla silinmez)
+  ansible.builtin.shell: |
+    set -e
+    cd {{ kok_dizin }}/releases
+    keep_a=$(basename "$(readlink -f ../current)")
+    keep_b=$(basename "$(readlink -f ../onceki 2>/dev/null || echo none)")
+    ls -1 | sort -V | head -n -{{ surum_saklama_adet }} | while read r; do
+      [ "$r" = "$keep_a" ] || [ "$r" = "$keep_b" ] || rm -rf -- "$r"
+    done
+  changed_when: false

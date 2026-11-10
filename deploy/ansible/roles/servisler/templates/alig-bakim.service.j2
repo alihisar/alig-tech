@@ -1,0 +1,17 @@
+[Unit]
+ConditionPathExists={{ kok_dizin }}/current
+Description=alig.tech gunluk bakim (yedek ve suresi dolan raporlar)
+
+[Service]
+Type=oneshot
+User={{ servis_kullanici }}
+Group={{ servis_kullanici }}
+ExecStart=/usr/bin/python3 {{ kok_dizin }}/current/deploy/bakim.py --veri {{ veri_dizini }} --yedek {{ yedek_dizini }} --sakla {{ yedek_saklama_adet }}
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ veri_dizini }} {{ yedek_dizini }}
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+IPAddressDeny=any
+UMask=0077

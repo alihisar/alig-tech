@@ -1,0 +1,14 @@
+# alig.tech: genel nginx ayarlari
+server_tokens off;
+
+# Rapor baglantilarindaki gizli kod gunluge yazilmaz
+map $uri $alig_yol {
+    ~^/rapor/  "/rapor/...";
+    default    $uri;
+}
+log_format alig '$remote_addr - [$time_iso8601] "$request_method $alig_yol" $status $body_bytes_sent';
+
+limit_req_zone $binary_remote_addr zone=alig_form:10m rate=6r/m;
+limit_req_zone $binary_remote_addr zone=alig_tarama:10m rate=6r/m;
+limit_req_zone $binary_remote_addr zone=alig_rapor:10m rate=30r/m;
+limit_req_status 429;

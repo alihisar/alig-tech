@@ -1,0 +1,52 @@
+<article class="wrap prose tarama-page">
+  <h1>{{tarama_h}}</h1>
+  <p class="lead">{{tarama_lead}}</p>
+
+  <h2>{{tarama_steps_h}}</h2>
+  <ol class="steps">
+    <li>{{tarama_s1}}</li>
+    <li>{{tarama_s2}}</li>
+    <li>{{tarama_s3}}</li>
+    <li>{{tarama_s4}}</li>
+  </ol>
+  <p><a class="btn" href="/assets/alig-toplayici.py" download>{{tarama_dl}}</a>
+     <a class="textlink" href="/assets/sorgu-katalogu.txt">{{tarama_cat}}</a></p>
+  <dl class="facts">
+    <dt>{{tarama_hash}}</dt><dd><code>{{toplayici_sha256}}</code></dd>
+    <dt>{{tarama_hash_cat}}</dt><dd><code>{{katalog_sha256}}</code></dd>
+  </dl>
+
+  <h2>{{tarama_never_h}}</h2>
+  <ul class="plain">
+    <li>{{tarama_n1}}</li>
+    <li>{{tarama_n2}}</li>
+    <li>{{tarama_n3}}</li>
+    <li>{{tarama_n4}}</li>
+    <li>{{tarama_n5}}</li>
+  </ul>
+
+  <h2>{{tarama_upload_h}}</h2>
+  <form class="form" method="post" action="/api/tarama/yukle" enctype="multipart/form-data">
+    <input type="hidden" name="dil" value="{{lang}}">
+    <div class="field field-wide">
+      <label for="t-co">{{tarama_f_company}}</label>
+      <input id="t-co" name="sirket" type="text" required maxlength="160" autocomplete="organization">
+    </div>
+    <div class="field field-wide">
+      <label for="t-mail">{{tarama_f_mail}}</label>
+      <input id="t-mail" name="eposta" type="email" required maxlength="200" autocomplete="email">
+      <p class="fine">{{tarama_f_mail_note}}</p>
+    </div>
+    <div class="field field-wide">
+      <label for="t-file">{{tarama_f_file}}</label>
+      <input id="t-file" name="dosya" type="file" accept="application/json,.json" required>
+    </div>
+    <div class="field field-wide">
+      <label for="t-ok"><input id="t-ok" type="checkbox" name="yetki" value="on" required> {{tarama_f_ok}}</label>
+    </div>
+    <p class="form-foot"><button class="btn" type="submit">{{tarama_f_send}}</button>
+      <span class="fine"><a href="{{kvkk_href}}">{{foot_kvkk}}</a></span></p>
+  </form>
+  <p class="fine">{{tarama_direct}}</p>
+  <p><a href="{{home}}">{{page_back}}</a></p>
+</article>

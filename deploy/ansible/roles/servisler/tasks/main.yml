@@ -1,0 +1,72 @@
+---
+- name: Servis kullanicisi
+  ansible.builtin.user:
+    name: "{{ servis_kullanici }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Dizinler
+  ansible.builtin.file:
+    path: "{{ item.yol }}"
+    state: directory
+    owner: "{{ item.sahip }}"
+    group: "{{ item.grup }}"
+    mode: "{{ item.mod }}"
+  loop:
+    - { yol: "{{ kok_dizin }}", sahip: root, grup: root, mod: "0755" }
+    - { yol: "{{ kok_dizin }}/releases", sahip: root, grup: root, mod: "0755" }
+    - { yol: "{{ kok_dizin }}/yukle", sahip: root, grup: root, mod: "0700" }
+    - { yol: "{{ veri_dizini }}", sahip: "{{ servis_kullanici }}", grup: "{{ servis_kullanici }}", mod: "0750" }
+    - { yol: "{{ yedek_dizini }}", sahip: "{{ servis_kullanici }}", grup: "{{ servis_kullanici }}", mod: "0700" }
+    - { yol: /etc/alig, sahip: root, grup: "{{ servis_kullanici }}", mod: "0750" }
+
+- name: Gizli tuz (yalniz ilk kurulumda uretilir, depoya girmez)
+  ansible.builtin.shell: |
+    umask 077
+    printf 'ALIG_FORM_SALT=%s\n' "$(openssl rand -hex 32)" > /etc/alig/env
+  args:
+    creates: /etc/alig/env
+- name: Ortam dosyasi izinleri
+  ansible.builtin.file:
+    path: /etc/alig/env
+    owner: root
+    group: "{{ servis_kullanici }}"
+    mode: "0640"
+
+- name: systemd birimleri
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - alig-form.service
+    - alig-tarama.service
+    - alig-yonetim.service
+    - alig-bakim.service
+    - alig-bakim.timer
+    - alig-izleme.service
+    - alig-izleme.timer
+  notify: systemd yeniden yukle
+
+- name: Zamanlayicilari etkinlestir
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop: [alig-bakim.timer, alig-izleme.timer]
+  # alig-form ve alig-tarama ilk yayindan sonra baslar (kod henuz yok)
+
+- name: Uyari birimi, varsayilan sistem gunlugune kritik kayit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/alig-uyari.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=alig.tech izleme basarisiz
+      [Service]
+      Type=oneshot
+      # [doldurulacak: bildirim yontemi]  ornek: e-posta ya da mesaj kanali komutu
+      ExecStart=/usr/bin/logger -p user.crit "alig-izleme basarisiz: journalctl -u alig-izleme"
+  notify: systemd yeniden yukle

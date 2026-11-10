@@ -1,0 +1,59 @@
+<article class="wrap prose demo-page" id="portal"
+  data-ok="{{demo_audit_ok}}" data-bad="{{demo_audit_bad}}" data-nohash="{{demo_audit_nohash}}"
+  data-btn-tamper="{{demo_btn_tamper}}" data-btn-restore="{{demo_btn_restore}}"
+  data-actor-agent="{{demo_a_agent}}" data-actor-you="{{demo_a_you}}"
+  data-e-start="{{demo_e_start}}" data-e-ok="{{demo_e_ok}}" data-e-no="{{demo_e_no}}" data-empty="{{demo_q_empty}}">
+  <h1>{{demo_h}}</h1>
+  <p class="lead">{{demo_lead}}</p>
+
+  <section aria-labelledby="d-fleet">
+    <h2 id="d-fleet">{{demo_fleet_h}}</h2>
+    <table class="split fleet">
+      <thead><tr><th scope="col">{{demo_col_cluster}}</th><th scope="col">{{demo_col_engine}}</th><th scope="col">{{demo_col_nodes}}</th><th scope="col">{{demo_col_state}}</th></tr></thead>
+      <tbody>
+          <tr><th scope="row">{{demo_c1}}</th><td data-label="{{demo_col_engine}}">{{demo_c1_e}}</td><td data-label="{{demo_col_nodes}}">{{demo_c1_n}}</td><td data-label="{{demo_col_state}}">{{demo_c1_s}}</td></tr>
+          <tr><th scope="row">{{demo_c2}}</th><td data-label="{{demo_col_engine}}">{{demo_c2_e}}</td><td data-label="{{demo_col_nodes}}">{{demo_c2_n}}</td><td data-label="{{demo_col_state}}">{{demo_c2_s}}</td></tr>
+          <tr><th scope="row">{{demo_c3}}</th><td data-label="{{demo_col_engine}}">{{demo_c3_e}}</td><td data-label="{{demo_col_nodes}}">{{demo_c3_n}}</td><td data-label="{{demo_col_state}}">{{demo_c3_s}}</td></tr>
+          <tr><th scope="row">{{demo_c4}}</th><td data-label="{{demo_col_engine}}">{{demo_c4_e}}</td><td data-label="{{demo_col_nodes}}">{{demo_c4_n}}</td><td data-label="{{demo_col_state}}">{{demo_c4_s}}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="d-queue">
+    <h2 id="d-queue">{{demo_q_h}}</h2>
+    <p class="nojs-note">{{demo_nojs}}</p>
+    <ol class="queue" id="queue">
+        <li class="prop" data-id="1" data-title="{{demo_p1_t}}">
+          <h3>{{demo_p1_t}}</h3>
+          <p>{{demo_p1_d}}</p>
+          <p class="risk">{{demo_risk}}: {{demo_r_mid}}</p>
+          <p class="btns"><button type="button" class="btn btn-sm" data-act="ok">{{demo_btn_ok}}</button> <button type="button" class="btn btn-sm btn-ghost" data-act="no">{{demo_btn_no}}</button></p>
+          <p class="verdict" hidden></p>
+        </li>
+        <li class="prop" data-id="2" data-title="{{demo_p2_t}}">
+          <h3>{{demo_p2_t}}</h3>
+          <p>{{demo_p2_d}}</p>
+          <p class="risk">{{demo_risk}}: {{demo_r_low}}</p>
+          <p class="btns"><button type="button" class="btn btn-sm" data-act="ok">{{demo_btn_ok}}</button> <button type="button" class="btn btn-sm btn-ghost" data-act="no">{{demo_btn_no}}</button></p>
+          <p class="verdict" hidden></p>
+        </li>
+        <li class="prop" data-id="3" data-title="{{demo_p3_t}}">
+          <h3>{{demo_p3_t}}</h3>
+          <p>{{demo_p3_d}}</p>
+          <p class="risk">{{demo_risk}}: {{demo_r_low}}</p>
+          <p class="btns"><button type="button" class="btn btn-sm" data-act="ok">{{demo_btn_ok}}</button> <button type="button" class="btn btn-sm btn-ghost" data-act="no">{{demo_btn_no}}</button></p>
+          <p class="verdict" hidden></p>
+        </li>
+    </ol>
+    <p class="queue-empty" id="queue-empty" hidden>{{demo_q_empty}}</p>
+  </section>
+
+  <section aria-labelledby="d-audit" class="audit-box">
+    <h2 id="d-audit">{{demo_audit_h}}</h2>
+    <p class="note">{{demo_audit_note}}</p>
+    <ol class="chain" id="chain" aria-live="polite"></ol>
+    <p class="aud-status" id="aud-status" role="status"></p>
+    <button type="button" class="btn btn-sm btn-ghost" id="tamper"></button>
+  </section>
+  <p><a href="{{home}}">{{page_back}}</a></p>
+</article>

@@ -1,0 +1,32 @@
+# CI: her birlestirme isteginde ve main'e push'ta ayni komut yerelde de calisir:
+#   python3 ci/run_all.py --theme c
+# Tema yonu secilene kadar "a" sabit; secimden sonra tek tema kalir.
+# Forgejo Actions ile de ayni sozdizimi kullanilabilir.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # Dis eylemler commit SHA'sina sabitlenir (ci/check_workflows.py denetler).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Birlestirme istegi denetimleri
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: python3 ci/run_all.py --theme c
+
+      - name: Surum etiketi denetimleri (doldurulacak alan kalmamali)
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: python3 ci/run_all.py --theme c --release

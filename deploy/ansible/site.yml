@@ -1,0 +1,11 @@
+---
+# Ilk kurulum ve yapilandirma. Tekrar calistirilabilir.
+#   ansible-playbook site.yml --check --diff   # once kuru calistirma
+#   ansible-playbook site.yml
+- name: alig.tech sunucusu
+  hosts: alig
+  become: true
+  roles:
+    - temel
+    - servisler
+    - web

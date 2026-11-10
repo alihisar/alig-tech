@@ -1,0 +1,46 @@
+<section id="iletisim" class="sec sec-contact" aria-labelledby="h-contact">
+  <div class="wrap sec-in">
+    <header class="sec-head">
+      <h2 id="h-contact">{{sec_contact_h}}</h2>
+      <p class="lead">{{contact_lead}}</p>
+    </header>
+    <div class="sec-body">
+      <form class="form" method="post" action="/api/iletisim">
+        <div class="field">
+          <label for="f-name">{{f_name}}</label>
+          <input id="f-name" name="name" type="text" required maxlength="120" autocomplete="name">
+        </div>
+        <div class="field">
+          <label for="f-company">{{f_company}}</label>
+          <input id="f-company" name="company" type="text" required maxlength="160" autocomplete="organization">
+        </div>
+        <div class="field">
+          <label for="f-email">{{f_email}}</label>
+          <input id="f-email" name="email" type="email" required maxlength="200" autocomplete="email">
+        </div>
+        <div class="field">
+          <label for="f-db">{{f_db}}</label>
+          <select id="f-db" name="db">
+            <option value="pg">{{f_db_pg}}</option>
+            <option value="ms">{{f_db_ms}}</option>
+            <option value="my">{{f_db_my}}</option>
+            <option value="multi">{{f_db_multi}}</option>
+            <option value="unsure">{{f_db_unsure}}</option>
+          </select>
+        </div>
+        <div class="field field-wide">
+          <label for="f-msg">{{f_msg}}</label>
+          <textarea id="f-msg" name="message" rows="5" maxlength="2000"></textarea>
+        </div>
+        <div class="trap" aria-hidden="true">
+          <label for="f-trap">{{f_trap}}</label>
+          <input id="f-trap" name="website" type="text" tabindex="-1" autocomplete="off">
+        </div>
+        <div class="field-wide form-foot">
+          <button class="btn" type="submit">{{cta}}</button>
+          <p class="fine">{{contact_privacy}} <a href="{{kvkk_href}}">{{foot_kvkk}}</a></p>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>

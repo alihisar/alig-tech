@@ -1,0 +1,8 @@
+# Sertifika alinana kadar: yalniz ACME ve yonlendirme
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ alan_adi }} {{ www_alani }};
+    location /.well-known/acme-challenge/ { root /var/www/acme; }
+    location / { return 200 "alig.tech kuruluyor\n"; add_header Content-Type text/plain; }
+}

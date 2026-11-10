@@ -1,0 +1,39 @@
+[Unit]
+Description=alig.tech Iletisim formu ({{ form_portu }})
+After=network.target
+
+[Service]
+User={{ servis_kullanici }}
+Group={{ servis_kullanici }}
+EnvironmentFile=/etc/alig/env
+ExecStart=/usr/bin/python3 {{ kok_dizin }}/current/form/server.py --db {{ veri_dizini }}/form.sqlite --host 127.0.0.1 --port {{ form_portu }}
+Restart=on-failure
+RestartSec=2
+# sertlestirme
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ veri_dizini }}
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+IPAddressDeny=any
+IPAddressAllow=localhost
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

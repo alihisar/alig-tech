@@ -1,0 +1,13 @@
+[Unit]
+ConditionPathExists={{ kok_dizin }}/current
+Description=alig.tech duman testi (yerel, TLS disinda)
+OnFailure=alig-uyari.service
+
+[Service]
+Type=oneshot
+User={{ servis_kullanici }}
+ExecStart=/usr/bin/python3 {{ kok_dizin }}/current/deploy/duman_testi.py http://127.0.0.1:{{ yerel_izleme_portu }}
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

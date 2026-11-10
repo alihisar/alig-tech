@@ -1,0 +1,61 @@
+<section class="hero">
+  <div class="wrap hero-in">
+    <div class="hero-copy">
+      <h1>{{hero_c_h1}}</h1>
+      <p class="lead">{{hero_c_lead}}</p>
+      <p class="hero-actions">
+        <a class="btn" href="#iletisim">{{cta}}</a>
+        <a class="textlink" href="#deneme">{{hero_c_link}}</a>
+      </p>
+    </div>
+    <article class="card" aria-labelledby="card-t">
+      <header class="card-head">
+        <h2 id="card-t">{{ag_card_title}}</h2>
+        <p class="card-status">{{ag_card_status}}</p>
+      </header>
+      <dl class="card-rows">
+        <div><dt>{{ag_card_k1}}</dt><dd>{{ag_card_v1}}</dd></div>
+        <div><dt>{{ag_card_k2}}</dt><dd>{{ag_card_v2}}</dd></div>
+        <div><dt>{{ag_card_k3}}</dt><dd class="mono">{{ag_card_v3}}</dd></div>
+        <div class="card-prop"><dt>{{ag_card_k4}}</dt><dd>{{ag_card_v4}}</dd></div>
+        <div><dt>{{ag_card_k5}}</dt><dd>{{ag_card_v5}}</dd></div>
+      </dl>
+      <p class="card-foot">{{ag_card_foot}}</p>
+    </article>
+  </div>
+</section>
+
+<section id="hizmetler" class="sec sec-agent" aria-labelledby="h-agent">
+  <div class="wrap">
+    <header class="sec-head">
+      <h2 id="h-agent">{{ag_h}}</h2>
+      <p class="lead">{{ag_lead}}</p>
+    </header>
+    <table class="split">
+      <thead><tr><th scope="col">{{ag_col_area}}</th><th scope="col">{{ag_col_agent}}</th><th scope="col">{{ag_col_you}}</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">{{ag_r1_name}}</th><td data-label="{{ag_col_agent}}">{{ag_r1_agent}}</td><td data-label="{{ag_col_you}}">{{ag_r1_you}}</td></tr>
+        <tr><th scope="row">{{ag_r2_name}}</th><td data-label="{{ag_col_agent}}">{{ag_r2_agent}}</td><td data-label="{{ag_col_you}}">{{ag_r2_you}}</td></tr>
+        <tr><th scope="row">{{ag_r3_name}}</th><td data-label="{{ag_col_agent}}">{{ag_r3_agent}}</td><td data-label="{{ag_col_you}}">{{ag_r3_you}}</td></tr>
+      </tbody>
+    </table>
+    <p class="entry">{{ag_entry}}</p>
+  </div>
+</section>
+
+<section id="deneme" class="sec sec-demo" aria-labelledby="h-demo">
+  <div class="wrap">
+    <header class="sec-head">
+      <h2 id="h-demo">{{ag_demo_h}}</h2>
+      <p class="lead">{{ag_demo_lead}}</p>
+    </header>
+    <div class="demo">
+{{include:console}}
+    </div>
+  </div>
+</section>
+{{include:how}}
+{{include:tiers}}
+{{include:security}}
+{{include:about}}
+{{include:contact}}

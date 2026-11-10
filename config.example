@@ -1,0 +1,13 @@
+# Form servisi ortam dosyasi ornegi. Gercek degerleri deploy/ altinda DEGIL,
+# sunucuda /etc/alig/form.env dosyasina yazin (izin 0600, sahibi alig-form).
+
+ALIG_FORM_BIND=127.0.0.1
+ALIG_FORM_PORT=8081
+ALIG_FORM_DB=/var/lib/alig-form/iletisim.sqlite3
+# Kayit saklama suresi (gun). IP adresi kisisel veridir.
+ALIG_FORM_RETENTION_DAYS=30
+# Bildirim e-postasi icin SMTP bilgileri sunucuda doldurulur.
+ALIG_SMTP_HOST=CHANGE_ME
+ALIG_SMTP_USER=CHANGE_ME
+ALIG_SMTP_PASSWORD=CHANGE_ME
+ALIG_NOTIFY_TO=CHANGE_ME

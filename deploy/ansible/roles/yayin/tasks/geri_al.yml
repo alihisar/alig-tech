@@ -1,0 +1,33 @@
+---
+- name: Onceki surum var mi
+  ansible.builtin.stat:
+    path: "{{ kok_dizin }}/onceki"
+  register: onceki
+- name: Yoksa dur
+  ansible.builtin.assert:
+    that: onceki.stat.exists
+    fail_msg: "Donulecek onceki surum kaydi yok."
+- name: Simdiki ve onceki surum
+  ansible.builtin.shell: |
+    printf 'simdiki=%s onceki=%s\n' "$(basename "$(readlink -f {{ kok_dizin }}/current)")" "$(basename "$(readlink -f {{ kok_dizin }}/onceki)")"
+  register: durum
+  changed_when: false
+- name: Bilgi
+  ansible.builtin.debug:
+    msg: "{{ durum.stdout }}"
+- name: Onceki surume don
+  ansible.builtin.include_tasks: baglanti.yml
+  vars:
+    hedef: onceki
+- name: Servisleri yeniden baslat
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+  loop: [alig-form, alig-tarama, alig-yonetim]
+- name: Duman testi
+  ansible.builtin.command: python3 {{ kok_dizin }}/current/deploy/duman_testi.py http://127.0.0.1:{{ yerel_izleme_portu }}
+  register: duman
+  retries: 5
+  delay: 3
+  until: duman.rc == 0
+  changed_when: false

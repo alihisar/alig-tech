@@ -1,0 +1,95 @@
+---
+- name: Sertifika e-postasi dolduruldu mu
+  ansible.builtin.assert:
+    that: "'doldurulacak' not in certbot_eposta"
+    fail_msg: "group_vars/all.yml icinde certbot_eposta degerini doldurun."
+
+- name: nginx ve certbot
+  ansible.builtin.apt:
+    name: [nginx, certbot]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Varsayilan nginx sitesini kaldir
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: nginx yeniden yukle
+
+- name: ACME dizini
+  ansible.builtin.file:
+    path: /var/www/acme
+    state: directory
+    mode: "0755"
+
+- name: nginx parcalari (basliklar, konumlar, gunluk bicimi)
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/nginx/{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - { src: alig-basliklar.conf.j2, dest: snippets/alig-basliklar.conf }
+    - { src: alig-genel.conf.j2, dest: conf.d/alig-genel.conf }
+  notify: nginx yeniden yukle
+
+- name: Sertifika var mi
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ alan_adi }}/fullchain.pem"
+  register: sertifika
+
+- name: Yalniz HTTP site (sertifika alinana kadar)
+  ansible.builtin.template:
+    src: alig-http.conf.j2
+    dest: /etc/nginx/sites-available/alig.conf
+    mode: "0644"
+  when: not sertifika.stat.exists
+  notify: nginx yeniden yukle
+
+- name: Siteyi etkinlestir
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/alig.conf
+    dest: /etc/nginx/sites-enabled/alig.conf
+    state: link
+  notify: nginx yeniden yukle
+
+- name: HTTP siteyi yukle (certbot icin)
+  ansible.builtin.meta: flush_handlers
+
+- name: Sertifika al, DNS kayitlari hazir olmali (docs/dns.md)
+  ansible.builtin.command: >
+    certbot certonly --webroot -w /var/www/acme --non-interactive --agree-tos
+    -m {{ certbot_eposta }} -d {{ alan_adi }} -d {{ www_alani }}
+  args:
+    creates: "/etc/letsencrypt/live/{{ alan_adi }}/fullchain.pem"
+
+- name: Yenileme sonrasi nginx yeniden yukle
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/alig-nginx.sh
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      systemctl reload nginx
+
+- name: Tam HTTPS site
+  ansible.builtin.template:
+    src: alig-https.conf.j2
+    dest: /etc/nginx/sites-available/alig.conf
+    mode: "0644"
+  notify: nginx yeniden yukle
+
+- name: nginx yapilandirmasini dogrula
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Gunluk saklama suresi
+  ansible.builtin.template:
+    src: logrotate-alig.j2
+    dest: /etc/logrotate.d/alig-nginx
+    mode: "0644"
+
+- name: nginx calisiyor
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true

@@ -1,0 +1,74 @@
+<figure class="console" id="console" data-state="done" data-table="after"
+  data-ev-lost="{{ev_lost}}" data-ev-promoted="{{ev_promoted}}" data-ev-finding="{{ev_finding}}"
+  data-ev-approved="{{ev_approved}}" data-ev-rejected="{{ev_rejected}}" data-ev-forged="{{ev_forged}}"
+  data-actor-system="{{audit_actor_system}}" data-actor-agent="{{audit_actor_agent}}" data-actor-you="{{audit_actor_you}}"
+  data-audit-ok="{{audit_ok}}" data-audit-broken="{{audit_broken}}"
+  data-btn-tamper="{{audit_btn_tamper}}" data-btn-restore="{{audit_btn_restore}}"
+  data-nohash="{{audit_nohash}}" data-nohash-note="{{audit_nohash_note}}">
+  <figcaption class="console-head">
+    <span class="console-title">{{con_title}}</span>
+    <span class="console-note">{{con_note}}</span>
+  </figcaption>
+
+  <div class="ctl">
+    <button type="button" class="btn btn-sm" id="con-stop">{{con_btn_stop}}</button>
+    <p class="hint">{{con_hint}}</p>
+  </div>
+
+  <pre class="term term-before" tabindex="0" role="region" aria-label="{{con_title}}"><code>+ Cluster: demo-odeme (7391120468052110512) ----+----+-----------+
+| Member     | Host       | Role    | State     | TL | Lag in MB |
++------------+------------+---------+-----------+----+-----------+
+| db-demo-01 | 192.0.2.11 | <span class="t-lead">Leader</span>  | running   |  7 |           |
+| db-demo-02 | 192.0.2.12 | Replica | streaming |  7 |         0 |
+| db-demo-03 | 192.0.2.13 | Replica | streaming |  7 |         0 |
++------------+------------+---------+-----------+----+-----------+</code></pre>
+  <pre class="term term-after" tabindex="0" role="region" aria-label="{{con_title}}"><code>+ Cluster: demo-odeme (7391120468052110512) ----+----+-----------+
+| Member     | Host       | Role    | State     | TL | Lag in MB |
++------------+------------+---------+-----------+----+-----------+
+| db-demo-01 | 192.0.2.11 | Replica | <span class="t-down">stopped</span>   |    |   unknown |
+| db-demo-02 | 192.0.2.12 | <span class="t-lead">Leader</span>  | running   |  8 |           |
+| db-demo-03 | 192.0.2.13 | Replica | streaming |  8 |         0 |
++------------+------------+---------+-----------+----+-----------+</code></pre>
+
+  <div class="stream">
+    <h3>{{tl_title}}</h3>
+    <ol class="timeline" aria-live="polite">
+      <li data-t="0" data-ev="lost"><span class="tl-t">+0 {{tl_unit}}</span><span>{{tl_0}}</span></li>
+      <li data-t="30"><span class="tl-t">+30 {{tl_unit}}</span><span>{{tl_1}}</span></li>
+      <li data-t="31"><span class="tl-t">+31 {{tl_unit}}</span><span>{{tl_2}}</span></li>
+      <li data-t="33" data-ev="promoted" data-swap="1"><span class="tl-t">+33 {{tl_unit}}</span><span>{{tl_3}}</span></li>
+      <li data-t="35"><span class="tl-t">+35 {{tl_unit}}</span><span>{{tl_4}}</span></li>
+      <li data-t="36"><span class="tl-t">+36 {{tl_unit}}</span><span>{{tl_5}}</span></li>
+    </ol>
+  </div>
+
+  <div class="finding">
+    <h3>{{find_title}}</h3>
+    <dl class="find">
+      <dt>{{find_k_finding}}</dt><dd>{{find_finding}}</dd>
+      <dt>{{find_k_evidence}}</dt><dd>{{find_evidence}}</dd>
+      <dt>{{find_k_risk}}</dt><dd>{{find_risk}}</dd>
+      <dt>{{find_k_advice}}</dt><dd>{{find_advice}}</dd>
+    </dl>
+    <div class="approve">
+      <p class="wait">{{approval_wait}}</p>
+      <div class="btns">
+        <button type="button" class="btn btn-sm" id="con-approve">{{btn_approve}}</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="con-reject">{{btn_reject}}</button>
+      </div>
+    </div>
+    <p class="decision" role="status"><span class="dec-approved">{{decision_approved}}</span><span class="dec-rejected">{{decision_rejected}}</span></p>
+  </div>
+
+  <section class="audit" aria-labelledby="aud-h">
+    <h3 id="aud-h">{{audit_title}}</h3>
+    <p class="note">{{audit_note}}</p>
+    <ol class="chain" id="chain"></ol>
+    <p class="aud-status" id="aud-status" role="status"></p>
+    <button type="button" class="btn btn-ghost btn-sm" id="aud-tamper">{{audit_btn_tamper}}</button>
+  </section>
+
+  <div class="ctl-reset">
+    <button type="button" class="btn btn-ghost btn-sm" id="con-reset">{{con_btn_reset}}</button>
+  </div>
+</figure>

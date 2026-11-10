@@ -1,0 +1,40 @@
+[Unit]
+Description=alig.tech Yonetim paneli ({{ yonetim_portu }})
+After=network.target
+
+[Service]
+User={{ servis_kullanici }}
+Group={{ servis_kullanici }}
+EnvironmentFile=/etc/alig/env
+ExecStart=/usr/bin/python3 {{ kok_dizin }}/current/yonetim/server.py --db {{ veri_dizini }}/yonetim.sqlite --form-db {{ veri_dizini }}/form.sqlite --tarama-db {{ veri_dizini }}/tarama.sqlite --yedek {{ yedek_dizini }} --port {{ yonetim_portu }} --form-portu {{ form_portu }} --tarama-portu {{ tarama_portu }}{{ '' if yonetim_izinli_ipler else ' --guvensiz-cerez' }}
+Restart=on-failure
+RestartSec=2
+# sertlestirme
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ veri_dizini }}
+ReadOnlyPaths={{ yedek_dizini }}
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+IPAddressDeny=any
+IPAddressAllow=localhost
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

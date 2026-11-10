@@ -1,0 +1,16 @@
+# alig.tech: Ansible tarafindan yonetilir
+Port {{ ssh_port }}
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AllowUsers {{ yonetim_kullanici }}
+MaxAuthTries 3
+LoginGraceTime 30
+X11Forwarding no
+AllowAgentForwarding no
+# Yalniz yonetim paneline yerel tunel (ssh -L 8092:127.0.0.1:8092)
+AllowTcpForwarding local
+PermitOpen 127.0.0.1:{{ yonetim_portu }}
+ClientAliveInterval 300
+ClientAliveCountMax 2

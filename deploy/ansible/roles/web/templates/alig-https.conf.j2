@@ -1,0 +1,46 @@
+# alig.tech: Ansible tarafindan yonetilir
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ alan_adi }} {{ www_alani }};
+    access_log /var/log/nginx/alig-erisim.log alig;
+    location /.well-known/acme-challenge/ { root /var/www/acme; }
+    location / { return 308 https://{{ alan_adi }}$request_uri; }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name {{ www_alani }};
+    ssl_certificate     /etc/letsencrypt/live/{{ alan_adi }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ alan_adi }}/privkey.pem;
+    return 308 https://{{ alan_adi }}$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name {{ alan_adi }};
+    access_log /var/log/nginx/alig-erisim.log alig;
+    error_log /var/log/nginx/alig-hata.log warn;
+
+    ssl_certificate     /etc/letsencrypt/live/{{ alan_adi }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ alan_adi }}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:alig_ssl:10m;
+    ssl_session_tickets off;
+
+{% filter indent(4, true) %}{% include 'alig-konumlar.conf.j2' %}{% endfilter %}
+
+}
+
+# Yerel izleme ve duman testi (yalniz bu makineden, TLS yok)
+server {
+    listen 127.0.0.1:{{ yerel_izleme_portu }};
+    server_name _;
+    access_log off;
+{% filter indent(4, true) %}{% include 'alig-konumlar.conf.j2' %}{% endfilter %}
+
+}

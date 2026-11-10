@@ -1,0 +1,10 @@
+---
+# Yeni surum yayinla. Basarisiz olursa onceki surume doner.
+#   python3 ../paketle.py --surum 1.0.0 --release
+#   ansible-playbook yayin.yml -e surum=1.0.0 -e paket=../../dist/alig-site-1.0.0.tar.gz
+- name: Surum yayinla
+  hosts: alig
+  become: true
+  vars_prompt: []
+  roles:
+    - yayin

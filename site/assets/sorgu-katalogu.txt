@@ -1,0 +1,51 @@
+alig.tech saglik taramasi: calisan tum sorgular
+Her sorgu SELECT coalesce(json_agg(t),'[]') FROM (<sorgu>) t icinde,
+default_transaction_read_only=on, statement_timeout=15000 ile calisir.
+
+-- pg_surum
+SELECT current_setting('server_version_num')::int AS surum_num;
+
+-- pg_xid_yasi
+SELECT datname, age(datfrozenxid) AS yas, mxid_age(datminmxid) AS mxid_yas, current_setting('autovacuum_freeze_max_age')::bigint AS freeze_max_age FROM pg_database WHERE datallowconn;
+
+-- pg_bosta_islem
+SELECT usename, state AS durum, extract(epoch FROM now() - xact_start)::int AS sure_sn FROM pg_stat_activity WHERE state IN ('idle in transaction','idle in transaction (aborted)') AND backend_type = 'client backend' AND pid <> pg_backend_pid() ORDER BY 3 DESC LIMIT 20;
+
+-- pg_baglanti
+SELECT (SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend')::int AS kullanilan, current_setting('max_connections')::int AS ust;
+
+-- pg_olu_satir
+SELECT schemaname, relname, n_live_tup AS canli, n_dead_tup AS olu, to_char(last_autovacuum AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS son_autovacuum FROM pg_stat_user_tables WHERE n_dead_tup > 10000 ORDER BY n_dead_tup DESC LIMIT 20;
+
+-- pg_gecersiz_indeks
+SELECT n.nspname AS schemaname, c.relname AS indexrelname FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE NOT i.indisvalid LIMIT 50;
+
+-- pg_kullanilmayan_indeks
+SELECT s.schemaname, s.indexrelname, pg_relation_size(s.indexrelid)::bigint AS bayt FROM pg_stat_user_indexes s JOIN pg_index i ON i.indexrelid = s.indexrelid WHERE s.idx_scan = 0 AND NOT i.indisunique AND NOT i.indisprimary AND pg_relation_size(s.indexrelid) > 10485760 ORDER BY 3 DESC LIMIT 20;
+
+-- pg_sequence
+SELECT schemaname, sequencename, round((last_value::numeric / max_value::numeric), 4)::float8 AS oran FROM pg_sequences WHERE last_value IS NOT NULL AND last_value::numeric / max_value::numeric > 0.5 ORDER BY 3 DESC LIMIT 20;
+
+-- pg_slot
+SELECT slot_name, active, wal_status, pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)::bigint AS geri_bayt FROM pg_replication_slots LIMIT 50;
+
+-- pg_arsiv
+SELECT current_setting('archive_mode') AS archive_mode, archived_count AS basarili, failed_count AS hatali, to_char(last_archived_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS son_basari_utc, to_char(last_failed_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS son_hata_utc FROM pg_stat_archiver;
+
+-- pg_tls_parola
+SELECT current_setting('ssl') AS ssl, current_setting('password_encryption') AS password_encryption, current_setting('ssl_min_protocol_version') AS ssl_min_protocol_version;
+
+-- pg_md5_roller (yetki: superuser)
+SELECT count(*)::int AS sayi FROM pg_authid WHERE rolpassword LIKE 'md5%';
+
+-- pg_super_roller
+SELECT rolname, rolcanlogin FROM pg_roles WHERE rolsuper AND rolname !~ '^pg_' LIMIT 50;
+
+-- pg_public_create
+SELECT has_schema_privilege('public', 'public', 'CREATE') AS public_create;
+
+-- pg_log_ayarlari
+SELECT name, setting FROM pg_settings WHERE name IN ('log_connections','log_disconnections','log_min_duration_statement');
+
+-- pg_eklentiler
+SELECT extname, extversion FROM pg_extension;

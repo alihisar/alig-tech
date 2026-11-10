@@ -1,0 +1,22 @@
+---
+alan_adi: alig.tech
+www_alani: www.alig.tech
+ssh_port: 22
+# Sunucuya anahtarla girilen yonetim kullanicisi (inventory'deki ansible_user ile ayni)
+yonetim_kullanici: deploy
+certbot_eposta: "[doldurulacak: e-posta]"
+hsts_saniye: 31536000
+log_saklama_gun: 30
+yedek_saklama_adet: 14
+surum_saklama_adet: 5
+servis_kullanici: alig-web
+kok_dizin: /srv/alig
+veri_dizini: /var/lib/alig
+yedek_dizini: /var/backups/alig
+form_portu: 8090
+tarama_portu: 8091
+yerel_izleme_portu: 8081
+yonetim_portu: 8092
+# Yonetim paneline internetten izin verilen IP adresleri. Bos ise panel internete ACILMAZ;
+# SSH tuneli ile erisilir: ssh -L 8092:127.0.0.1:8092 deploy@sunucu  ->  http://localhost:8092/yonetim/
+yonetim_izinli_ipler: []

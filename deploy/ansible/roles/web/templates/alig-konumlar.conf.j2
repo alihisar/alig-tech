@@ -1,0 +1,65 @@
+# 443 sunucusu ve yerel izleme sunucusu ayni konumlari kullanir
+root {{ kok_dizin }}/current/site;
+index index.html;
+
+location / {
+    include snippets/alig-basliklar.conf;
+    add_header Cache-Control "no-cache" always;
+    try_files $uri $uri/ =404;
+}
+location /assets/ {
+    include snippets/alig-basliklar.conf;
+    add_header Cache-Control "public, max-age=3600" always;
+    try_files $uri =404;
+}
+location = /healthz {
+    include snippets/alig-basliklar.conf;
+    proxy_pass http://127.0.0.1:{{ form_portu }};
+    proxy_set_header X-Real-IP $remote_addr;
+}
+location = /api/iletisim {
+    include snippets/alig-basliklar.conf;
+    limit_req zone=alig_form burst=3 nodelay;
+    client_max_body_size 16k;
+    proxy_pass http://127.0.0.1:{{ form_portu }};
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_read_timeout 15s;
+}
+location = /api/tarama/yukle {
+    include snippets/alig-basliklar.conf;
+    limit_req zone=alig_tarama burst=3 nodelay;
+    client_max_body_size 6m;
+    proxy_pass http://127.0.0.1:{{ tarama_portu }};
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_read_timeout 30s;
+}
+location = /api/tarama/saglik {
+    include snippets/alig-basliklar.conf;
+    proxy_pass http://127.0.0.1:{{ tarama_portu }};
+}
+location /rapor/ {
+    include snippets/alig-basliklar.conf;
+    limit_req zone=alig_rapor burst=10 nodelay;
+    client_max_body_size 1k;
+    proxy_pass http://127.0.0.1:{{ tarama_portu }};
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+}
+location /yonetim {
+    include snippets/alig-basliklar.conf;
+{% if yonetim_izinli_ipler %}
+{% for ip in yonetim_izinli_ipler %}
+    allow {{ ip }};
+{% endfor %}
+    deny all;
+    limit_req zone=alig_rapor burst=20 nodelay;
+    client_max_body_size 16k;
+    proxy_pass http://127.0.0.1:{{ yonetim_portu }};
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+{% else %}
+    return 404;
+{% endif %}
+}

@@ -1,0 +1,10 @@
+---
+# Bir onceki surume don (alig-site "onceki" baglantisi).  ansible-playbook geri-al.yml
+- name: Onceki surume don
+  hosts: alig
+  become: true
+  tasks:
+    - name: Geri alma gorevlerini calistir
+      ansible.builtin.include_role:
+        name: yayin
+        tasks_from: geri_al.yml
