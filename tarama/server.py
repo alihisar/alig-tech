@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import importlib.util  # noqa: E402
 
-from tarama import depo, rapor, yukleme  # noqa: E402
+from tarama import depo, hata, rapor, yukleme  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("alig_form_server", Path(__file__).resolve().parent.parent / "form" / "server.py")
 _form = importlib.util.module_from_spec(_spec)
@@ -67,6 +67,12 @@ class H(BaseHTTPRequestHandler):
     def _ip(self):
         return self.headers.get("X-Real-IP") or self.client_address[0]
 
+    def _hata(self, kod, tur, dil=None, ayrinti=None, extra=()):
+        """Musteriye gosterilen hata sayfasi. Dil formdan, yoksa Referer'dan cikar."""
+        if dil not in ("tr", "en"):
+            dil = "en" if "/en/" in (self.headers.get("Referer") or "") else "tr"
+        self._send(kod, hata.sayfa(tur, dil, ayrinti).encode("utf-8"), "text/html; charset=utf-8", extra=extra)
+
     def do_GET(self):
         yol = self.path.split("?")[0]
         if yol == "/api/tarama/saglik":
@@ -97,45 +103,45 @@ class H(BaseHTTPRequestHandler):
             return self._send(404, b"yok\n")
         ctype = self.headers.get("Content-Type") or ""
         if not ctype.lower().startswith("multipart/form-data"):
-            return self._send(415, b"icerik turu\n")
+            return self._hata(415, "tur")
         try:
             uzunluk = int(self.headers.get("Content-Length", ""))
         except ValueError:
-            return self._send(411, b"uzunluk\n")
+            return self._hata(411, "tur")
         if uzunluk < 0 or uzunluk > GOVDE_SINIRI:
-            return self._send(413, b"cok buyuk\n")
+            return self._hata(413, "buyuk")
         if not self.sinir.allow(self._ip()):
-            return self._send(429, b"cok fazla istek\n", extra=(("Retry-After", "3600"),))
+            return self._hata(429, "hiz", extra=(("Retry-After", "3600"),))
         alanlar = multipart(ctype, self.rfile.read(uzunluk))
+        dil = alanlar.get("dil", b"tr").decode("ascii", "replace")
+        dil = dil if dil in ("tr", "en") else "tr"
         if alanlar.get("yetki", b"").strip() not in (b"on", b"1", b"evet", b"yes"):
-            return self._send(422, "yetki beyani gerekli\n".encode())
+            return self._hata(422, "yetki", dil)
         eposta = alanlar.get("eposta", b"").decode("utf-8", "replace")
         anahtar_s = depo.sirket_anahtari(eposta)
         if not anahtar_s:
-            return self._send(422, "gecerli e-posta gerekli\n".encode())
+            return self._hata(422, "eposta", dil)
         sirket = re.sub(r"[\x00-\x1f\x7f]", "", alanlar.get("sirket", b"").decode("utf-8", "replace")).strip()
         if not sirket or len(sirket) > 160:
-            return self._send(422, "sirket adi gerekli\n".encode())
-        dil = alanlar.get("dil", b"tr").decode("ascii", "replace")
-        dil = dil if dil in ("tr", "en") else "tr"
+            return self._hata(422, "sirket", dil)
         try:
             belge = yukleme.coz(alanlar.get("dosya", b""))
         except yukleme.Gecersiz as e:
-            return self._send(422, ("gecersiz dosya: %s\n" % e).encode())
+            return self._hata(422, hata.dosya_turu(str(e)), dil, ayrinti=str(e))
         anahtar = secrets.token_urlsafe(32)
         con = depo.baglan(self.db_yolu)
         try:
             firma = depo.firma_kaydet(con, depo.firma_anahtari(eposta), sirket, eposta, "tarama")
             if firma["durum"] != "aktif":
                 depo.denetim_ekle(con, "sistem", "pasif firma yuklemesi reddedildi, firma #%d" % firma["id"])
-                return self._send(403, "hesabiniz su an etkin degil, bizimle iletisime gecin\n".encode())
+                return self._hata(403, "pasif", dil)
             with KILIT:
                 asildi = depo.kullanim_say(con, anahtar_s) >= self.sirket_adet
                 if not asildi:
                     depo.kullanim_ekle(con, anahtar_s)
             if asildi:
                 depo.denetim_ekle(con, "sistem", "sirket siniri asildi, istek reddedildi")
-                return self._send(429, "ucretsiz tarama siniri doldu\n".encode(), extra=(("Retry-After", str(depo.SINIR_GUN * 86400)),))
+                return self._hata(429, "sinir", dil, extra=(("Retry-After", str(depo.SINIR_GUN * 86400)),))
             depo.rapor_ekle(con, anahtar, belge["motor"], dil, belge, firma["id"])
             depo.denetim_ekle(con, "musteri", "toplama dosyasi yuklendi, firma #%d, motor=%s, kontrol=%d" % (firma["id"], belge["motor"], len(belge["kontroller"])))
         finally:

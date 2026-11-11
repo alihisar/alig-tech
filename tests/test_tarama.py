@@ -215,7 +215,7 @@ class SunucuTests(unittest.TestCase):
         self.addCleanup(self.srv.shutdown)
         self.addCleanup(self.srv.server_close)
 
-    def yukle(self, veri, yetki=True, ctype=None, eposta="ali@ornek.com.tr", sirket="Ornek AS"):
+    def yukle(self, veri, yetki=True, ctype=None, eposta="ali@ornek.com.tr", sirket="Ornek AS", dil="tr"):
         sinir = "----sinir"
         parcalar = []
         if sirket:
@@ -224,13 +224,13 @@ class SunucuTests(unittest.TestCase):
             parcalar.append('--%s\r\nContent-Disposition: form-data; name="eposta"\r\n\r\n%s\r\n' % (sinir, eposta))
         if yetki:
             parcalar.append('--%s\r\nContent-Disposition: form-data; name="yetki"\r\n\r\non\r\n' % sinir)
-        parcalar.append('--%s\r\nContent-Disposition: form-data; name="dil"\r\n\r\ntr\r\n' % sinir)
+        parcalar.append('--%s\r\nContent-Disposition: form-data; name="dil"\r\n\r\n%s\r\n' % (sinir, dil))
         govde = "".join(parcalar).encode() + ('--%s\r\nContent-Disposition: form-data; name="dosya"; filename="a.json"\r\nContent-Type: application/json\r\n\r\n' % sinir).encode() \
             + veri + ("\r\n--%s--\r\n" % sinir).encode()
         c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
         c.request("POST", "/api/tarama/yukle", body=govde, headers={"Content-Type": ctype or "multipart/form-data; boundary=" + sinir})
         r = c.getresponse()
-        r.read()
+        r.govde = r.read().decode("utf-8", "replace")
         return r
 
     def get(self, yol):
@@ -258,6 +258,29 @@ class SunucuTests(unittest.TestCase):
         olaylar = [x[0] for x in con.execute("SELECT olay FROM denetim")]
         self.assertTrue(any("yuklendi" in o for o in olaylar) and any("silindi" in o for o in olaylar))
         self.assertFalse(any(yol.split("/")[2] in o for o in olaylar))  # token denetim kaydina yazilmaz
+
+    def test_hata_sayfasi_kurumsal_ve_iki_dilli(self):
+        r = self.yukle(b"{bozuk")
+        self.assertEqual(r.status, 422)
+        self.assertTrue(r.getheader("Content-Type").startswith("text/html"))
+        self.assertIn('<html lang="tr">', r.govde)
+        self.assertIn('href="/tarama-hazirlik/"', r.govde)
+        self.assertIn('href="/saglik-taramasi/"', r.govde)
+        self.assertIn("/assets/style.css", r.govde)
+        en = self.yukle(b"{bozuk", dil="en")
+        self.assertIn('<html lang="en">', en.govde)
+        self.assertIn('href="/en/tarama-hazirlik/"', en.govde)
+        self.assertNotEqual(r.govde, en.govde)
+
+    def test_hata_sayfasi_her_durum_icin_ayri_ve_kacisli(self):
+        veri = json.dumps(temiz_belge()).encode()
+        govdeler = [self.yukle(veri, yetki=False).govde, self.yukle(veri, eposta="yanlis").govde,
+                    self.yukle(veri, sirket=None).govde, self.yukle(b"{bozuk").govde]
+        self.assertEqual(len(set(govdeler)), 4)
+        d = temiz_belge()
+        d["kontroller"]["<script>x</script>"] = {"durum": "ok", "satirlar": []}
+        g = self.yukle(json.dumps(d).encode()).govde
+        self.assertNotIn("<script>x", g)
 
     def test_yetki_beyani_ve_gecersiz_dosya(self):
         self.assertEqual(self.yukle(json.dumps(temiz_belge()).encode(), yetki=False).status, 422)
