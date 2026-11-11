@@ -1,0 +1,108 @@
+<article class="wrap prose tarama-page guide">
+  <h1>{{hz_h}}</h1>
+  <p class="lead">{{hz_lead}}</p>
+
+  <h2>{{hz_need_h}}</h2>
+  <table class="req">
+    <thead><tr><th scope="col">{{hz_need_c1}}</th><th scope="col">{{hz_need_c2}}</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">{{hz_need_1}}</th><td>{{hz_need_1d}}</td></tr>
+      <tr><th scope="row">{{hz_need_2}}</th><td>{{hz_need_2d}}</td></tr>
+      <tr><th scope="row">{{hz_need_3}}</th><td>{{hz_need_3d}}</td></tr>
+      <tr><th scope="row">{{hz_need_4}}</th><td>{{hz_need_4d}}</td></tr>
+      <tr><th scope="row">{{hz_need_5}}</th><td>{{hz_need_5d}}</td></tr>
+      <tr><th scope="row">{{hz_need_6}}</th><td>{{hz_need_6d}}</td></tr>
+    </tbody>
+  </table>
+
+  <h2>{{hz_steps_h}}</h2>
+
+  <section class="guide-step">
+    <h3>{{hz_s1_h}}</h3>
+    <p>{{hz_s1_p}}</p>
+    <pre><code>psql -h db.ornek.local -U postgres -d postgres -f alig-rol.sql</code></pre>
+    <p><a class="btn" href="/assets/alig-rol.sql" download>{{hz_s1_dl}}</a></p>
+    <p>{{hz_s1_what}}</p>
+    <pre><code>CREATE ROLE alig_hc LOGIN CONNECTION LIMIT 2;
+GRANT pg_monitor TO alig_hc;
+ALTER ROLE alig_hc SET default_transaction_read_only = on;
+ALTER ROLE alig_hc SET statement_timeout = '15s';
+ALTER ROLE alig_hc SET lock_timeout = '2s';
+\password alig_hc</code></pre>
+    <p class="fine">{{hz_s1_note}}</p>
+  </section>
+
+  <section class="guide-step">
+    <h3>{{hz_s2_h}}</h3>
+    <p>{{hz_s2_p}}</p>
+    <pre><code>hostssl  postgres  alig_hc  10.0.0.15/32  scram-sha-256</code></pre>
+    <p>{{hz_s2_pg}}</p>
+    <pre><code>db.ornek.local:5432:postgres:alig_hc:PAROLANIZ</code></pre>
+    <p class="fine">{{hz_s2_note}}</p>
+  </section>
+
+  <section class="guide-step">
+    <h3>{{hz_s3_h}}</h3>
+    <p>{{hz_s3_p}}</p>
+    <pre><code>sha256sum alig-toplayici.py                          # Linux
+shasum -a 256 alig-toplayici.py                      # macOS
+Get-FileHash alig-toplayici.py -Algorithm SHA256     # Windows PowerShell</code></pre>
+    <dl class="facts">
+      <dt>{{tarama_hash}}</dt><dd><code>{{toplayici_sha256}}</code></dd>
+    </dl>
+    <p><a class="btn" href="/assets/alig-toplayici.py" download>{{tarama_dl}}</a>
+       <a class="textlink" href="/assets/sorgu-katalogu.txt">{{tarama_cat}}</a></p>
+  </section>
+
+  <section class="guide-step">
+    <h3>{{hz_s4_h}}</h3>
+    <p>{{hz_s4_p}}</p>
+    <pre><code>python3 alig-toplayici.py --host db.ornek.local --user alig_hc --dbname postgres --sslmode require --maskele</code></pre>
+    <p class="fine">{{hz_s4_note}}</p>
+  </section>
+
+  <section class="guide-step">
+    <h3>{{hz_s5_h}}</h3>
+    <p>{{hz_s5_p}}</p>
+    <p><a class="btn" href="{{home}}saglik-taramasi/">{{hz_s5_cta}}</a></p>
+  </section>
+
+  <section class="guide-step">
+    <h3>{{hz_s6_h}}</h3>
+    <p>{{hz_s6_p}}</p>
+    <pre><code>psql -h db.ornek.local -U postgres -d postgres -f alig-rol-kaldir.sql</code></pre>
+    <p><a class="textlink" href="/assets/alig-rol-kaldir.sql" download>{{hz_s6_dl}}</a></p>
+  </section>
+
+  <h2>{{hz_scope_h}}</h2>
+  <table class="req pair">
+    <thead><tr><th scope="col">{{hz_scope_c1}}</th><th scope="col">{{hz_scope_c2}}</th></tr></thead>
+    <tbody>
+      <tr><td>{{hz_scope_y1}}</td><td>{{hz_scope_n1}}</td></tr>
+      <tr><td>{{hz_scope_y2}}</td><td>{{hz_scope_n2}}</td></tr>
+      <tr><td>{{hz_scope_y3}}</td><td>{{hz_scope_n3}}</td></tr>
+      <tr><td>{{hz_scope_y4}}</td><td>{{hz_scope_n4}}</td></tr>
+    </tbody>
+  </table>
+  <p class="fine">{{hz_scope_note}}</p>
+
+  <h2>{{hz_sec_h}}</h2>
+  <ul class="plain">
+    <li>{{hz_sec_1}}</li>
+    <li>{{hz_sec_2}}</li>
+    <li>{{hz_sec_3}}</li>
+    <li>{{hz_sec_4}}</li>
+    <li>{{hz_sec_5}}</li>
+  </ul>
+
+  <h2>{{hz_faq_h}}</h2>
+  <dl class="qa">
+    <dt>{{hz_q1}}</dt><dd>{{hz_a1}}</dd>
+    <dt>{{hz_q2}}</dt><dd>{{hz_a2}}</dd>
+    <dt>{{hz_q3}}</dt><dd>{{hz_a3}}</dd>
+    <dt>{{hz_q4}}</dt><dd>{{hz_a4}}</dd>
+  </dl>
+
+  <p><a class="btn" href="{{home}}saglik-taramasi/">{{hz_s5_cta}}</a></p>
+  <p><a href="{{home}}">{{page_back}}</a></p>
+</article>

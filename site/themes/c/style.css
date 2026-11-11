@@ -168,6 +168,22 @@ html:not(.demo-ready) .btns,html.demo-ready .nojs-note,html:not(.demo-ready) .au
 .plain{list-style:disc;padding-left:1.5rem;display:grid;gap:.5rem;margin-top:1rem}
 .tarama-page .facts dd code,.report code{font-family:var(--font-mono);font-size:.8rem;word-break:break-all}
 .tarama-page .btn,.report .btn{margin-right:1rem}
+.guide-link{margin-top:1.5rem;padding:1rem 1.25rem;border-left:4px solid var(--signal);background:var(--tint)}
+.guide h3{margin-top:2rem;font-size:1.2rem;font-weight:700}
+.guide-step{padding-bottom:1.5rem;border-bottom:1px solid var(--line)}
+.guide-step p{margin-top:.75rem}
+.guide pre{margin-top:.75rem;padding:1rem 1.25rem;overflow-x:auto;background:var(--fg);color:var(--bg);border-radius:var(--r-s);font-family:var(--font-mono);font-size:.85rem;line-height:1.6}
+.guide pre code{font:inherit;white-space:pre}
+.req{width:100%;margin-top:1.25rem;border-collapse:collapse}
+.req th,.req td{padding:.8rem 1rem .8rem 0;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+.req thead th{border-bottom:2px solid var(--fg);color:var(--muted);font-size:.9rem;font-weight:600}
+.req tbody th{width:12rem;font-weight:700}
+.qa{margin-top:1rem}
+.qa dt{margin-top:1.25rem;font-weight:700}
+.qa dd{margin-top:.35rem}
+@media (max-width:640px){.req:not(.pair) tbody th{width:auto;border-bottom:0;padding-bottom:0}.req:not(.pair) th,.req:not(.pair) td{display:block;padding-right:0}.req:not(.pair) thead{position:absolute;left:-9999px}}
+.req.pair td{width:50%}
+@media print{.guide pre{background:#fff;color:#000;border:1px solid #000}}
 .finding-card{margin-top:1.25rem;padding:1.25rem 1.5rem;background:#fff;border-left:4px solid var(--line-strong);border-radius:var(--r-s)}
 .finding-card h3{font-size:1.1rem;font-weight:700}
 .finding-card p{margin-top:.5rem}

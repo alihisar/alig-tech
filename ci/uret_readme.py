@@ -39,6 +39,7 @@ ROTALAR = [
     ("/", "site", "Statik site (TR), `/en/` İngilizce"),
     ("/demo/", "site", "Portal demosu (istemci tarafı, sunucu yok)"),
     ("/saglik-taramasi/", "site", "Tarama yükleme sayfası"),
+    ("/tarama-hazirlik/", "site", "Müşteri hazırlık kılavuzu (tarama hesabı, adımlar)"),
     ("/api/iletisim", "form/server.py", "İletişim formu (POST)"),
     ("/healthz", "form/server.py", "Form sağlık denetimi"),
     ("/api/tarama/yukle", "tarama/server.py", "Tarama dosyası yükleme (POST)"),

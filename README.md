@@ -62,7 +62,7 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 106 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
+Birim testleri: 114 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
 <!-- oto:bitis testler -->
 
 ## Dizinler
@@ -89,6 +89,7 @@ Birim testleri: 106 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmada
 | `/` | `site` | Statik site (TR), `/en/` İngilizce |
 | `/demo/` | `site` | Portal demosu (istemci tarafı, sunucu yok) |
 | `/saglik-taramasi/` | `site` | Tarama yükleme sayfası |
+| `/tarama-hazirlik/` | `site` | Müşteri hazırlık kılavuzu (tarama hesabı, adımlar) |
 | `/api/iletisim` | `form/server.py` | İletişim formu (POST) |
 | `/healthz` | `form/server.py` | Form sağlık denetimi |
 | `/api/tarama/yukle` | `tarama/server.py` | Tarama dosyası yükleme (POST) |

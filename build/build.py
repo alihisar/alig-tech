@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SITE = ROOT / "site"
 LANGS = ("tr", "en")
 THEMES = ("a", "b", "c")
-SHARED_PAGES = ("kvkk", "cerez", "tesekkurler", "demo", "saglik-taramasi")
+SHARED_PAGES = ("kvkk", "cerez", "tesekkurler", "demo", "saglik-taramasi", "tarama-hazirlik")
 TOKEN = re.compile(r"\{\{\s*([A-Za-z0-9_:.\-]+)\s*\}\}")
 MAX_INCLUDE_DEPTH = 5
 
