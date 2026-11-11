@@ -6,6 +6,8 @@ Her POST'ta CSRF kodu ve Origin denetimi. Tum yonetici islemleri SHA-256 zincirl
 Yalniz 127.0.0.1'de dinler; disariya nginx (IP izin listesi) ya da SSH tuneli ile acilir.
 """
 import argparse
+import csv
+import io
 import os
 import re
 import sqlite3
@@ -16,7 +18,7 @@ from html import escape
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 KOK = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KOK))
@@ -62,6 +64,13 @@ def ro(yol):
     if not Path(yol).exists():
         return None
     return sqlite3.connect("file:%s?mode=ro" % yol, uri=True)
+
+
+def csv_hucre(v):
+    """Hucre tablolama programinda formul olarak calismasin: =, +, -, @ ile baslayan degerin onune tek tirnak konur."""
+    m = "" if v is None else str(v)
+    m = m.replace("\r", " ").replace("\n", " ")
+    return "'" + m if m[:1] in ("=", "+", "-", "@", "\t") else m
 
 
 class H(BaseHTTPRequestHandler):
@@ -163,6 +172,10 @@ class H(BaseHTTPRequestHandler):
                 return self._ozet(con, o)
             if yol == "/yonetim/firmalar":
                 return self._firmalar(con, o, q)
+            if yol == "/yonetim/firmalar.csv":
+                return self._firmalar_csv(con, o, q)
+            if yol == "/yonetim/talepler.csv":
+                return self._talepler_csv(con, o, q)
             m = re.match(r"^/yonetim/firmalar/(\d{1,9})$", yol)
             if m:
                 return self._firma(con, o, int(m.group(1)))
@@ -339,7 +352,8 @@ class H(BaseHTTPRequestHandler):
                 "<button class=\"btn btn-sm%s\" type=\"submit\">%s</button></form>") % (
                     f["id"], e(o["csrf"]), hedef, donus, " btn-ghost" if hedef == "pasif" else "", "Pasif et" if hedef == "pasif" else "Aktif et")
 
-    def _firmalar(self, con, o, q):
+    def _firma_suz(self, q):
+        """(tum firmalar, suzulmus firmalar, ara, durum) dondurur."""
         tc = tdepo.baglan(self.tarama_db)
         try:
             self._firma_esitle(tc)
@@ -347,14 +361,48 @@ class H(BaseHTTPRequestHandler):
         finally:
             tc.close()
         suz = (q.get("durum") or [""])[0]
+        suz = suz if suz in tdepo.FIRMA_DURUMLARI else ""
         ara = (q.get("ara") or [""])[0].strip().lower()[:80]
+        secili = [f for f in firmalar
+                  if (not suz or f["durum"] == suz)
+                  and (not ara or ara in f["ad"].lower() or ara in f["anahtar"] or ara in f["eposta"])]
+        return firmalar, secili, ara, suz
+
+    def _csv(self, dosya_adi, baslik, satirlar):
+        tampon = io.StringIO()
+        yaz = csv.writer(tampon, delimiter=";", lineterminator="\r\n")
+        yaz.writerow(baslik)
+        for s in satirlar:
+            yaz.writerow([csv_hucre(v) for v in s])
+        self._send(200, ("\ufeff" + tampon.getvalue()).encode("utf-8"), "text/csv; charset=utf-8",
+                   extra=(("Content-Disposition", "attachment; filename=\"%s\"" % dosya_adi),))
+
+    def _firmalar_csv(self, con, o, q):
+        _, secili, _, _ = self._firma_suz(q)
+        talepler = self._talep_sayilari()
+        satirlar = [[f["ad"], f["anahtar"], f["eposta"], FIRMA_DURUM_AD[f["durum"]], f["rapor_sayisi"], len(talepler.get(f["anahtar"], [])),
+                     KAYNAK_AD.get(f["kaynak"], f["kaynak"]), f["kayit_utc"], f["son_utc"], f["aciklama"]] for f in secili]
+        depo.denetim_ekle(con, o["ad"], "firmalar csv indirildi, %d satir" % len(satirlar))
+        self._csv("alig-firmalar.csv", ["Firma", "Alan adı ya da adres", "E-posta", "Durum", "Tarama", "Talep", "İlk kaynak",
+                                        "Kayıt (UTC)", "Son etkinlik (UTC)", "Not"], satirlar)
+
+    def _talepler_csv(self, con, o, q):
+        durumlar = depo.talep_durumlari(con)
+        suz = (q.get("durum") or [""])[0]
+        satirlar = []
+        for t in self._talep_satirlari():
+            d = durumlar.get(t[0], {"durum": "yeni", "aciklama": ""})
+            if suz in depo.DURUMLAR and d["durum"] != suz:
+                continue
+            satirlar.append([t[1], t[2], t[3], t[4], DB_AD.get(t[5], t[5]), t[6], DURUM_AD[d["durum"]], d["aciklama"]])
+        depo.denetim_ekle(con, o["ad"], "talepler csv indirildi, %d satir" % len(satirlar))
+        self._csv("alig-talepler.csv", ["Zaman (UTC)", "Kişi", "Şirket", "E-posta", "Veritabanı", "Mesaj", "Durum", "Not"], satirlar)
+
+    def _firmalar(self, con, o, q):
+        firmalar, secili, ara, suz = self._firma_suz(q)
         talepler = self._talep_sayilari()
         satirlar = []
-        for f in firmalar:
-            if suz in tdepo.FIRMA_DURUMLARI and f["durum"] != suz:
-                continue
-            if ara and ara not in f["ad"].lower() and ara not in f["anahtar"] and ara not in f["eposta"]:
-                continue
+        for f in secili:
             satirlar.append(["<a href=\"/yonetim/firmalar/%d\"><strong>%s</strong></a><br><span class=\"muted\">%s</span>" % (f["id"], e(f["ad"] or "(adsız)"), e(f["anahtar"])),
                              "<a href=\"mailto:%s\">%s</a>" % (e(f["eposta"]), e(f["eposta"])),
                              "<span class=\"pill pill-%s\">%s</span>" % (f["durum"], e(FIRMA_DURUM_AD[f["durum"]])),
@@ -365,6 +413,7 @@ class H(BaseHTTPRequestHandler):
                "<button class=\"btn btn-sm\" type=\"submit\">Ara</button></form>") % e(ara)
         ust += "<p class=\"filters\">Süz: <a href=\"/yonetim/firmalar\">Tümü (%d)</a> <a href=\"/yonetim/firmalar?durum=aktif\">Aktif (%d)</a> <a href=\"/yonetim/firmalar?durum=pasif\">Pasif (%d)</a></p>" % (
             len(firmalar), sum(1 for f in firmalar if f["durum"] == "aktif"), sum(1 for f in firmalar if f["durum"] == "pasif"))
+        ust += "<p><a class=\"textlink\" href=\"/yonetim/firmalar.csv?%s\">Bu listeyi CSV olarak indir</a></p>" % e(urlencode({"ara": ara, "durum": suz}))
         depo.denetim_ekle(con, o["ad"], "firmalar goruntulendi")
         self._sayfa("Firmalar", ust + tablo(["Firma", "E-posta", "Durum", "Tarama", "Talep", "İlk kaynak", "Kayıt", "Son etkinlik", "İşlem"], satirlar, "Firma kaydı yok."), o)
 
@@ -450,6 +499,7 @@ class H(BaseHTTPRequestHandler):
             satirlar.append([e(ist(t[1])), "<strong>%s</strong><br>%s" % (e(t[2]), e(t[3])), "<a href=\"mailto:%s\">%s</a>" % (e(t[4]), e(t[4])),
                              e(DB_AD.get(t[5], t[5])), "<span class=\"msg\">%s</span>" % e(t[6]), form])
         suzgec = "<p class=\"filters\">Süz: <a href=\"/yonetim/talepler\">Tümü</a> " + " ".join("<a href=\"/yonetim/talepler?durum=%s\">%s</a>" % (k, e(v)) for k, v in DURUM_AD.items()) + "</p>"
+        suzgec += "<p><a class=\"textlink\" href=\"/yonetim/talepler.csv?%s\">Bu listeyi CSV olarak indir</a></p>" % e(urlencode({"durum": suz if suz in depo.DURUMLAR else ""}))
         depo.denetim_ekle(con, o["ad"], "talepler goruntulendi")
         self._sayfa("Talepler", suzgec + tablo(["Zaman", "Kişi", "E-posta", "Veritabanı", "Mesaj", "Durum"], satirlar, "Talep yok."), o)
 

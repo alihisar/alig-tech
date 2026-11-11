@@ -185,6 +185,36 @@ class PanelTests(Taban):
         self.istek("GET", "/yonetim/firmalar")              # ikinci goruntuleme kayit cogaltmaz
         self.assertEqual(len(tdepo.firma_listele(tdepo.baglan(self.tdb))), 2)
 
+    def test_firmalar_csv(self):
+        self.assertEqual(self.istek("GET", "/yonetim/firmalar.csv", cerez=False)[0].status, 303)   # giris gerekir
+        self.istek("GET", "/yonetim/firmalar")   # iletisim taleplerinden firmalari esitler
+        r, g = self.istek("GET", "/yonetim/firmalar.csv")
+        self.assertEqual(r.status, 200)
+        self.assertTrue(r.getheader("Content-Type").startswith("text/csv"))
+        self.assertIn("attachment", r.getheader("Content-Disposition"))
+        satirlar = g.lstrip("\ufeff").strip().splitlines()
+        self.assertEqual(satirlar[0].split(";")[:4], ["Firma", "Alan adı ya da adres", "E-posta", "Durum"])
+        self.assertEqual(len(satirlar), 3)
+        self.assertIn("Ornek AS", g)
+        self.assertEqual(len(self.istek("GET", "/yonetim/firmalar.csv?ara=ornek")[1].strip().splitlines()), 2)
+        con = depo.baglan(self.ydb)
+        self.assertTrue(any("csv" in x[0] for x in con.execute("SELECT olay FROM denetim")))
+
+    def test_csv_formul_enjeksiyonu_etkisiz(self):
+        tc = tdepo.baglan(self.tdb)
+        tdepo.firma_kaydet(tc, "kotu.com", "=HYPERLINK(\"http://x\")", "a@kotu.com", "tarama")
+        tc.close()
+        g = self.istek("GET", "/yonetim/firmalar.csv")[1]
+        self.assertIn("'=HYPERLINK", g)
+        self.assertNotIn(";=HYPERLINK", g)
+        self.assertNotIn("\n=HYPERLINK", g)
+
+    def test_talepler_csv(self):
+        r, g = self.istek("GET", "/yonetim/talepler.csv")
+        self.assertEqual(r.status, 200)
+        self.assertTrue(r.getheader("Content-Type").startswith("text/csv"))
+        self.assertIn("Ornek AS", g)
+
     def test_firma_detayi(self):
         r, g = self.istek("GET", "/yonetim/firmalar/%d" % self.firma["id"])
         self.assertEqual(r.status, 200)

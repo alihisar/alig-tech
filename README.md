@@ -62,7 +62,7 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 117 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
+Birim testleri: 120 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
 <!-- oto:bitis testler -->
 
 ## Dizinler
@@ -101,6 +101,8 @@ Birim testleri: 117 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmada
 | `/yonetim/firmalar` | `yonetim/server.py` | Firmalar: liste, aktif/pasif |
 | `/yonetim/firmalar/<id>` | `yonetim/server.py` | Firma ayrıntısı, not, tarama hakkı, silme |
 | `/yonetim/talepler` | `yonetim/server.py` | İletişim talepleri |
+| `/yonetim/firmalar.csv` | `yonetim/server.py` | Firma listesi CSV dışa aktarımı |
+| `/yonetim/talepler.csv` | `yonetim/server.py` | Talep listesi CSV dışa aktarımı |
 | `/yonetim/taramalar` | `yonetim/server.py` | Tarama raporları |
 | `/yonetim/denetim` | `yonetim/server.py` | Denetim kaydı ve zincir doğrulaması |
 | `/yonetim/sistem` | `yonetim/server.py` | Sistem durumu |

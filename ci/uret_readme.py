@@ -51,6 +51,8 @@ ROTALAR = [
     ("/yonetim/firmalar", "yonetim/server.py", "Firmalar: liste, aktif/pasif"),
     ("/yonetim/firmalar/<id>", "yonetim/server.py", "Firma ayrıntısı, not, tarama hakkı, silme"),
     ("/yonetim/talepler", "yonetim/server.py", "İletişim talepleri"),
+    ("/yonetim/firmalar.csv", "yonetim/server.py", "Firma listesi CSV dışa aktarımı"),
+    ("/yonetim/talepler.csv", "yonetim/server.py", "Talep listesi CSV dışa aktarımı"),
     ("/yonetim/taramalar", "yonetim/server.py", "Tarama raporları"),
     ("/yonetim/denetim", "yonetim/server.py", "Denetim kaydı ve zincir doğrulaması"),
     ("/yonetim/sistem", "yonetim/server.py", "Sistem durumu"),
