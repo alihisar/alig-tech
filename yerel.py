@@ -43,6 +43,7 @@ def main():
     tarama.H.db_yolu = str(ROOT / "yerel-tarama.sqlite")
     tarama.H.sinir = form.RateLimiter(per_window=100)
     tarama.H.motorlar = ("postgresql", "mssql")  # yerelde SQL Server on surumu acik
+    tarama.H.dogrudan = True  # yerelde Kip B formu acik; hedef dogrulamasi gercektir, yerel ve ic adresler reddedilir
     depo.baglan(tarama.H.db_yolu).close()
 
     # Yonetim paneli ayri bir sunucu (canlidaki gibi); /yonetim/ istekleri ona aktarilir
@@ -80,7 +81,7 @@ def main():
                 return aktar(self)
             if self.path == "/healthz":
                 return FormH.do_GET(self)
-            if self.path.startswith("/rapor/") or self.path == "/api/tarama/saglik":
+            if self.path.startswith("/rapor/") or self.path == "/api/tarama/saglik" or self.path.startswith("/api/tarama/baglan"):
                 return tarama.H.do_GET(self)
             return SimpleHTTPRequestHandler.do_GET(self)
 

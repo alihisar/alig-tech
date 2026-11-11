@@ -63,7 +63,7 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 159 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
+Birim testleri: 178 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
 <!-- oto:bitis testler -->
 
 ## Dizinler
@@ -97,6 +97,8 @@ Birim testleri: 159 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmada
 | `/rapor/<token>/` | `tarama/server.py` | Rapor sayfası (rastgele bağlantı) |
 | `/rapor/<token>/sil` | `tarama/server.py` | Raporu hemen silme (POST) |
 | `/api/tarama/saglik` | `tarama/server.py` | Tarama sunucu sağlık denetimi |
+| `/api/tarama/baglan` | `tarama/server.py` | Doğrudan bağlantı formu ve isteği (varsayılan kapalı) |
+| `/api/tarama/baglan/<token>` | `tarama/server.py` | Parolayı alıp taramayı çalıştırma (POST, varsayılan kapalı) |
 | `/yonetim/giris` | `yonetim/server.py` | Yönetici girişi (parola + TOTP) |
 | `/yonetim/` | `yonetim/server.py` | Özet |
 | `/yonetim/firmalar` | `yonetim/server.py` | Firmalar: liste, aktif/pasif |
@@ -140,6 +142,12 @@ Firma adı ve e-posta düz metin saklanır; aydınlatma metni ve saklama süresi
 Katalog, toplayıcı (`tarama/onsurum/alig-toplayici-mssql.py`), kurallar ve testler hazır; gerçek bir SQL Server üzerinde sınanmadı.
 Genel sayfada yayımlanmaz, sunucu bu dosyaları yalnızca `ALIG_MSSQL=1` ile kabul eder (`yerel.py` içinde açıktır).
 Sınama adımları: `docs/mssql-onsurum.md`.
+
+### Doğrudan bağlantı (Kip B, kapalı)
+
+Müşteri bağlantı bilgisini verir, tarama sunucudan çalışır: `/api/tarama/baglan`. Yalnızca `ALIG_DOGRUDAN=1` ile açılır ve yalnızca
+yönetim panelinden "Doğrudan bağlantı izni" verilen firmalar kullanabilir. Parola saklanmaz. Canlıya almadan önce yapılması
+gerekenler: `docs/kip-b-tasarim.md`.
 
 ## Yönetim paneli
 

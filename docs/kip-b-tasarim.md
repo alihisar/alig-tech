@@ -1,6 +1,24 @@
 # Kip B (doğrudan bağlantı): tasarım ve tehdit modeli
 
-Durum: tasarım. Yalnızca hedef doğrulaması (iç ağa yönlendirme ve DNS rebinding önlemi) kodlandı: `tarama/hedef.py`, testler `tests/test_hedef.py`. Bu modül bağlantı açmaz ve hiçbir yerden çağrılmaz. Bağlantı, sahiplik kanıtı ve çalıştırıcı için aşağıdaki "Karar bekleyenler" yanıtlanmalı.
+Durum: PostgreSQL için ilk dilim kodlandı, **varsayılan olarak kapalı** (`ALIG_DOGRUDAN=1` ile açılır). Canlıya alınmadı.
+
+| Parça | Yer | Durum |
+| --- | --- | --- |
+| Hedef doğrulaması (iç ağa yönlendirme, DNS rebinding) | `tarama/hedef.py`, `tests/test_hedef.py` | Kodlandı |
+| Tarama (sahiplik kanıtı, süper kullanıcı reddi, TLS, sabit katalog) | `tarama/baglanti.py`, `tests/test_baglanti.py` | Kodlandı; gerçek PostgreSQL 16 + TLS ile elle sınandı |
+| İstek akışı ve sayfalar | `tarama/server.py` (`/api/tarama/baglan`), `tarama/hata.py` | Kodlandı |
+| Firma izni | Yönetim paneli, firma ayrıntısı: "Doğrudan bağlantı izni ver" | Kodlandı |
+| Ayrı çalıştırıcı süreci ve systemd birimi | yok | **Yazılmadı** |
+| SQL Server | yok | **Yazılmadı** (kanıt yöntemi belirsiz) |
+
+## Tasarımdan sapmalar ve açık kalanlar
+
+- **Ayrı çalıştırıcı yok.** Tarama, tarama servisinin içinden `psql` alt süreci olarak çalışır; alt sürece yalnızca gereken ortam değişkenleri verilir. Tasarımdaki ayrı kullanıcı, ayrı systemd birimi ve iş kuyruğu yazılmadı. Canlıya almadan önce yazılmalı. Mevcut `alig-tarama` birimi dışarıya bağlantıyı engeller (`IPAddressDeny=any`), yani özellik açılsa bile canlıda bu birimin içinden çalışmaz; bu bilerek gevşetilmedi.
+- **E-posta doğrulaması yerine yönetici izni.** Gönderim yöntemi seçilmediği için firma kimliği e-postayla doğrulanmıyor. Onun yerine doğrudan bağlantı yalnızca yöneticinin panelden izin verdiği firmalara açık. İzinli bir firmanın e-posta adresini bilen biri onun adına istek açabilir; kendi yönetmediği bir veritabanını yine taratamaz (sahiplik kanıtı gerekir), ama firmanın tarama hakkını harcayabilir.
+- **Sunucu sertifikası doğrulanmıyor.** Bağlantı `sslmode=require` ile şifrelidir ama sertifika denetlenmez; araya giren biri parolayı okuyabilir. `verify-full` için müşteriden CA dosyası alma adımı yazılmadı.
+- **Hedef adresi saklanıyor.** Sunucu adı ve IP, istek kaydında en çok bir gün durur (taramayı çalıştırmak için gerekir). Denetim kaydına yalnızca özeti yazılır. Parola hiçbir yerde saklanmaz.
+- **Port tarama zamanlaması.** Hata iletisi tek tiptir ama yanıt süresi sabitlenmedi. Yalnızca izinli firmalar istek açabildiği ve saatte 5 istek sınırı olduğu için etkisi sınırlıdır.
+- **Tarama eşzamanlıdır.** İstek, tarama bitene kadar (en çok yaklaşık 2 dakika) açık kalır. Aynı anda en çok iki tarama çalışır.
 
 ## Kip A ile farkı
 
@@ -18,8 +36,8 @@ Kip A'da müşteri betiği kendi ağında çalıştırır, alig.tech hiçbir ver
 
 | Tehdit | Önlem | Sınama |
 | --- | --- | --- |
-| SSRF: müşteri iç ağımızdaki ya da bulut meta veri servisindeki bir adresi yazar | Ad çözülür, çıkan **her** adres denetlenir: özel (RFC 1918), geri döngü, bağlantı-yerel, CGNAT, çok noktaya yayın, IPv6 eşdeğerleri ve kendi adres aralığımız reddedilir. Yalnızca izinli portlar (varsayılan 5432, 1433 ve müşterinin yazdığı 1024 üstü port) | **Kodlandı.** `test_ic_ve_ozel_adresler_reddedilir`, `test_ipv4_tasiyan_ipv6_bicimleri_reddedilir`, `test_alisilmadik_sayisal_yazimlar_reddedilir`, `test_portlar` |
-| DNS rebinding: ad denetimde açık adrese, bağlantıda iç adrese çözülür | Ad bir kez çözülür, bağlantı **çözülen IP'ye** açılır; TLS sunucu adı ayrıca verilir. Yeniden çözümleme yok | **Kodlandı.** `test_rebinding_ikinci_cozumleme_olmaz`, `test_bir_kayit_bile_icse_tumu_reddedilir` |
+| SSRF: müşteri iç ağımızdaki ya da bulut meta veri servisindeki bir adresi yazar | Ad çözülür, çıkan **her** adres denetlenir: özel (RFC 1918), geri döngü, bağlantı-yerel, CGNAT, çok noktaya yayın, IPv6 eşdeğerleri ve kendi adres aralığımız reddedilir. Yalnızca izinli portlar (varsayılan 5432, 1433 ve müşterinin yazdığı 1024 üstü port) | `test_ic_ve_ozel_adresler_reddedilir`, `test_ipv4_tasiyan_ipv6_bicimleri_reddedilir`, `test_alisilmadik_sayisal_yazimlar_reddedilir`, `test_portlar` |
+| DNS rebinding: ad denetimde açık adrese, bağlantıda iç adrese çözülür | Ad bir kez çözülür, bağlantı **çözülen IP'ye** açılır; TLS sunucu adı ayrıca verilir. Yeniden çözümleme yok | `test_rebinding_ikinci_cozumleme_olmaz`, `test_bir_kayit_bile_icse_tumu_reddedilir` |
 | Yönlendirme ve vekil üzerinden atlatma | Yalnızca ham TCP üzerinden veritabanı protokolü; HTTP istemcisi kullanılmaz, ortam vekil değişkenleri yok sayılır | Çalıştırıcı ortamının denetimi |
 | Başkasının veritabanını taratma | Sahiplik kanıtı: müşteri, tarama hesabına bizim verdiğimiz rastgele değeri taşıyan bir yorum ekler (`COMMENT ON ROLE alig_hc IS 'alig-kanit-<rastgele>'`); tarama önce bunu okur, uyuşmazsa hiçbir sorgu çalışmaz | Kanıtsız ve yanlış kanıtlı bağlantı testleri |
 | Port tarama ve hizmet keşfi aracı olarak kötüye kullanım | Hata iletisi tek tiptir ("bağlanılamadı"), süre sabitlenir; firma başına ve hedef başına deneme sınırı; yalnızca doğrulanmış firma | Zamanlama ve ileti testleri |
@@ -39,8 +57,8 @@ Kip A'da müşteri betiği kendi ağında çalıştırır, alig.tech hiçbir ver
 
 ## Karar bekleyenler
 
-1. **Kip B yapılacak mı?** Bankalar ve düzenlemeye tabi kurumlar veritabanını dışarıya açmaz. Hedef müşteri onlarsa Kip B gereksiz risk olabilir.
+1. ~~Kip B yapılacak mı?~~ Yanıt: evet, ilk dilim kodlandı (kapalı).
 2. **Sabit çıkış IP adresi:** Müşterinin güvenlik duvarında izin verebilmesi için gerekir; barındırma seçimine bağlı.
 3. **E-posta gönderim yöntemi:** Firma doğrulaması olmadan Kip B açılmaz.
-4. **Parola hiç saklanmayacak mı?** Öneri: hayır, her taramada yeniden sorulur. Zamanlanmış tarama istenirse şifreli saklama ve anahtar yönetimi ayrı bir tasarım ister.
+4. ~~Parola saklanacak mı?~~ Uygulanan: saklanmaz, her taramada yeniden sorulur. Zamanlanmış tarama istenirse şifreli saklama ve anahtar yönetimi ayrı bir tasarım ister.
 5. **Hukuki metin:** Müşterinin bize bağlantı yetkisi verdiğini gösteren onay metni.

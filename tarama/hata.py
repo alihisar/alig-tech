@@ -27,6 +27,24 @@ M = {
                   "Daha erken bir tarama ya da kapsamlı bir denetim için bizimle iletişime geçin."),
         "hiz": ("Çok fazla deneme", "Bu adresten kısa sürede çok sayıda yükleme yapıldı.",
                 "Bir saat sonra yeniden deneyin."),
+        "izin": ("Doğrudan bağlantı hesabınız için açık değil", "Doğrudan bağlantıyla tarama yalnızca alig.tech tarafından onaylanmış şirketlere açıktır.",
+                 "Onay için bizimle iletişime geçin ya da betiği kendi ağınızda çalıştırıp dosyayı yükleyin."),
+        "hedef": ("Sunucuya bağlanılamadı", "Bu sunucuya bağlanılamadı. Yalnızca internetten erişilebilen adresler kabul edilir.",
+                  "Adresi, portu, veritabanı ve hesap adını denetleyip yeniden deneyin."),
+        "baglanti": ("Sunucuya bağlanılamadı", "Bağlantı kurulamadı ya da hesap bilgileri kabul edilmedi. Bağlantı şifreli (TLS) olmalıdır.",
+                     "Parolayı, güvenlik duvarı iznini ve sunucunun TLS ayarını denetleyip yeniden deneyin."),
+        "kanit": ("Sahiplik kanıtı bulunamadı", "Tarama hesabının üzerinde beklenen kanıt satırı yok ya da farklı. Hiçbir denetim sorgusu çalıştırılmadı.",
+                  "Önceki sayfadaki COMMENT komutunu veritabanınızda çalıştırın, sonra parolayı yeniden gönderin."),
+        "super": ("Bu hesapla tarama yapılmaz", "Verdiğiniz hesap süper kullanıcı. Doğrudan bağlantıda süper kullanıcı kabul edilmez. Hiçbir denetim sorgusu çalıştırılmadı.",
+                  "Hazırlık kılavuzundaki alig_hc hesabını açıp onunla yeniden deneyin."),
+        "zaman": ("Tarama zamanında bitmedi", "Sunucu süre sınırı içinde yanıt vermedi.",
+                  "Bir süre sonra yeniden deneyin ya da betiği kendi ağınızda çalıştırın."),
+        "istek_yok": ("Bu bağlantı isteği geçersiz", "İsteğin süresi dolmuş, kullanılmış ya da hiç var olmamış. İstekler 30 dakika geçerlidir.",
+                      "Doğrudan bağlantı formunu yeniden doldurun."),
+        "deneme": ("Deneme hakkı doldu", "Bu istek için üç deneme hakkı kullanıldı ya da şirketiniz son bir saatte çok sayıda istek açtı.",
+                   "Bilgileri denetleyip bir saat sonra yeni bir istek açın."),
+        "mesgul": ("Şu an çok sayıda tarama çalışıyor", "Aynı anda çalışan tarama sayısı sınırına ulaşıldı.",
+                   "Birkaç dakika sonra parolayı yeniden gönderin."),
     },
     "en": {
         "ust": "Health check", "ne": "What to do", "teknik": "Technical detail",
@@ -53,6 +71,24 @@ M = {
                   "Contact us for an earlier scan or a full audit."),
         "hiz": ("Too many attempts", "Many uploads were made from this address in a short time.",
                 "Try again in an hour."),
+        "izin": ("Direct connection is not open for your account", "Scanning over a direct connection is open only to companies approved by alig.tech.",
+                 "Contact us for approval, or run the script on your own network and upload the file."),
+        "hedef": ("Could not connect to the server", "Could not connect to this server. Only addresses reachable from the internet are accepted.",
+                  "Check the address, port, database and account name, then try again."),
+        "baglanti": ("Could not connect to the server", "The connection failed or the account details were not accepted. The connection must be encrypted (TLS).",
+                     "Check the password, the firewall rule and the server's TLS setting, then try again."),
+        "kanit": ("Ownership proof not found", "The expected proof line is missing from the scan account, or it differs. No check query was run.",
+                  "Run the COMMENT command from the previous page on your database, then send the password again."),
+        "super": ("This account cannot be used for scanning", "The account you gave is a superuser. Superusers are not accepted over a direct connection. No check query was run.",
+                  "Open the alig_hc account from the preparation guide and try again with it."),
+        "zaman": ("The scan did not finish in time", "The server did not answer within the time limit.",
+                  "Try again later, or run the script on your own network."),
+        "istek_yok": ("This connection request is not valid", "The request has expired, was already used or never existed. Requests are valid for 30 minutes.",
+                      "Fill in the direct connection form again."),
+        "deneme": ("No attempts left", "The three attempts for this request are used, or your company opened many requests in the last hour.",
+                   "Check the details and open a new request in an hour."),
+        "mesgul": ("Many scans are running right now", "The limit on scans running at the same time has been reached.",
+                   "Send the password again in a few minutes."),
     },
 }
 
@@ -83,8 +119,75 @@ def dosya_hatasi(kod, ek, dil):
     return tur, metin.replace("{ek}", str(ek)[:60])
 
 
-ILETISIM = {"pasif", "sinir", "buyuk"}
-KILAVUZ = {"json", "bicim", "eski", "tur"}
+ILETISIM = {"pasif", "sinir", "buyuk", "izin"}
+KILAVUZ = {"json", "bicim", "eski", "tur", "kanit", "super", "zaman", "baglanti"}
+DOGRUDAN = {"hedef", "baglanti", "istek_yok", "deneme", "zaman"}
+
+F = {
+    "tr": {"baslik": "Doğrudan bağlantıyla tarama", "lead": "Bağlantı bilgisini verirsiniz, taramayı alig.tech çalıştırır. Parolanız saklanmaz, yalnızca tarama süresince kullanılır.",
+           "sirket": "Şirket adı", "eposta": "Kurumsal e-posta adresiniz", "sunucu": "Sunucu adresi (internetten erişilebilir ad ya da IP)",
+           "port": "Port", "veritabani": "Veritabanı", "kullanici": "Tarama hesabı", "maskele": "Nesne adlarını takma adla değiştir",
+           "yetki": "Bu veritabanını taratmaya yetkiliyim.", "gonder": "Devam et",
+           "not": "Hesap süper kullanıcı olmamalı ve bağlantı TLS ile şifreli olmalıdır. Hesabı açmak için hazırlık kılavuzuna bakın.",
+           "k_baslik": "Sahipliği kanıtlayın", "k_lead": "Bu veritabanının sizin yönetiminizde olduğunu göstermek için aşağıdaki komutu veritabanınızda bir kez çalıştırın. Sonra tarama hesabının parolasını yazın.",
+           "k_sure": "Bu istek 30 dakika geçerlidir ve en çok üç kez denenebilir.", "parola": "Tarama hesabının parolası",
+           "k_not": "Parola saklanmaz, günlüklere yazılmaz ve tarama bitince bellekten silinir. Tarama bir dakikadan uzun sürebilir.", "baslat": "Taramayı başlat"},
+    "en": {"baslik": "Scan over a direct connection", "lead": "You give the connection details and alig.tech runs the scan. Your password is not stored; it is used only while the scan runs.",
+           "sirket": "Company name", "eposta": "Your corporate email address", "sunucu": "Server address (name or IP reachable from the internet)",
+           "port": "Port", "veritabani": "Database", "kullanici": "Scan account", "maskele": "Replace object names with aliases",
+           "yetki": "I am authorised to have this database scanned.", "gonder": "Continue",
+           "not": "The account must not be a superuser and the connection must be encrypted with TLS. See the preparation guide to open the account.",
+           "k_baslik": "Prove ownership", "k_lead": "To show that this database is under your administration, run the command below once on your database. Then enter the password of the scan account.",
+           "k_sure": "This request is valid for 30 minutes and can be tried at most three times.", "parola": "Password of the scan account",
+           "k_not": "The password is not stored, not written to logs and is cleared from memory when the scan ends. The scan can take over a minute.", "baslat": "Start the scan"},
+}
+
+
+def _kabuk(d, baslik, icerik):
+    kok = "/en/" if d == "en" else "/"
+    return ("<!doctype html>\n<html lang=\"%s\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            "<meta name=\"robots\" content=\"noindex,nofollow\"><title>%s | alig.tech</title>"
+            "<link rel=\"stylesheet\" href=\"/assets/base.css\"><link rel=\"stylesheet\" href=\"/assets/style.css\"></head><body>"
+            "<header class=\"top\"><div class=\"wrap\"><a class=\"brand\" href=\"%s\"><img src=\"/assets/logo.svg\" width=\"176\" height=\"36\" alt=\"alig.tech\"></a></div></header>"
+            "<main id=\"main\">%s</main></body></html>\n") % (d, escape(baslik), kok, icerik)
+
+
+def baglan_formu(dil):
+    d = dil if dil in F else "tr"
+    f = F[d]
+    kok = "/en/" if d == "en" else "/"
+
+    def alan(ad, etiket, tur="text", deger="", ek=""):
+        return ("<div class=\"field field-wide\"><label for=\"b-%s\">%s</label><input id=\"b-%s\" name=\"%s\" type=\"%s\" value=\"%s\" required %s></div>"
+                % (ad, escape(etiket), ad, ad, tur, escape(deger), ek))
+    icerik = ("<article class=\"wrap prose tarama-page\"><h1>%s</h1><p class=\"lead\">%s</p>"
+              "<form class=\"form\" method=\"post\" action=\"/api/tarama/baglan\"><input type=\"hidden\" name=\"dil\" value=\"%s\">%s%s%s%s%s%s"
+              "<div class=\"field field-wide\"><label for=\"b-mask\"><input id=\"b-mask\" type=\"checkbox\" name=\"maskele\" value=\"on\" checked> %s</label></div>"
+              "<div class=\"field field-wide\"><label for=\"b-ok\"><input id=\"b-ok\" type=\"checkbox\" name=\"yetki\" value=\"on\" required> %s</label></div>"
+              "<p class=\"form-foot\"><button class=\"btn\" type=\"submit\">%s</button></p></form>"
+              "<p class=\"fine\">%s <a href=\"%starama-hazirlik/\">%s</a></p></article>") % (
+        escape(f["baslik"]), escape(f["lead"]), d,
+        alan("sirket", f["sirket"], ek="maxlength=\"160\" autocomplete=\"organization\""),
+        alan("eposta", f["eposta"], "email", ek="maxlength=\"200\" autocomplete=\"email\""),
+        alan("sunucu", f["sunucu"], ek="maxlength=\"253\" autocomplete=\"off\""),
+        alan("port", f["port"], "number", "5432", "min=\"1024\" max=\"65535\""),
+        alan("veritabani", f["veritabani"], deger="postgres", ek="maxlength=\"63\" autocomplete=\"off\""),
+        alan("kullanici", f["kullanici"], deger="alig_hc", ek="maxlength=\"63\" autocomplete=\"off\""),
+        escape(f["maskele"]), escape(f["yetki"]), escape(f["gonder"]), escape(f["not"]), kok, escape(M[d]["kilavuz"]))
+    return _kabuk(d, f["baslik"], icerik)
+
+
+def kanit_sayfasi(dil, token, komut):
+    d = dil if dil in F else "tr"
+    f = F[d]
+    icerik = ("<article class=\"wrap prose tarama-page guide\"><h1>%s</h1><p class=\"lead\">%s</p><pre><code>%s</code></pre><p class=\"fine\">%s</p>"
+              "<form class=\"form\" method=\"post\" action=\"/api/tarama/baglan/%s\" autocomplete=\"off\">"
+              "<div class=\"field field-wide\"><label for=\"b-parola\">%s</label>"
+              "<input id=\"b-parola\" name=\"parola\" type=\"password\" required maxlength=\"1024\" autocomplete=\"off\"></div>"
+              "<p class=\"form-foot\"><button class=\"btn\" type=\"submit\">%s</button></p></form><p class=\"fine\">%s</p></article>") % (
+        escape(f["k_baslik"]), escape(f["k_lead"]), escape(komut), escape(f["k_sure"]), escape(token),
+        escape(f["parola"]), escape(f["baslat"]), escape(f["k_not"]))
+    return _kabuk(d, f["k_baslik"], icerik)
 
 
 def sayfa(tur, dil, ayrinti=None):
@@ -92,7 +195,10 @@ def sayfa(tur, dil, ayrinti=None):
     m = M[d]
     baslik, ne_oldu, ne_yapmali = m[tur]
     kok = "/en/" if d == "en" else "/"
-    baglar = ['<a class="btn" href="%ssaglik-taramasi/">%s</a>' % (kok, escape(m["geri"]))]
+    if tur in DOGRUDAN:
+        baglar = ['<a class="btn" href="/api/tarama/baglan?dil=%s">%s</a>' % (d, escape(F[d]["baslik"]))]
+    else:
+        baglar = ['<a class="btn" href="%ssaglik-taramasi/">%s</a>' % (kok, escape(m["geri"]))]
     if tur in KILAVUZ:
         baglar.append('<a class="textlink" href="%starama-hazirlik/">%s</a>' % (kok, escape(m["kilavuz"])))
     if tur in ILETISIM:
@@ -103,8 +209,4 @@ def sayfa(tur, dil, ayrinti=None):
     icerik = ('<article class="wrap prose tarama-page"><p class="fine">%s</p><h1>%s</h1><p class="lead">%s</p>'
               '<h2>%s</h2><p>%s</p>%s<p>%s</p></article>') % (
         escape(m["ust"]), escape(baslik), escape(ne_oldu), escape(m["ne"]), escape(ne_yapmali), teknik, " ".join(baglar))
-    return ("<!doctype html>\n<html lang=\"%s\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-            "<meta name=\"robots\" content=\"noindex,nofollow\"><title>%s | alig.tech</title>"
-            "<link rel=\"stylesheet\" href=\"/assets/base.css\"><link rel=\"stylesheet\" href=\"/assets/style.css\"></head><body>"
-            "<header class=\"top\"><div class=\"wrap\"><a class=\"brand\" href=\"%s\"><img src=\"/assets/logo.svg\" width=\"176\" height=\"36\" alt=\"alig.tech\"></a></div></header>"
-            "<main id=\"main\">%s</main></body></html>\n") % (d, escape(baslik), kok, icerik)
+    return _kabuk(d, baslik, icerik)

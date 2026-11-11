@@ -41,3 +41,8 @@ Diğer açık kararlar (metinde değil, yapılandırmada):
 - Gerçek bir SQL Server üzerinde sınama: `docs/mssql-onsurum.md` içindeki adımlar. Sınanmadan genel sayfada yayımlanmaz.
 - `tarama/kurallar_mssql.py` içindeki `MSSQL_EOL` tarihleri Microsoft yaşam döngüsü sayfalarından alındı (Kasım 2026). Her yıl doğrulanmalı.
 - MUHENDISLIK eşikleri (`kurallar_mssql.MUHENDISLIK`): tam yedek 168 saat, log yedeği 24 saat, CHECKDB 14 gün, açık işlem 600 ve 3600 saniye, paralellik maliyet eşiği 5.
+
+## Doğrudan bağlantı (Kip B)
+
+- Canlıya almadan önce: ayrı çalıştırıcı süreci, sunucu sertifikası doğrulaması, sabit çıkış IP adresi, müşteri onay metni. Ayrıntı: `docs/kip-b-tasarim.md`.
+- Sınırlar (onay bekliyor): istek 30 dakika geçerli, istek başına 3 deneme, firma başına saatte 5 istek, aynı anda 2 tarama.

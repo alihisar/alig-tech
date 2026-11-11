@@ -21,7 +21,16 @@ GOCLER = [
        durum TEXT NOT NULL DEFAULT 'aktif', kaynak TEXT NOT NULL, aciklama TEXT NOT NULL DEFAULT '',
        kayit_utc TEXT NOT NULL, son_utc TEXT NOT NULL)""",
     """ALTER TABLE rapor ADD COLUMN firma_id INTEGER""",
+    """ALTER TABLE firma ADD COLUMN dogrudan_izin INTEGER NOT NULL DEFAULT 0""",
+    # Kip B (dogrudan baglanti) istegi. Parola ASLA saklanmaz; yalniz hedef ve sahiplik kaniti.
+    """CREATE TABLE baglanti_istegi(id INTEGER PRIMARY KEY, token_sha256 TEXT NOT NULL UNIQUE, firma_id INTEGER NOT NULL,
+       kanit TEXT NOT NULL, ad TEXT NOT NULL, ip TEXT NOT NULL, port INTEGER NOT NULL, veritabani TEXT NOT NULL,
+       kullanici TEXT NOT NULL, maskele INTEGER NOT NULL DEFAULT 0, dil TEXT NOT NULL, olusturma_utc TEXT NOT NULL,
+       bitis_utc TEXT NOT NULL, deneme INTEGER NOT NULL DEFAULT 0, durum TEXT NOT NULL DEFAULT 'bekliyor')""",
 ]
+ISTEK_DAKIKA = 30
+ISTEK_DENEME = 3
+ISTEK_SAATLIK = 5
 FIRMA_DURUMLARI = ("aktif", "pasif")
 
 
@@ -85,11 +94,11 @@ def sirket_anahtari(eposta):
     return hashlib.sha256(("sirket|" + ham).encode()).hexdigest() if ham else None
 
 
-_FIRMA_KOLON = "id, anahtar, ad, eposta, durum, kaynak, aciklama, kayit_utc, son_utc"
+_FIRMA_KOLON = "id, anahtar, ad, eposta, durum, kaynak, aciklama, kayit_utc, son_utc, dogrudan_izin"
 
 
 def _firma(r):
-    return dict(zip(("id", "anahtar", "ad", "eposta", "durum", "kaynak", "aciklama", "kayit_utc", "son_utc"), r)) if r else None
+    return dict(zip(("id", "anahtar", "ad", "eposta", "durum", "kaynak", "aciklama", "kayit_utc", "son_utc", "dogrudan_izin"), r)) if r else None
 
 
 def firma_kaydet(con, anahtar, ad, eposta, kaynak, zaman=None, guncelle=True):
@@ -125,6 +134,49 @@ def firma_durum_yaz(con, fid, durum):
     return n
 
 
+def firma_izin_yaz(con, fid, izin):
+    """Dogrudan baglanti (Kip B) izni. Yalniz yonetici verir."""
+    n = con.execute("UPDATE firma SET dogrudan_izin=? WHERE id=?", (1 if izin else 0, fid)).rowcount
+    con.commit()
+    return n
+
+
+_ISTEK_KOLON = "id, firma_id, kanit, ad, ip, port, veritabani, kullanici, maskele, dil, olusturma_utc, bitis_utc, deneme, durum"
+
+
+def istek_ekle(con, token, firma_id, kanit, ad, ip, port, veritabani, kullanici, maskele, dil):
+    n = datetime.now(timezone.utc)
+    con.execute("INSERT INTO baglanti_istegi(token_sha256, firma_id, kanit, ad, ip, port, veritabani, kullanici, maskele, dil, olusturma_utc, bitis_utc)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (token_ozeti(token), firma_id, kanit, ad, ip, port, veritabani, kullanici, 1 if maskele else 0, dil,
+                 n.strftime("%Y-%m-%dT%H:%M:%SZ"), (n + timedelta(minutes=ISTEK_DAKIKA)).strftime("%Y-%m-%dT%H:%M:%SZ")))
+    con.commit()
+
+
+def istek_getir(con, token):
+    """Suresi dolmamis ve bekleyen istek; yoksa None."""
+    r = con.execute("SELECT %s FROM baglanti_istegi WHERE token_sha256=? AND durum='bekliyor' AND bitis_utc > ?" % _ISTEK_KOLON,
+                    (token_ozeti(token), simdi())).fetchone()
+    return dict(zip(_ISTEK_KOLON.split(", "), r)) if r else None
+
+
+def istek_deneme(con, iid):
+    """Deneme sayisini bir artirir ve yeni degeri doner."""
+    con.execute("UPDATE baglanti_istegi SET deneme=deneme+1 WHERE id=?", (iid,))
+    con.commit()
+    return con.execute("SELECT deneme FROM baglanti_istegi WHERE id=?", (iid,)).fetchone()[0]
+
+
+def istek_bitir(con, iid, durum):
+    con.execute("UPDATE baglanti_istegi SET durum=? WHERE id=?", (durum, iid))
+    con.commit()
+
+
+def istek_say(con, firma_id, dakika=60):
+    esik = (datetime.now(timezone.utc) - timedelta(minutes=dakika)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return con.execute("SELECT count(*) FROM baglanti_istegi WHERE firma_id=? AND olusturma_utc > ?", (firma_id, esik)).fetchone()[0]
+
+
 def firma_not_yaz(con, fid, aciklama):
     n = con.execute("UPDATE firma SET aciklama=? WHERE id=?", ((aciklama or "")[:500], fid)).rowcount
     con.commit()
@@ -151,6 +203,7 @@ def firma_sil(con, fid):
         return None
     n = con.execute("DELETE FROM rapor WHERE firma_id=?", (fid,)).rowcount
     con.execute("DELETE FROM kullanim WHERE anahtar_sha256=?", (_firma_ozeti(f),))
+    con.execute("DELETE FROM baglanti_istegi WHERE firma_id=?", (fid,))
     con.execute("DELETE FROM firma WHERE id=?", (fid,))
     con.commit()
     return n
@@ -212,6 +265,8 @@ def suresi_dolanlari_sil(con):
     n = con.execute("DELETE FROM rapor WHERE bitis_utc <= ?", (simdi(),)).rowcount
     esik = (datetime.now(timezone.utc) - timedelta(days=SINIR_GUN)).strftime("%Y-%m-%dT%H:%M:%SZ")
     con.execute("DELETE FROM kullanim WHERE zaman_utc <= ?", (esik,))
+    gun = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    con.execute("DELETE FROM baglanti_istegi WHERE bitis_utc <= ?", (gun,))
     con.commit()
     return n
 

@@ -227,7 +227,7 @@ class H(BaseHTTPRequestHandler):
                     return self._send(422, b"gecersiz durum\n", "text/plain; charset=utf-8")
                 depo.talep_durum_yaz(con, int(m.group(1)), f["durum"], f.get("aciklama", ""), o["ad"])
                 return self._yonlendir("/yonetim/talepler")
-            m = re.match(r"^/yonetim/firmalar/(\d{1,9})/(durum|not|sinir|sil)$", yol)
+            m = re.match(r"^/yonetim/firmalar/(\d{1,9})/(durum|not|sinir|sil|izin)$", yol)
             if m:
                 return self._firma_islem(con, o, int(m.group(1)), m.group(2), f)
             m = re.match(r"^/yonetim/taramalar/(\d{1,9})/sil$", yol)
@@ -436,7 +436,12 @@ class H(BaseHTTPRequestHandler):
                    e(ist(f["kayit_utc"])), e(ist(f["son_utc"])), kalan, tdepo.SINIR_ADET)
         ic += "<h2>İşlemler</h2><div class=\"actions\">" + self._durum_dugmesi(f, o, "detay")
         ic += ("<form method=\"post\" action=\"/yonetim/firmalar/%d/sinir\" class=\"inline\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
-               "<button class=\"btn btn-sm btn-ghost\" type=\"submit\">Tarama hakkını sıfırla</button></form></div>") % (fid, csrf)
+               "<button class=\"btn btn-sm btn-ghost\" type=\"submit\">Tarama hakkını sıfırla</button></form>") % (fid, csrf)
+        ic += ("<form method=\"post\" action=\"/yonetim/firmalar/%d/izin\" class=\"inline\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
+               "<input type=\"hidden\" name=\"izin\" value=\"%s\"><button class=\"btn btn-sm btn-ghost\" type=\"submit\">%s</button></form></div>") % (
+                   fid, csrf, "0" if f["dogrudan_izin"] else "1", "Doğrudan bağlantı iznini kaldır" if f["dogrudan_izin"] else "Doğrudan bağlantı izni ver")
+        ic += "<p class=\"muted\">Doğrudan bağlantı: <strong>%s</strong>. İzinli firma, bağlantı bilgisini vererek taramayı alig.tech sunucusundan çalıştırabilir. Yalnızca kimliğinden emin olduğunuz firmalara verin.</p>" % (
+            "izinli" if f["dogrudan_izin"] else "izinsiz")
         ic += "<p class=\"muted\">Pasif firma yeni tarama yükleyemez. Mevcut raporları silinmez ve süreleri dolana kadar bağlantılarıyla açılır.</p>"
         ic += ("<form method=\"post\" action=\"/yonetim/firmalar/%d/not\" class=\"form notform\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
                "<div class=\"field field-wide\"><label for=\"f-not\">Not</label><textarea id=\"f-not\" name=\"aciklama\" maxlength=\"500\" rows=\"3\">%s</textarea></div>"
@@ -471,6 +476,11 @@ class H(BaseHTTPRequestHandler):
             elif islem == "not":
                 tdepo.firma_not_yaz(tc, fid, f.get("aciklama", ""))
                 olay = "firma #%d notu guncellendi" % fid
+            elif islem == "izin":
+                if f.get("izin") not in ("0", "1"):
+                    return self._send(422, b"gecersiz izin\n", "text/plain; charset=utf-8")
+                tdepo.firma_izin_yaz(tc, fid, f["izin"] == "1")
+                olay = "firma #%d dogrudan baglanti izni: %s" % (fid, "verildi" if f["izin"] == "1" else "kaldirildi")
             elif islem == "sinir":
                 olay = "firma #%d tarama hakki sifirlandi (%d kayit)" % (fid, tdepo.firma_sinir_sifirla(tc, fid))
             else:

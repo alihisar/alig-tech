@@ -215,6 +215,25 @@ class PanelTests(Taban):
         self.assertTrue(r.getheader("Content-Type").startswith("text/csv"))
         self.assertIn("Ornek AS", g)
 
+    def test_dogrudan_baglanti_izni(self):
+        self.istek("GET", "/yonetim/firmalar")
+        tc = tdepo.baglan(self.tdb)
+        fid = tdepo.firma_listele(tc)[0]["id"]
+        tc.close()
+        self.assertIn("Doğrudan bağlantı izni ver", self.istek("GET", "/yonetim/firmalar/%d" % fid)[1])
+        self.assertEqual(self.istek("POST", "/yonetim/firmalar/%d/izin" % fid, {"izin": "1"})[0].status, 403)   # CSRF
+        self.assertEqual(self.istek("POST", "/yonetim/firmalar/%d/izin" % fid, {"izin": "x", "csrf": self.csrf()})[0].status, 422)
+        self.assertEqual(self.istek("POST", "/yonetim/firmalar/%d/izin" % fid, {"izin": "1", "csrf": self.csrf()})[0].status, 303)
+        tc = tdepo.baglan(self.tdb)
+        self.assertEqual(tdepo.firma_getir(tc, fid)["dogrudan_izin"], 1)
+        self.assertTrue(any("dogrudan baglanti izni: verildi" in x[0] for x in tc.execute("SELECT olay FROM denetim")))
+        tc.close()
+        self.assertIn("Doğrudan bağlantı iznini kaldır", self.istek("GET", "/yonetim/firmalar/%d" % fid)[1])
+        self.istek("POST", "/yonetim/firmalar/%d/izin" % fid, {"izin": "0", "csrf": self.csrf()})
+        tc = tdepo.baglan(self.tdb)
+        self.assertEqual(tdepo.firma_getir(tc, fid)["dogrudan_izin"], 0)
+        tc.close()
+
     def test_firma_detayi(self):
         r, g = self.istek("GET", "/yonetim/firmalar/%d" % self.firma["id"])
         self.assertEqual(r.status, 200)
