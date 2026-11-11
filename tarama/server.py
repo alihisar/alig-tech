@@ -127,7 +127,8 @@ class H(BaseHTTPRequestHandler):
         try:
             belge = yukleme.coz(alanlar.get("dosya", b""))
         except yukleme.Gecersiz as e:
-            return self._hata(422, hata.dosya_turu(str(e)), dil, ayrinti=str(e))
+            tur, ayrinti = hata.dosya_hatasi(e.kod, e.ek, dil)
+            return self._hata(422, tur, dil, ayrinti=ayrinti)
         anahtar = secrets.token_urlsafe(32)
         con = depo.baglan(self.db_yolu)
         try:

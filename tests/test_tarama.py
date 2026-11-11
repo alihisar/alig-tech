@@ -282,6 +282,17 @@ class SunucuTests(unittest.TestCase):
         g = self.yukle(json.dumps(d).encode()).govde
         self.assertNotIn("<script>x", g)
 
+    def test_teknik_ayrinti_musteri_dilinde(self):
+        d = temiz_belge()
+        d["kontroller"]["pg_surum"]["durum"] = "uydurma"
+        veri = json.dumps(d).encode()
+        tr = self.yukle(veri).govde
+        en = self.yukle(veri, dil="en").govde
+        self.assertIn("pg_surum", tr)
+        self.assertIn("durum değeri geçersiz", tr)
+        self.assertIn("status value is not valid", en)
+        self.assertNotIn("durum gecersiz", tr + en)
+
     def test_yetki_beyani_ve_gecersiz_dosya(self):
         self.assertEqual(self.yukle(json.dumps(temiz_belge()).encode(), yetki=False).status, 422)
         self.assertEqual(self.yukle(b"{bozuk").status, 422)

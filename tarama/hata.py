@@ -56,20 +56,34 @@ M = {
     },
 }
 
+# Dosya dogrulama kodu -> (sayfa turu, tr ayrinti, en ayrinti). {ek}: kontrol ya da alan adi.
+TEKNIK = {
+    "buyuk": ("buyuk", "", ""),
+    "json": ("json", "dosya geçerli JSON değil", "the file is not valid JSON"),
+    "eski": ("eski", "sorgu kataloğu özeti güncel betikle uyuşmuyor", "the query catalogue digest does not match the current script"),
+    "alanlar": ("bicim", "üst düzey alanlar beklenenle uyuşmuyor", "top-level fields do not match what is expected"),
+    "format": ("bicim", "dosya biçimi ya da veritabanı motoru desteklenmiyor", "file format or database engine is not supported"),
+    "zaman": ("bicim", "oluşturma zamanı geçersiz", "creation time is not valid"),
+    "alan_turu": ("bicim", "{ek}: alan türü geçersiz", "{ek}: field type is not valid"),
+    "kontrol": ("bicim", "bilinmeyen denetim: {ek}", "unknown check: {ek}"),
+    "durum": ("bicim", "{ek}: durum değeri geçersiz", "{ek}: status value is not valid"),
+    "hata_kaydi": ("bicim", "{ek}: hata kaydı geçersiz", "{ek}: error record is not valid"),
+    "satirlar": ("bicim", "{ek}: satır listesi geçersiz ya da çok uzun", "{ek}: row list is not valid or too long"),
+    "kolon": ("bicim", "{ek}: bilinmeyen kolon", "{ek}: unknown column"),
+    "deger": ("bicim", "{ek}: değer türü ya da uzunluğu geçersiz", "{ek}: value type or length is not valid"),
+    "bicim": ("bicim", "", ""),
+}
+
+
+def dosya_hatasi(kod, ek, dil):
+    """(sayfa turu, musteri dilinde teknik ayrinti) dondurur."""
+    tur, tr, en = TEKNIK.get(kod, TEKNIK["bicim"])
+    metin = en if dil == "en" else tr
+    return tur, metin.replace("{ek}", str(ek)[:60])
+
+
 ILETISIM = {"pasif", "sinir", "buyuk"}
 KILAVUZ = {"json", "bicim", "eski", "tur"}
-
-
-def dosya_turu(neden):
-    """yukleme.Gecersiz mesajini musteri diline cevrilecek anahtara esler."""
-    n = neden or ""
-    if "cok buyuk" in n:
-        return "buyuk"
-    if "surumu eski" in n:
-        return "eski"
-    if "JSON" in n:
-        return "json"
-    return "bicim"
 
 
 def sayfa(tur, dil, ayrinti=None):
