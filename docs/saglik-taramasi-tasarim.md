@@ -47,7 +47,7 @@ Web süreci hiçbir müşteri veritabanına bağlanmaz. Kip A'da bağlanan tek �
 | Parola sızıntısı | Betik parola almaz (`PGPASSFILE`/ortam), toplama dosyasında bağlantı bilgisi yok | `test_toplayici_dosyasinda_baglanti_yok` |
 | Eski toplayıcı sürümü | Katalog özeti uyuşmazsa yükleme reddedilir | `test_yukleme_katalog_ozeti` |
 
-Kip B (doğrudan bağlantı) için SSRF, DNS rebinding, kimlik bilgisi saklama ve rol sahipliği kanıtı ayrı dilimde ele alınacak; kod yazılmadan önce bu tabloya eklenir.
+Kip B (doğrudan bağlantı) için tehdit modeli ve karar bekleyenler: `docs/kip-b-tasarim.md`. Kod yazılmadı.
 
 ## Bilinen sınırlar
 

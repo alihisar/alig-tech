@@ -25,7 +25,7 @@ Her adım, doğrulaması geçmeden sonrakine geçmez.
 2. [x] Katalog, kurallar, toplayıcı, depo, yükleme doğrulaması, rapor, sunucu, sayfa (Kip A, PostgreSQL)
 3. [x] Şirket başına sınır (alan adı ya da ücretsiz posta adresi başına 30 günde 2). E-posta doğrulaması gönderim yöntemi gelince
 4. [ ] SQL Server kataloğu
-5. [ ] Kip B (doğrudan bağlantı): önce tehdit modeline SSRF, rol sahipliği ve kimlik bilgisi saklama eklenir
+5. [ ] Kip B (doğrudan bağlantı): tehdit modeli yazıldı (`docs/kip-b-tasarim.md`), kod için kararlar bekleniyor
 6. [ ] İsteğe bağlı dil modeli özeti
 
 ## Yönetim paneli
