@@ -1,6 +1,6 @@
 # Kip B (doğrudan bağlantı): tasarım ve tehdit modeli
 
-Durum: yalnızca tasarım. **Kod yazılmadı.** Aşağıdaki "Karar bekleyenler" yanıtlanmadan kodlanmaz.
+Durum: tasarım. Yalnızca hedef doğrulaması (iç ağa yönlendirme ve DNS rebinding önlemi) kodlandı: `tarama/hedef.py`, testler `tests/test_hedef.py`. Bu modül bağlantı açmaz ve hiçbir yerden çağrılmaz. Bağlantı, sahiplik kanıtı ve çalıştırıcı için aşağıdaki "Karar bekleyenler" yanıtlanmalı.
 
 ## Kip A ile farkı
 
@@ -18,8 +18,8 @@ Kip A'da müşteri betiği kendi ağında çalıştırır, alig.tech hiçbir ver
 
 | Tehdit | Önlem | Sınama |
 | --- | --- | --- |
-| SSRF: müşteri iç ağımızdaki ya da bulut meta veri servisindeki bir adresi yazar | Ad çözülür, çıkan **her** adres denetlenir: özel (RFC 1918), geri döngü, bağlantı-yerel, CGNAT, çok noktaya yayın, IPv6 eşdeğerleri ve kendi adres aralığımız reddedilir. Yalnızca izinli portlar (varsayılan 5432, 1433 ve müşterinin yazdığı 1024 üstü port) | Her yasak aralık için birim testi; IPv4 eşlemeli IPv6, ondalık ve sekizlik yazım, sondaki nokta |
-| DNS rebinding: ad denetimde açık adrese, bağlantıda iç adrese çözülür | Ad bir kez çözülür, bağlantı **çözülen IP'ye** açılır; TLS sunucu adı ayrıca verilir. Yeniden çözümleme yok | Sahte çözümleyiciyle iki farklı yanıt testi |
+| SSRF: müşteri iç ağımızdaki ya da bulut meta veri servisindeki bir adresi yazar | Ad çözülür, çıkan **her** adres denetlenir: özel (RFC 1918), geri döngü, bağlantı-yerel, CGNAT, çok noktaya yayın, IPv6 eşdeğerleri ve kendi adres aralığımız reddedilir. Yalnızca izinli portlar (varsayılan 5432, 1433 ve müşterinin yazdığı 1024 üstü port) | **Kodlandı.** `test_ic_ve_ozel_adresler_reddedilir`, `test_ipv4_tasiyan_ipv6_bicimleri_reddedilir`, `test_alisilmadik_sayisal_yazimlar_reddedilir`, `test_portlar` |
+| DNS rebinding: ad denetimde açık adrese, bağlantıda iç adrese çözülür | Ad bir kez çözülür, bağlantı **çözülen IP'ye** açılır; TLS sunucu adı ayrıca verilir. Yeniden çözümleme yok | **Kodlandı.** `test_rebinding_ikinci_cozumleme_olmaz`, `test_bir_kayit_bile_icse_tumu_reddedilir` |
 | Yönlendirme ve vekil üzerinden atlatma | Yalnızca ham TCP üzerinden veritabanı protokolü; HTTP istemcisi kullanılmaz, ortam vekil değişkenleri yok sayılır | Çalıştırıcı ortamının denetimi |
 | Başkasının veritabanını taratma | Sahiplik kanıtı: müşteri, tarama hesabına bizim verdiğimiz rastgele değeri taşıyan bir yorum ekler (`COMMENT ON ROLE alig_hc IS 'alig-kanit-<rastgele>'`); tarama önce bunu okur, uyuşmazsa hiçbir sorgu çalışmaz | Kanıtsız ve yanlış kanıtlı bağlantı testleri |
 | Port tarama ve hizmet keşfi aracı olarak kötüye kullanım | Hata iletisi tek tiptir ("bağlanılamadı"), süre sabitlenir; firma başına ve hedef başına deneme sınırı; yalnızca doğrulanmış firma | Zamanlama ve ileti testleri |
