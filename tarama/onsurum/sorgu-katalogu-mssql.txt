@@ -1,0 +1,44 @@
+alig.tech saglik taramasi (SQL Server, on surum): calisan tum sorgular
+Her sorgunun sonuna FOR JSON PATH, INCLUDE_NULL_VALUES eklenir. Kilit beklemesi 2 sn, sorgu suresi 15 sn.
+
+-- ms_surum
+SELECT CAST(SERVERPROPERTY('ProductMajorVersion') AS int) AS ana_surum, CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(40)) AS surum, CAST(SERVERPROPERTY('EngineEdition') AS int) AS motor_turu
+
+-- ms_yedek
+SELECT d.name AS veritabani, d.recovery_model_desc AS kurtarma_modeli, DATEDIFF(hour, MAX(CASE WHEN b.type = 'D' THEN b.backup_finish_date END), GETDATE()) AS tam_saat, DATEDIFF(hour, MAX(CASE WHEN b.type = 'L' THEN b.backup_finish_date END), GETDATE()) AS log_saat FROM sys.databases d LEFT JOIN msdb.dbo.backupset b ON b.database_name = d.name WHERE d.database_id NOT IN (2, 3) AND d.state = 0 AND d.source_database_id IS NULL GROUP BY d.name, d.recovery_model_desc
+
+-- ms_checkdb
+SELECT d.name AS veritabani, DATEDIFF(day, CAST(DATABASEPROPERTYEX(d.name, 'LastGoodCheckDbTime') AS datetime), GETDATE()) AS gun FROM sys.databases d WHERE d.database_id <> 2 AND d.state = 0
+
+-- ms_db_ayar
+SELECT name AS veritabani, database_id AS kimlik, CAST(is_auto_shrink_on AS int) AS auto_shrink, CAST(is_auto_close_on AS int) AS auto_close, page_verify_option_desc AS sayfa_dogrulama, state_desc AS durum, CAST(is_trustworthy_on AS int) AS trustworthy FROM sys.databases WHERE database_id <> 2
+
+-- ms_sunucu_ayar
+SELECT name AS ad, CAST(value_in_use AS bigint) AS deger FROM sys.configurations WHERE name IN ('max server memory (MB)', 'max degree of parallelism', 'cost threshold for parallelism', 'xp_cmdshell', 'Ad Hoc Distributed Queries', 'cross db ownership chaining', 'remote admin connections', 'backup compression default', 'clr enabled')
+
+-- ms_sa
+SELECT CAST(is_disabled AS int) AS devre_disi, CASE WHEN name = 'sa' THEN 1 ELSE 0 END AS adi_sa FROM sys.sql_logins WHERE sid = 0x01
+
+-- ms_sysadmin
+SELECT TOP 50 p.name AS giris, p.type_desc AS tur, CAST(p.is_disabled AS int) AS devre_disi FROM sys.server_role_members m JOIN sys.server_principals r ON r.principal_id = m.role_principal_id JOIN sys.server_principals p ON p.principal_id = m.member_principal_id WHERE r.name = 'sysadmin'
+
+-- ms_parola_politikasi
+SELECT COUNT(*) AS sayi FROM sys.sql_logins WHERE is_policy_checked = 0 AND is_disabled = 0 AND name NOT LIKE '##%'
+
+-- ms_tempdb
+SELECT (SELECT COUNT(*) FROM tempdb.sys.database_files WHERE type = 0) AS veri_dosyasi, (SELECT cpu_count FROM sys.dm_os_sys_info) AS cpu
+
+-- ms_ag
+SELECT TOP 50 ag.name AS grup, ar.replica_server_name AS replika, rs.synchronization_health_desc AS saglik, rs.role_desc AS rol, rs.connected_state_desc AS baglanti FROM sys.dm_hadr_availability_replica_states rs JOIN sys.availability_replicas ar ON ar.replica_id = rs.replica_id JOIN sys.availability_groups ag ON ag.group_id = rs.group_id
+
+-- ms_dosya_buyume
+SELECT TOP 50 DB_NAME(database_id) AS veritabani, name AS dosya, type_desc AS tur FROM sys.master_files WHERE is_percent_growth = 1 AND database_id <> 2
+
+-- ms_sifreleme
+SELECT COUNT(*) AS toplam, ISNULL(SUM(CASE WHEN encrypt_option = 'TRUE' THEN 1 ELSE 0 END), 0) AS sifreli FROM sys.dm_exec_connections WHERE net_transport = 'TCP'
+
+-- ms_acik_islem
+SELECT TOP 20 s.login_name AS giris, DATEDIFF(second, t.transaction_begin_time, GETDATE()) AS sure_sn FROM sys.dm_tran_session_transactions st JOIN sys.dm_tran_active_transactions t ON t.transaction_id = st.transaction_id JOIN sys.dm_exec_sessions s ON s.session_id = st.session_id WHERE s.is_user_process = 1 ORDER BY 2 DESC
+
+-- ms_kimlik
+SELECT CAST(SERVERPROPERTY('IsIntegratedSecurityOnly') AS int) AS yalniz_windows

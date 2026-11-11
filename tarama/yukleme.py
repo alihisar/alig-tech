@@ -23,14 +23,14 @@ class Gecersiz(ValueError):
         self.ek = ek
 
 
-def coz(veri):
+def coz(veri, motorlar=("postgresql",)):
     if len(veri) > MAX_BAYT:
         raise Gecersiz("dosya cok buyuk", "buyuk")
     try:
         belge = json.loads(veri.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         raise Gecersiz("gecerli JSON degil", "json")
-    return dogrula(belge)
+    return dogrula(belge, motorlar)
 
 
 def _skaler(v):
@@ -39,12 +39,14 @@ def _skaler(v):
     return isinstance(v, str) and len(v) <= MAX_METIN
 
 
-def dogrula(b):
+def dogrula(b, motorlar=("postgresql",)):
     if not isinstance(b, dict) or set(b) - UST_ALANLAR or not UST_ALANLAR - {"superuser", "maskeli"} <= set(b):
         raise Gecersiz("beklenmeyen ust duzey alanlar", "alanlar")
-    if b["format"] != katalog.FORMAT or b["motor"] != katalog.MOTOR:
+    if b["format"] != katalog.FORMAT or not isinstance(b["motor"], str) or b["motor"] not in katalog.MOTORLAR:
         raise Gecersiz("desteklenmeyen format ya da motor", "format")
-    if b["katalog_sha256"] != katalog_ozeti():
+    if b["motor"] not in motorlar:
+        raise Gecersiz("bu motor icin tarama acik degil: " + b["motor"], "motor_kapali")
+    if b["katalog_sha256"] != katalog_ozeti(b["motor"]):
         raise Gecersiz("toplayici surumu eski: sitedeki guncel betigi indirin", "eski")
     if not isinstance(b["olusturma_utc"], str) or not ZAMAN.match(b["olusturma_utc"]):
         raise Gecersiz("olusturma_utc gecersiz", "zaman")
@@ -55,7 +57,7 @@ def dogrula(b):
     if not isinstance(k, dict):
         raise Gecersiz("kontroller nesne olmali", "alanlar")
     for cid, e in k.items():
-        c = katalog.PG_BY_ID.get(cid)
+        c = katalog.MOTOR_BY_ID[b["motor"]].get(cid)
         if c is None:
             raise Gecersiz("bilinmeyen kontrol: " + cid[:40], "kontrol", cid[:40])
         if not isinstance(e, dict) or e.get("durum") not in DURUMLAR:

@@ -35,3 +35,9 @@ Diğer açık kararlar (metinde değil, yapılandırmada):
 - Sağlık taraması yüklenirken şirket adı ve e-posta adresi **düz metin** olarak saklanır (`tarama.sqlite`, `firma` tablosu) ve raporla eşleştirilir. Önceki tasarımda yalnız geri döndürülemez özet tutuluyordu; sayfadaki not buna göre değiştirildi.
 - Firma kaydının saklama süresi yok: yönetici silene kadar durur. `[doldurulacak: firma kaydı saklama süresi ve silme talebi yolu]`
 - Aydınlatma metninde yazılmalı: toplanan veri (şirket adı, e-posta), amaç (kayıt eşleştirme, sınır, iletişim), saklama süresi, silme hakkı.
+
+## SQL Server taraması (ön sürüm)
+
+- Gerçek bir SQL Server üzerinde sınama: `docs/mssql-onsurum.md` içindeki adımlar. Sınanmadan genel sayfada yayımlanmaz.
+- `tarama/kurallar_mssql.py` içindeki `MSSQL_EOL` tarihleri Microsoft yaşam döngüsü sayfalarından alındı (Kasım 2026). Her yıl doğrulanmalı.
+- MUHENDISLIK eşikleri (`kurallar_mssql.MUHENDISLIK`): tam yedek 168 saat, log yedeği 24 saat, CHECKDB 14 gün, açık işlem 600 ve 3600 saniye, paralellik maliyet eşiği 5.

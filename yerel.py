@@ -42,6 +42,7 @@ def main():
 
     tarama.H.db_yolu = str(ROOT / "yerel-tarama.sqlite")
     tarama.H.sinir = form.RateLimiter(per_window=100)
+    tarama.H.motorlar = ("postgresql", "mssql")  # yerelde SQL Server on surumu acik
     depo.baglan(tarama.H.db_yolu).close()
 
     # Yonetim paneli ayri bir sunucu (canlidaki gibi); /yonetim/ istekleri ona aktarilir

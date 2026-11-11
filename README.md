@@ -12,7 +12,8 @@ Bu dosyanın `<!-- oto:... -->` ile işaretli bölümleri `ci/uret_readme.py` ta
 - Portal demosu (`/demo/`), iletişim formu, sağlık taraması (Kip A, PostgreSQL), yönetim paneli (`/yonetim/`) çalışır durumda.
 - Yönetim panelinde firma yönetimi var: ad ve e-posta düz metin saklanır, aktif/pasif, not, tarama hakkı sıfırlama, silme.
 - Yayın dosyaları (Ansible, nginx, systemd) yazıldı, sözdizimi ve lint denetiminden geçti. Gerçek sunucuda çalıştırılmadı.
-- Açık işler: firma e-posta doğrulaması (gönderim yöntemi seçilmedi), firma saklama süresi, SQL Server kataloğu, Kip B (doğrudan bağlantı, önce tehdit modeli), isteğe bağlı dil modeli özeti. Sıra: `docs/plan.md`.
+- SQL Server taraması ön sürüm olarak kodlandı, gerçek sunucuda sınanmadı ve varsayılan olarak kapalı.
+- Açık işler: firma e-posta doğrulaması (gönderim yöntemi seçilmedi), firma saklama süresi, SQL Server taramasının gerçek sunucuda sınanması, Kip B (doğrudan bağlantı, önce tehdit modeli), isteğe bağlı dil modeli özeti. Sıra: `docs/plan.md`.
 
 ## Yerelde çalıştırma
 
@@ -62,7 +63,7 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 120 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
+Birim testleri: 143 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
 <!-- oto:bitis testler -->
 
 ## Dizinler
@@ -76,7 +77,7 @@ Birim testleri: 120 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmada
 | `tests/` | Birim testleri |
 | `docs/` | Tasarim notlari, plan, runbook, DNS, doldurulacak alanlar |
 | `form/` | İletişim formu uç noktası (stdlib, SQLite) |
-| `tarama/` | Sağlık taraması: toplayıcı şablonu, katalog, kurallar, sunucu, depo |
+| `tarama/` | Sağlık taraması: toplayıcı şablonları, katalog, kurallar, sunucu, depo; `onsurum/` SQL Server ön sürümü |
 | `yonetim/` | Yönetim paneli (TOTP girişli, denetim zincirli) |
 | `deploy/` | Paketleme, bakım, duman testi, Ansible |
 <!-- oto:bitis dizinler -->
@@ -133,6 +134,12 @@ başlığını koymalı. Kayıtlar SQLite WAL, zaman UTC, IP tuzlu özet.
 Firma adı ve e-posta düz metin saklanır; aydınlatma metni ve saklama süresi için
 `docs/doldurulacak.md`. Gerçek PostgreSQL ile sınama:
 `ALIG_TEST_PG_HOST=<soket dizini> ALIG_TEST_PG_PORT=<port> ALIG_TEST_PG_USER=<rol> python3 -m unittest tests.test_tarama`.
+
+### SQL Server (ön sürüm)
+
+Katalog, toplayıcı (`tarama/onsurum/alig-toplayici-mssql.py`), kurallar ve testler hazır; gerçek bir SQL Server üzerinde sınanmadı.
+Genel sayfada yayımlanmaz, sunucu bu dosyaları yalnızca `ALIG_MSSQL=1` ile kabul eder (`yerel.py` içinde açıktır).
+Sınama adımları: `docs/mssql-onsurum.md`.
 
 ## Yönetim paneli
 

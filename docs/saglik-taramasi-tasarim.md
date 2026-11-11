@@ -1,6 +1,6 @@
 # Sağlık taraması: tasarım ve tehdit modeli
 
-Durum: ilk dilim kodlandı (Kip A, PostgreSQL). Kip B, SQL Server, e-posta doğrulama ve dil modeli özeti sonraki dilimlerde.
+Durum: Kip A PostgreSQL için yayında. SQL Server için Kip A ön sürüm olarak kodlandı, gerçek sunucuda sınanmadı ve varsayılan olarak kapalı (`docs/mssql-onsurum.md`). Kip B, e-posta doğrulama ve dil modeli özeti sonraki dilimlerde.
 
 ## Varsayılan kararlar (sizden yanıt gelene kadar)
 
@@ -54,3 +54,4 @@ Kip B (doğrudan bağlantı) için SSRF, DNS rebinding, kimlik bilgisi saklama v
 - `pg_authid` (MD5 roller) ve `pg_hba_file_rules` yalnız süper kullanıcıyla okunur. `pg_monitor` yetkili rolde bu denetimler "ölçülemedi: yetki" döner. Bu bilerek böyle: temiz değil, ölçülemedi.
 - Yedeğin geri dönülebilirliği, işletim sistemi, ağ ve uygulama sorguları taramanın dışındadır; raporda yazar.
 - Bazı eşikler resmî belgede yoktur; `tarama/kurallar.py` içinde `MUHENDISLIK` işaretlidir ve `docs/doldurulacak.md` listesindedir.
+- SQL Server'da oturum düzeyinde salt okunur kip yoktur. Yazmayı engelleyen şey girişin yetkileridir (yalnızca `VIEW SERVER STATE` ve `VIEW ANY DEFINITION`) ve kataloğun statik denetimidir (`tests/test_mssql.py`).

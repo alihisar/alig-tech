@@ -71,3 +71,75 @@ YASAKLI = ("analyze", "insert", "update", "delete", "alter", "drop", "create", "
            "vacuum", "reindex", "cluster", "pg_terminate", "pg_cancel", "dblink", "lo_", "pg_read_file",
            "pg_ls_dir", "set ", "call ", "do ", "execute", "explain", "xp_", "pg_sleep", "pg_reload_conf",
            "pg_rotate", "pg_switch", "pg_start_backup", "pg_promote")
+
+
+# ---- SQL Server (on surum: gercek sunucuda sinanana kadar genel sayfada yayimlanmaz) ----
+# Her sorgu tek bir SELECT'tir; toplayici sonuna `FOR JSON PATH, INCLUDE_NULL_VALUES` ekler (SQL Server 2016+).
+# Gereken yetki: VIEW SERVER STATE ve VIEW ANY DEFINITION. Kullanici tablolarindan satir okunmaz.
+MSSQL = [
+    {"id": "ms_surum", "kolonlar": ["ana_surum", "surum", "motor_turu"], "maske": [],
+     "sql": "SELECT CAST(SERVERPROPERTY('ProductMajorVersion') AS int) AS ana_surum, "
+            "CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(40)) AS surum, "
+            "CAST(SERVERPROPERTY('EngineEdition') AS int) AS motor_turu"},
+    {"id": "ms_yedek", "kolonlar": ["veritabani", "kurtarma_modeli", "tam_saat", "log_saat"], "maske": ["veritabani"],
+     "sql": "SELECT d.name AS veritabani, d.recovery_model_desc AS kurtarma_modeli, "
+            "DATEDIFF(hour, MAX(CASE WHEN b.type = 'D' THEN b.backup_finish_date END), GETDATE()) AS tam_saat, "
+            "DATEDIFF(hour, MAX(CASE WHEN b.type = 'L' THEN b.backup_finish_date END), GETDATE()) AS log_saat "
+            "FROM sys.databases d LEFT JOIN msdb.dbo.backupset b ON b.database_name = d.name "
+            "WHERE d.database_id NOT IN (2, 3) AND d.state = 0 AND d.source_database_id IS NULL "
+            "GROUP BY d.name, d.recovery_model_desc"},
+    {"id": "ms_checkdb", "kolonlar": ["veritabani", "gun"], "maske": ["veritabani"],
+     "sql": "SELECT d.name AS veritabani, "
+            "DATEDIFF(day, CAST(DATABASEPROPERTYEX(d.name, 'LastGoodCheckDbTime') AS datetime), GETDATE()) AS gun "
+            "FROM sys.databases d WHERE d.database_id <> 2 AND d.state = 0"},
+    {"id": "ms_db_ayar", "kolonlar": ["veritabani", "kimlik", "auto_shrink", "auto_close", "sayfa_dogrulama", "durum", "trustworthy"],
+     "maske": ["veritabani"],
+     "sql": "SELECT name AS veritabani, database_id AS kimlik, CAST(is_auto_shrink_on AS int) AS auto_shrink, "
+            "CAST(is_auto_close_on AS int) AS auto_close, page_verify_option_desc AS sayfa_dogrulama, "
+            "state_desc AS durum, CAST(is_trustworthy_on AS int) AS trustworthy FROM sys.databases WHERE database_id <> 2"},
+    {"id": "ms_sunucu_ayar", "kolonlar": ["ad", "deger"], "maske": [],
+     "sql": "SELECT name AS ad, CAST(value_in_use AS bigint) AS deger FROM sys.configurations WHERE name IN "
+            "('max server memory (MB)', 'max degree of parallelism', 'cost threshold for parallelism', 'xp_cmdshell', "
+            "'Ad Hoc Distributed Queries', 'cross db ownership chaining', 'remote admin connections', "
+            "'backup compression default', 'clr enabled')"},
+    {"id": "ms_sa", "kolonlar": ["devre_disi", "adi_sa"], "maske": [],
+     "sql": "SELECT CAST(is_disabled AS int) AS devre_disi, CASE WHEN name = 'sa' THEN 1 ELSE 0 END AS adi_sa "
+            "FROM sys.sql_logins WHERE sid = 0x01"},
+    {"id": "ms_sysadmin", "kolonlar": ["giris", "tur", "devre_disi"], "maske": ["giris"],
+     "sql": "SELECT TOP 50 p.name AS giris, p.type_desc AS tur, CAST(p.is_disabled AS int) AS devre_disi "
+            "FROM sys.server_role_members m JOIN sys.server_principals r ON r.principal_id = m.role_principal_id "
+            "JOIN sys.server_principals p ON p.principal_id = m.member_principal_id WHERE r.name = 'sysadmin'"},
+    {"id": "ms_parola_politikasi", "kolonlar": ["sayi"], "maske": [],
+     "sql": "SELECT COUNT(*) AS sayi FROM sys.sql_logins WHERE is_policy_checked = 0 AND is_disabled = 0 AND name NOT LIKE '##%'"},
+    {"id": "ms_tempdb", "kolonlar": ["veri_dosyasi", "cpu"], "maske": [],
+     "sql": "SELECT (SELECT COUNT(*) FROM tempdb.sys.database_files WHERE type = 0) AS veri_dosyasi, "
+            "(SELECT cpu_count FROM sys.dm_os_sys_info) AS cpu"},
+    {"id": "ms_ag", "kolonlar": ["grup", "replika", "saglik", "rol", "baglanti"], "maske": ["grup", "replika"],
+     "sql": "SELECT TOP 50 ag.name AS grup, ar.replica_server_name AS replika, rs.synchronization_health_desc AS saglik, "
+            "rs.role_desc AS rol, rs.connected_state_desc AS baglanti FROM sys.dm_hadr_availability_replica_states rs "
+            "JOIN sys.availability_replicas ar ON ar.replica_id = rs.replica_id "
+            "JOIN sys.availability_groups ag ON ag.group_id = rs.group_id"},
+    {"id": "ms_dosya_buyume", "kolonlar": ["veritabani", "dosya", "tur"], "maske": ["veritabani", "dosya"],
+     "sql": "SELECT TOP 50 DB_NAME(database_id) AS veritabani, name AS dosya, type_desc AS tur FROM sys.master_files "
+            "WHERE is_percent_growth = 1 AND database_id <> 2"},
+    {"id": "ms_sifreleme", "kolonlar": ["toplam", "sifreli"], "maske": [],
+     "sql": "SELECT COUNT(*) AS toplam, ISNULL(SUM(CASE WHEN encrypt_option = 'TRUE' THEN 1 ELSE 0 END), 0) AS sifreli "
+            "FROM sys.dm_exec_connections WHERE net_transport = 'TCP'"},
+    {"id": "ms_acik_islem", "kolonlar": ["giris", "sure_sn"], "maske": ["giris"],
+     "sql": "SELECT TOP 20 s.login_name AS giris, DATEDIFF(second, t.transaction_begin_time, GETDATE()) AS sure_sn "
+            "FROM sys.dm_tran_session_transactions st "
+            "JOIN sys.dm_tran_active_transactions t ON t.transaction_id = st.transaction_id "
+            "JOIN sys.dm_exec_sessions s ON s.session_id = st.session_id WHERE s.is_user_process = 1 ORDER BY 2 DESC"},
+    {"id": "ms_kimlik", "kolonlar": ["yalniz_windows"], "maske": [],
+     "sql": "SELECT CAST(SERVERPROPERTY('IsIntegratedSecurityOnly') AS int) AS yalniz_windows"},
+]
+MSSQL_BY_ID = {c["id"]: c for c in MSSQL}
+
+# Metin sabitleri (tek tirnak icleri) cikarildiktan sonra aranir.
+YASAKLI_MSSQL = ("insert", "update", "delete", "merge", "alter", "drop", "create", "truncate", "grant", "revoke", "deny",
+                 "exec", "sp_", "xp_", "openrowset", "openquery", "opendatasource", "into", "dbcc", "backup", "restore",
+                 "kill", "shutdown", "waitfor", "reconfigure", "use ", "set ", "declare", "bulk", "--", "/*", ";")
+
+MOTORLAR = {"postgresql": PG, "mssql": MSSQL}
+MOTOR_BY_ID = {"postgresql": PG_BY_ID, "mssql": MSSQL_BY_ID}
+MOTOR_AD = {"postgresql": "PostgreSQL", "mssql": "SQL Server"}

@@ -128,6 +128,9 @@ def _parse_utc(s):
 
 def degerlendir(doc):
     """(bulgular, olculemeyenler). olculemeyen = [(kontrol_id, neden)]"""
+    if doc.get("motor") == "mssql":
+        from tarama import kurallar_mssql
+        return kurallar_mssql.degerlendir(doc)
     bulgu, olcul = [], []
     k = doc["kontroller"]
     taranan = _parse_utc(doc.get("olusturma_utc")) or datetime.now(timezone.utc)

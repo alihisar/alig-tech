@@ -50,6 +50,7 @@ class H(BaseHTTPRequestHandler):
     db_yolu = "tarama.sqlite"
     sinir = RateLimiter(per_window=5)
     sirket_adet = depo.SINIR_ADET
+    motorlar = ("postgresql",)  # SQL Server on surumu: ALIG_MSSQL=1 ile acilir
     sys_version = ""
 
     def _send(self, kod, govde=b"", ctype="text/plain; charset=utf-8", extra=()):
@@ -125,7 +126,7 @@ class H(BaseHTTPRequestHandler):
         if not sirket or len(sirket) > 160:
             return self._hata(422, "sirket", dil)
         try:
-            belge = yukleme.coz(alanlar.get("dosya", b""))
+            belge = yukleme.coz(alanlar.get("dosya", b""), self.motorlar)
         except yukleme.Gecersiz as e:
             tur, ayrinti = hata.dosya_hatasi(e.kod, e.ek, dil)
             return self._hata(422, tur, dil, ayrinti=ayrinti)
@@ -169,6 +170,8 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=8091)
     a = ap.parse_args(argv)
     H.db_yolu = a.db
+    if os.environ.get("ALIG_MSSQL") == "1":
+        H.motorlar = ("postgresql", "mssql")
     depo.baglan(a.db).close()
     print("dinliyor %s:%d" % (a.host, a.port), flush=True)
     ThreadingHTTPServer((a.host, a.port), H).serve_forever()

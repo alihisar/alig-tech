@@ -29,7 +29,7 @@ DIZINLER = [
     ("tests/", "Birim testleri"),
     ("docs/", "Tasarim notlari, plan, runbook, DNS, doldurulacak alanlar"),
     ("form/", "İletişim formu uç noktası (stdlib, SQLite)"),
-    ("tarama/", "Sağlık taraması: toplayıcı şablonu, katalog, kurallar, sunucu, depo"),
+    ("tarama/", "Sağlık taraması: toplayıcı şablonları, katalog, kurallar, sunucu, depo; `onsurum/` SQL Server ön sürümü"),
     ("yonetim/", "Yönetim paneli (TOTP girişli, denetim zincirli)"),
     ("deploy/", "Paketleme, bakım, duman testi, Ansible"),
 ]

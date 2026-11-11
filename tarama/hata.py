@@ -63,6 +63,7 @@ TEKNIK = {
     "eski": ("eski", "sorgu kataloğu özeti güncel betikle uyuşmuyor", "the query catalogue digest does not match the current script"),
     "alanlar": ("bicim", "üst düzey alanlar beklenenle uyuşmuyor", "top-level fields do not match what is expected"),
     "format": ("bicim", "dosya biçimi ya da veritabanı motoru desteklenmiyor", "file format or database engine is not supported"),
+    "motor_kapali": ("bicim", "bu veritabanı motoru için tarama henüz açık değil", "scanning is not open yet for this database engine"),
     "zaman": ("bicim", "oluşturma zamanı geçersiz", "creation time is not valid"),
     "alan_turu": ("bicim", "{ek}: alan türü geçersiz", "{ek}: field type is not valid"),
     "kontrol": ("bicim", "bilinmeyen denetim: {ek}", "unknown check: {ek}"),

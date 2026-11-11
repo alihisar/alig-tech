@@ -1,7 +1,7 @@
 """Rapor HTML'i. Tum degerler html.escape ile yazilir; nesne adlari yalniz kanit listesinde gorunur."""
 from html import escape
 
-from tarama import kurallar
+from tarama import katalog, kurallar
 
 M = {
     "tr": {"baslik": "Sağlık taraması raporu", "ozet": "Özet", "tarama": "Tarama zamanı (UTC)", "motor": "Motor",
@@ -11,6 +11,7 @@ M = {
            "kapsam": "Bu tarama neye bakmaz",
            "kapsam_l": ["Yedekten geri dönüşün gerçekten çalıştığı", "İşletim sistemi ve ağ ayarları", "Uygulama sorguları ve yük altındaki davranış", "Veri içeriği"],
            "uyari": "Bu rapor tavsiye niteliğindedir. Hiçbir değişiklik uygulanmamıştır.",
+           "onsurum": "SQL Server taraması ön sürümdür. Bulguları uygulamadan önce kendi ortamınızda doğrulayın.",
            "sil": "Raporu şimdi sil", "bitis": "Rapor şu tarihte otomatik silinir (UTC)", "cta": "Denetim iste", "ana": "alig.tech",
            "onem": {"kritik": "Kritik", "yuksek": "Yüksek", "orta": "Orta", "dusuk": "Düşük", "bilgi": "Bilgi"},
            "isb": {"kucuk": "küçük", "orta": "orta", "buyuk": "büyük"},
@@ -23,6 +24,7 @@ M = {
            "kapsam": "What this scan does not look at",
            "kapsam_l": ["Whether a restore from backup really works", "Operating system and network settings", "Application queries and behaviour under load", "Data contents"],
            "uyari": "This report is advisory. No changes have been applied.",
+           "onsurum": "The SQL Server scan is a preview. Verify findings in your own environment before acting on them.",
            "sil": "Delete report now", "bitis": "Report is deleted automatically on (UTC)", "cta": "Request an audit", "ana": "alig.tech",
            "onem": {"kritik": "Critical", "yuksek": "High", "orta": "Medium", "dusuk": "Low", "bilgi": "Info"},
            "isb": {"kucuk": "small", "orta": "medium", "buyuk": "large"},
@@ -46,10 +48,12 @@ def govde(rapor, dil, token, eylemler=True):
     belge = rapor["belge"]
     bulgu, olcul = kurallar.degerlendir(belge)
     sayim = {o: sum(1 for b in bulgu if b["onem"] == o) for o in kurallar.ONEM}
+    motor = belge.get("motor", "postgresql")
     p = ["<article class=\"wrap prose report\">", "<h1>%s</h1>" % escape(m["baslik"]), "<p>%s</p>" % escape(m["uyari"]),
+         "<p><strong>%s</strong></p>" % escape(m["onsurum"]) if motor == "mssql" else "",
          "<h2>%s</h2>" % escape(m["ozet"]), "<dl class=\"facts\">",
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["tarama"]), escape(belge["olusturma_utc"])),
-         "<dt>%s</dt><dd>PostgreSQL</dd>" % escape(m["motor"]),
+         "<dt>%s</dt><dd>%s</dd>" % (escape(m["motor"]), escape(katalog.MOTOR_AD.get(motor, motor))),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["surum"]), escape(m["evet"] if belge.get("maskeli") else m["hayir"])),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["bulgu"]), escape(", ".join("%s: %d" % (m["onem"][o], n) for o, n in sayim.items() if n) or m["yok"])),
          "<dt>%s</dt><dd>%d</dd>" % (escape(m["olcul"]), len(olcul)), "</dl>", "<h2>%s</h2>" % escape(m["bulgu"])]
