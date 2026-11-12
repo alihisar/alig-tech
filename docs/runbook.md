@@ -44,13 +44,31 @@ Veritabanı şeması yalnız ileri göçle değişir; sürüm geri alınırken v
 
 ## Yedekten geri yükleme
 
+Komut yedeği önce doğrular: SQLite bütünlük denetimi, tablo ve şema sürümü (yedek koddan yeni olamaz), denetim zincirinin sağlamlığı. Doğrulama gerçek dosyaya dokunmaz, geçici kopyada çalışır. `--evet` olmadan hiçbir şey değişmez.
+
 ```sh
-sudo systemctl stop alig-form alig-tarama
-sudo -u alig-web cp /var/backups/alig/tarama-<zaman>.sqlite /var/lib/alig/tarama.sqlite
-sudo rm -f /var/lib/alig/tarama.sqlite-wal /var/lib/alig/tarama.sqlite-shm
-sudo systemctl start alig-form alig-tarama
-python3 /srv/alig/current/tarama/depo.py dogrula /var/lib/alig/tarama.sqlite   # denetim zinciri
+sudo systemctl stop alig-form alig-tarama alig-yonetim
+# 1) kontrol (kuru calistirma); anahtar ve zincir basi varsa verin
+sudo -u alig-web bash -c 'set -a; . /etc/alig/env; \
+  python3 /srv/alig/current/deploy/bakim.py geri-yukle --veri /var/lib/alig \
+  --dosya /var/backups/alig/tarama-<zaman>.sqlite --bas /guvenli/yer/bas.json'
+# 2) ayni komut --evet ile gercekten yukler
+sudo systemctl start alig-form alig-tarama alig-yonetim
+python3 /srv/alig/current/tarama/depo.py dogrula /var/lib/alig/tarama.sqlite   # zincir, anahtarla
 ```
+
+Davranış:
+- Hedef dosya başka süreç tarafından kullanılıyorsa komut durur; önce servisleri durdurun.
+- Mevcut dosya silinmez, `<ad>.onceki-<zaman>` olarak yanında kalır; sorun çıkarsa geri koyabilirsiniz. Gereksiz olunca elle silin.
+- Komutu `alig-web` kullanıcısıyla çalıştırın; root ile çalışırsa dosya sahibi önceki dosyanınki olarak korunur.
+- Eski `-wal` ve `-shm` dosyaları kaldırılır, yeni dosya 0600 izinli yazılır, yükleme sonrası bütünlük ve içerik özeti yedekle karşılaştırılır; uyuşmazlıkta önceki dosya geri konur.
+- Çıkış kodu: 0 başarılı ya da kuru çalıştırma, 1 doğrulama ya da yükleme hatası (hiçbir şey değişmedi), 2 kullanım hatası.
+- Anahtarlı kayıtlar anahtar olmadan doğrulanamaz ve uyarı verilir; yanlış anahtarda yedek reddedilir. Zincir başı verilmezse baştan üretilmiş ya da son kayıtları kesilmiş yedek yakalanamaz, komut bunu uyarı olarak yazar.
+- Geri yükleme yedeğin alındığı andan sonraki kayıtları (rapor, talep, denetim) geri getirmez.
+
+Yedek, sunucuyla aynı diskte durur: sunucu kaybına karşı koruma sağlamaz. Yedek dizinini düzenli olarak başka bir yere kopyalayın `[doldurulacak: uzak yedek hedefi]`. Sunucu kaybında boş bir veri dizinine de yüklenebilir (hedef dosya yoksa doğrudan yazılır).
+
+**Durum:** birim testleri geçici dizinde geri yüklemeyi dener (bozulma, kesilmiş zincir, yanlış anahtar, kullanımdaki hedef). Gerçek sunucuda, systemd servisleri durdurulup başlatılarak henüz denenmedi.
 
 ### Denetim zinciri: anahtar ve zincir başı
 

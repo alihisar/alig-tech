@@ -1,5 +1,7 @@
 import hashlib
+import json
 import os
+import shutil
 import sqlite3
 import sys
 import tarfile
@@ -146,6 +148,152 @@ class SaklamaTests(unittest.TestCase):
     def test_tablo_tum_siniflari_listeler(self):
         adlar = [r[0] for r in saklama.tablo({})]
         self.assertEqual(adlar, list(saklama.SINIFLAR))
+
+
+class GeriYuklemeTests(unittest.TestCase):
+    def kur(self, anahtarli=False):
+        self.veri, self.yedek = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        con = depo.baglan(str(self.veri / "tarama.sqlite"))
+        ort = {depo.ANAHTAR_ORTAM: "k" * 40} if anahtarli else {}
+        with mock.patch.dict(os.environ, ort):
+            for i in range(3):
+                depo.denetim_ekle(con, "musteri", "olay %d" % i)
+        depo.rapor_ekle(con, "tok", "postgresql", "tr", {"a": 1})
+        con.close()
+        zaman = "20261112T000000Z"
+        self.yd = bakim.yedekle(self.veri / "tarama.sqlite", self.yedek, zaman)
+
+    def cikti(self):
+        self.satirlar = []
+        return self.satirlar.append
+
+    def test_yedek_bozulur_geri_yuklenir_zincir_saglam(self):
+        self.kur()
+        hedef = self.veri / "tarama.sqlite"
+        c = sqlite3.connect(hedef)
+        c.execute("UPDATE denetim SET olay='sahte' WHERE seq=2")  # veri bozuldu
+        c.execute("DELETE FROM rapor")
+        c.commit()
+        c.close()
+        self.assertEqual(depo.denetim_dogrula(depo.baglan(str(hedef))), 2)
+        self.assertEqual(bakim.geri_yukle(self.yd, self.veri, evet=True, cikti=self.cikti()), 0)
+        con = depo.baglan(str(hedef))
+        self.assertIsNone(depo.denetim_dogrula(con))
+        self.assertEqual(con.execute("SELECT count(*) FROM rapor").fetchone()[0], 1)
+        self.assertEqual(oct(hedef.stat().st_mode)[-3:], "600")
+        self.assertEqual(len(list(self.veri.glob("tarama.sqlite.onceki-*"))), 1)  # bozuk dosya silinmez, ayri durur
+        con.close()
+
+    def test_evet_olmadan_hicbir_sey_degismez(self):
+        self.kur()
+        hedef = self.veri / "tarama.sqlite"
+        c = sqlite3.connect(hedef)
+        c.execute("DELETE FROM rapor")
+        c.commit()
+        c.close()
+        once = bakim._ozet(hedef)
+        self.assertEqual(bakim.geri_yukle(self.yd, self.veri, cikti=self.cikti()), 0)
+        self.assertEqual(bakim._ozet(hedef), once)
+        self.assertTrue(any("KURU CALISTIRMA" in x for x in self.satirlar))
+
+    def test_bozuk_yedek_reddedilir_ve_hedefe_dokunulmaz(self):
+        self.kur()
+        hedef = self.veri / "tarama.sqlite"
+        once = bakim._ozet(hedef)
+        bozuk = self.yedek / "tarama-20261113T000000Z.sqlite"
+        veri = bytearray(self.yd.read_bytes())
+        veri[4096:4196] = b"\xff" * 100
+        bozuk.write_bytes(bytes(veri))
+        self.assertEqual(bakim.geri_yukle(bozuk, self.veri, evet=True, cikti=self.cikti()), 1)
+        metin = bozuk.parent / "tarama-20261114T000000Z.sqlite"
+        metin.write_text("sqlite degil")
+        self.assertEqual(bakim.geri_yukle(metin, self.veri, evet=True, cikti=self.cikti()), 1)
+        self.assertEqual(bakim._ozet(hedef), once)
+        self.assertTrue(any("YAPILMADI" in x for x in self.satirlar))
+
+    def test_zinciri_kirik_yedek_reddedilir(self):
+        self.kur()
+        k = self.yedek / "tarama-20261115T000000Z.sqlite"
+        shutil.copyfile(self.yd, k)
+        c = sqlite3.connect(k)
+        c.execute("UPDATE denetim SET olay='sahte' WHERE seq=1")
+        c.commit()
+        c.close()
+        self.assertEqual(bakim.geri_yukle(k, self.veri, evet=True, cikti=self.cikti()), 1)
+        self.assertTrue(any("denetim zinciri kirik: kayit #1" in x for x in self.satirlar))
+
+    def test_zincir_basi_kesilmis_yedegi_yakalar(self):
+        self.kur()
+        bas = depo.zincir_basi(sqlite3.connect(self.veri / "tarama.sqlite"))
+        bas_dosya = self.yedek / "bas.json"
+        bas_dosya.write_text(json.dumps(bas), encoding="utf-8")
+        self.assertEqual(bakim.geri_yukle(self.yd, self.veri, bas=bas_dosya, cikti=self.cikti()), 0)
+        k = self.yedek / "tarama-20261115T000000Z.sqlite"  # son kayit kesilmis yedek
+        shutil.copyfile(self.yd, k)
+        c = sqlite3.connect(k)
+        c.execute("DELETE FROM denetim WHERE seq=3")
+        c.commit()
+        c.close()
+        self.assertEqual(bakim.geri_yukle(k, self.veri, bas=bas_dosya, cikti=self.cikti()), 1)
+
+    def test_anahtarli_zincir_anahtarsiz_uyari_anahtarla_dogrulanir(self):
+        self.kur(anahtarli=True)
+        self.assertEqual(bakim.geri_yukle(self.yd, self.veri, cikti=self.cikti()), 0)
+        self.assertTrue(any("anahtar olmadan" in x for x in self.satirlar))
+        with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: "k" * 40}):
+            self.assertEqual(bakim.geri_yukle(self.yd, self.veri, cikti=self.cikti()), 0)
+            self.assertFalse(any("anahtar olmadan" in x for x in self.satirlar))
+        with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: "y" * 40}):  # yanlis anahtar
+            self.assertEqual(bakim.geri_yukle(self.yd, self.veri, cikti=self.cikti()), 1)
+
+    def test_hedef_kullanimdaysa_durur(self):
+        self.kur()
+        hedef = self.veri / "tarama.sqlite"
+        tutan = sqlite3.connect(hedef)
+        tutan.execute("BEGIN EXCLUSIVE")
+        try:
+            self.assertEqual(bakim.geri_yukle(self.yd, self.veri, evet=True, cikti=self.cikti()), 1)
+            self.assertTrue(any("kullanimda" in x for x in self.satirlar))
+        finally:
+            tutan.execute("ROLLBACK")
+            tutan.close()
+
+    def test_yeni_sema_surumlu_yedek_reddedilir(self):
+        self.kur()
+        k = self.yedek / "tarama-20261116T000000Z.sqlite"
+        shutil.copyfile(self.yd, k)
+        c = sqlite3.connect(k)
+        c.execute("PRAGMA user_version=%d" % (len(depo.GOCLER) + 5))
+        c.commit()
+        c.close()
+        self.assertEqual(bakim.geri_yukle(k, self.veri, evet=True, cikti=self.cikti()), 1)
+
+    def test_bilinmeyen_ad_ve_hedefsiz_yukleme(self):
+        self.kur()
+        x = self.yedek / "baska-20261116T000000Z.sqlite"
+        shutil.copyfile(self.yd, x)
+        self.assertEqual(bakim.geri_yukle(x, self.veri, evet=True, cikti=self.cikti()), 2)
+        bos = Path(tempfile.mkdtemp())  # sunucu kaybi: hedef dizin bos
+        self.assertEqual(bakim.geri_yukle(self.yd, bos, evet=True, cikti=self.cikti()), 0)
+        self.assertIsNone(depo.denetim_dogrula(depo.baglan(str(bos / "tarama.sqlite"))))
+
+    def test_komut_satiri(self):
+        self.kur()
+        self.assertEqual(bakim.main(["geri-yukle", "--veri", str(self.veri), "--dosya", str(self.yd)]), 0)
+
+    def test_yonetim_ve_form_yedegi(self):
+        veri, yedek = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        y = ydepo.baglan(str(veri / "yonetim.sqlite"))
+        ydepo.denetim_ekle(y, "ali", "bir")
+        y.close()
+        yy = bakim.yedekle(veri / "yonetim.sqlite", yedek, "20261112T000000Z")
+        f = sqlite3.connect(veri / "form.sqlite")
+        f.execute(FORM_SEMA)
+        f.commit()
+        f.close()
+        fy = bakim.yedekle(veri / "form.sqlite", yedek, "20261112T000000Z")
+        self.assertEqual(bakim.geri_yukle(yy, veri, evet=True, cikti=lambda *_: None), 0)
+        self.assertEqual(bakim.geri_yukle(fy, veri, evet=True, cikti=lambda *_: None), 0)
 
 
 class DumanTests(unittest.TestCase):
