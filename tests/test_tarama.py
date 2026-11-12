@@ -31,6 +31,32 @@ def temiz_belge():
             "olusturma_utc": "2026-11-10T12:00:00Z", "maskeli": False, "superuser": False, "kontroller": k}
 
 
+class AyristirmaTests(unittest.TestCase):
+    def kod(self, veri):
+        try:
+            yukleme.coz(veri)
+        except yukleme.Gecersiz as e:
+            return e.kod
+        return None
+
+    def test_derinlik_siniri(self):
+        self.assertEqual(self.kod(b"[" * 200000), "derin")
+        self.assertEqual(self.kod(b'{"a":' * 100000), "derin")
+        self.assertEqual(self.kod(b'{"a":' * (yukleme.MAX_DERINLIK + 1) + b"1" + b"}" * (yukleme.MAX_DERINLIK + 1)), "derin")
+        ic = b'{"x": "[[[[[[[[[[[[[[[[[[[[ {{{{{{{{{{{{{{{{{{{{{{ \\" [[[["}'   # metin icindeki parantez sayilmaz
+        self.assertEqual(self.kod(ic), "alanlar")
+
+    def test_standart_disi_json_reddedilir(self):
+        self.assertEqual(self.kod(b'{"format": NaN}'), "json")
+        self.assertEqual(self.kod(b'{"format": -Infinity}'), "json")
+        self.assertEqual(self.kod(b'{"format":1,"format":2}'), "json")
+        self.assertEqual(self.kod(b"\xff\xfe"), "json")
+        self.assertEqual(self.kod(b""), "json")
+
+    def test_gecerli_belge_hala_kabul_edilir(self):
+        self.assertIsNone(self.kod(json.dumps(temiz_belge(), indent=1).encode()))
+
+
 class KatalogTests(unittest.TestCase):
     def test_katalog_yalniz_select_ve_yasakli_sozcuk_yok(self):
         yasakli = [w.strip() for w in katalog.YASAKLI]
@@ -258,6 +284,14 @@ class SunucuTests(unittest.TestCase):
         olaylar = [x[0] for x in con.execute("SELECT olay FROM denetim")]
         self.assertTrue(any("yuklendi" in o for o in olaylar) and any("silindi" in o for o in olaylar))
         self.assertFalse(any(yol.split("/")[2] in o for o in olaylar))  # token denetim kaydina yazilmaz
+
+    def test_dusmanca_json_sunucuyu_dusurmez(self):
+        for veri in (b"[" * 200000, b'{"a":' * 100000, b'{"format": NaN}', b'{"format": Infinity}',
+                     b'{"format":1,"format":2}', b"\xff\xfe{}", b'{"a":"' + b"\\u0000" * 10 + b'"}', b"9" * 100000):
+            r = self.yukle(veri)
+            self.assertEqual(r.status, 422, veri[:20])
+            self.assertIn("<html", r.govde)
+        self.assertEqual(self.yukle(json.dumps(temiz_belge()).encode()).status, 303)   # sunucu ayakta
 
     def test_hata_sayfasi_kurumsal_ve_iki_dilli(self):
         r = self.yukle(b"{bozuk")

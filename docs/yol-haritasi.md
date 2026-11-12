@@ -6,21 +6,34 @@ tek satırla değiştirilebilir olur. Engelleyen kararlar kodlanmaz. Gece görev
 
 ## Sıradaki maddeler
 
-| # | Madde | Bitti sayılır | Durum |
-| --- | --- | --- | --- |
-| 1 | Kip B ayrı çalıştırıcı servisi: tarama web sürecinden ayrı, yetkisi kısıtlı bir süreçte çalışır; parola yalnızca yerel soket üzerinden bellekte taşınır | Çalıştırıcı, istemci, systemd birimi (varsayılan kurulmaz), testler | yapıldı |
-| 2 | Firma kayıtlarının saklama süresi: son etkinlikten 12 ay sonra otomatik silme, bakım işinde | Bakım silmesi, panelde kalan süre, test | bekliyor |
-| 3 | Yönetim panelinde doğrudan bağlantı istekleri: kim, ne zaman, sonuç (adres yok, yalnız özet) | Liste sayfası, test | bekliyor |
-| 4 | Kip B sunucu sertifikası doğrulaması: müşteri CA sertifikası verirse `verify-full` | Form alanı, doğrulama, gerçek PostgreSQL + TLS denemesi | bekliyor |
-| 5 | Kip B yanıt süresini sabitleme (port tarama zamanlamasına karşı) | Başarısız bağlantıda sabit alt süre, test | bekliyor |
-| 6 | E-posta doğrulamasının gönderimden bağımsız kısmı: tek kullanımlık kod, süre, deneme sınırı, doğrulanmış firma işareti; gönderici takılabilir | Kod üretimi ve doğrulama, panelde durum; gönderim yöntemi seçilince tek sınıf eklenir | bekliyor |
-| 7 | Hazırlık kılavuzuna doğrudan bağlantı bölümü (yalnızca özellik açıkken görünür sayfa) | TR ve EN metin, test | bekliyor |
-| 8 | Ana sayfada sağlık taraması bölümü: ne verir, ne almaz, örnek rapor görüntüsü | TR ve EN, boyut bütçesi içinde | bekliyor |
-| 9 | Örnek rapor sayfası (`/ornek-rapor/`): uydurma olmayan, test verisinden üretilmiş ve öyle etiketlenmiş rapor | Sayfa, i18n, test | bekliyor |
-| 10 | Tarama raporunu yazdırılabilir özet olarak indirme (yalnız yazdırma stili, PDF üretimi yok) | Yazdırma düzeni testi | bekliyor |
-| 11 | PostgreSQL katalog genişletmesi: replikasyon gecikmesi, `pg_hba` özeti, uzun süren sorgular, şişkinlik tahmini | Her denetim için kural, test, gerçek PostgreSQL 16 denemesi | bekliyor |
-| 12 | Dağıtım: çalıştırıcı ve Kip B için Ansible değişkenleri, runbook bölümü, duman testi | `ansible-lint` temiz, runbook güncel | bekliyor |
-| 13 | SQL Server ön sürümünü gerçek sunucu çıktısına göre düzeltme | Ali'nin gönderdiği `ok` / `ATLANDI` listesi | Ali'yi bekliyor |
+Sıra `docs/master-prompt-v2.md` belgesindeki önceliklere göredir (P0 önce). Mevcut durumun dökümü: `docs/faz0-analiz.md`.
+
+| # | Öncelik | Madde | Bitti sayılır | Durum |
+| --- | --- | --- | --- | --- |
+| 1 | P3 | Kip B ayrı çalıştırıcı servisi | Çalıştırıcı, istemci, systemd birimi, testler | yapıldı (gerçek sunucuda sınanmadı) |
+| 2 | P0 | Yükleme ayrıştırıcısını sertleştirme: derinlik sınırı, standart dışı JSON reddi | Düşmanca JSON testleri, sunucu düşmez | yapıldı |
+| 3 | P0 | Denetim zincirini anahtarlı doğrulama: `ALIG_DENETIM_ANAHTARI` ile HMAC, zincir başını dışa aktarma komutu, panelde doğrulama durumu | Anahtarsız yeniden üretilen zincir doğrulamada yakalanır; eski kayıtlar bozulmaz | bekliyor |
+| 4 | P0 | Veri sınıfları ve yapılandırılabilir saklama: firma kaydı (varsayılan 12 ay), rapor, talep, denetim, oturum; bakım işinde silme; yedeklerden silme politikası belgesi | Saklama tablosu tek yerde, silme denetime yazılır, test | bekliyor |
+| 5 | P0 | Silme ve erişim negatif testleri: silinen rapora API, bağlantı ve eski bağlantıyla erişilemez; yinelenen yükleme denetimi | Testler, aynı dosya ikinci hak harcamaz | bekliyor |
+| 6 | P0 | Yedekten geri yükleme: `deploy/bakim.py geri-yukle`, bütünlük denetimi, test, runbook | Yedek alınır, bozulur, geri yüklenir, zincir sağlam | bekliyor |
+| 7 | P0 | Kimlik doğrulama eksikleri: yeni IP'den girişin denetim kaydı, denetim kaydında yapısal alanlar (firma, hedef, sonuç) | Testler | bekliyor |
+| 8 | P0 | Canlıya alma doğrulama raporu: sözdizimi, kuru çalıştırma ve gerçek dağıtımı ayrı gösteren denetim listesi; servis kullanıcıları, izinler, disk doluluk denetimi | `docs/runbook.md` güncel, her satır DONE ya da NOT_TESTED | bekliyor |
+| 9 | P1 | Ortak kanıt modeli ve durumlar: kural kimliği, kategori, PASS, FAIL, WARNING, UNKNOWN, NOT_APPLICABLE, UNAVAILABLE, güven düzeyi, kaynak | Her denetim bir durum üretir, veri yokken PASS çıkmaz | bekliyor |
+| 10 | P1 | Sürüm yetenek matrisi PostgreSQL 12–18: denetim başına desteklenen sürüm ve gereken yetki; desteklenmeyen sürümde sorgu çalışmaz | Matris, toplayıcı sürüme göre atlar, test | bekliyor |
+| 11 | P1 | Sağlık puanı ve kanıt kapsamı: 0–100, kategori bazında, katsayılar yapılandırılabilir | Bilinmeyen durum puanı yükseltmez, test | bekliyor |
+| 12 | P1 | Katalog genişletme: replikasyon gecikmesi, wraparound ve freeze yaşı, autovacuum, `pg_stat_statements` erişilebilirliği, geçici dosyalar | Kural, test, gerçek PostgreSQL 16 denemesi | bekliyor |
+| 13 | P1 | Geçmiş karşılaştırması: NEW, PERSISTING, RESOLVED, REGRESSED, UNKNOWN; kaybolan kanıt çözülmüş sayılmaz | Veritabanı kimliği, karşılaştırma, test | bekliyor |
+| 14 | P1 | Rapor: yönetici özeti ve teknik rapor görünümleri, yazdırma düzeni | TR ve EN, kanıt ile yorum ayrı | bekliyor |
+| 15 | P1 | E-posta doğrulamasının gönderimden bağımsız kısmı: tek kullanımlık süreli kod, takılabilir gönderici | Gönderici yokken canlıda açılmaz | bekliyor |
+| 16 | P1 | Müşteri portalı 1: giriş, firma izolasyonu veri erişim katmanında, izolasyon testleri | Başka firmanın kaydına tahmin edilen kimlikle erişilemez | bekliyor |
+| 17 | P1 | Müşteri portalı 2: tarama geçmişi, rapor silme, hizmet talebi, kullanım hakkı, veri silme talebi | TR ve EN, test | bekliyor |
+| 18 | P1 | Ana sayfa: hizmet kartları, "nasıl çalışır", güvenlik yaklaşımı, SSS | Kanıtsız iddia yok, boyut bütçesi içinde | bekliyor |
+| 19 | P1 | Örnek rapor sayfası: test verisinden üretilmiş ve öyle etiketlenmiş | Sayfa, i18n, test | bekliyor |
+| 20 | P1 | Yönetim paneli: gösterge sayıları ve ticari süreç durumları (basit durum makinesi ve not) | Test | bekliyor |
+| 21 | P1 | İş kuyruğu: yalnızca doğrudan bağlantı için, SQLite tabanlı, ayrı işçi | Durum geçişleri idempotent, yeniden başlatmada toparlanır | bekliyor |
+| 22 | P2 | SQL Server: yetenek tablosu ve gerçek sunucu çıktısına göre düzeltme | Ali'nin gönderdiği `ok` / `ATLANDI` listesi | Ali'yi bekliyor |
+| 23 | P2 | LLM rapor özeti: varsayılan kapalı, kanıt üretemez, puanı değiştiremez | Sağlayıcı yokken rapor aynen çalışır | bekliyor |
+| 24 | P3 | Kip B kalanları: istek listesi panelde, sunucu sertifikası doğrulaması, yanıt süresini sabitleme, kılavuz bölümü | Ayrı kabul kapısı | bekliyor |
 
 ## Varsayılanla ilerleyenler (onay bekliyor, engellemiyor)
 

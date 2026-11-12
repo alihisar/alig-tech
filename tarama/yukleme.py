@@ -23,12 +23,48 @@ class Gecersiz(ValueError):
         self.ek = ek
 
 
+MAX_DERINLIK = 8   # belge > kontroller > kontrol > satirlar > satir: 5 duzey; pay birakildi
+
+
+def _derinlik_denetle(veri):
+    """Ayristirmadan once ic ice yapi derinligini sinirlar (metin icindeki parantezler sayilmaz)."""
+    derinlik, metinde, kacis = 0, False, False
+    for b in veri:
+        if metinde:
+            if kacis:
+                kacis = False
+            elif b == 0x5C:      # ters bolu
+                kacis = True
+            elif b == 0x22:      # cift tirnak
+                metinde = False
+        elif b == 0x22:
+            metinde = True
+        elif b in (0x5B, 0x7B):  # [ {
+            derinlik += 1
+            if derinlik > MAX_DERINLIK:
+                raise Gecersiz("yapi cok derin", "derin")
+        elif b in (0x5D, 0x7D):  # ] }
+            derinlik -= 1
+
+
+def _sabit_yok(ad):
+    raise ValueError("standart disi sabit: " + ad)
+
+
+def _tekil_anahtar(ciftler):
+    d = dict(ciftler)
+    if len(d) != len(ciftler):
+        raise ValueError("yinelenen anahtar")
+    return d
+
+
 def coz(veri, motorlar=("postgresql",)):
     if len(veri) > MAX_BAYT:
         raise Gecersiz("dosya cok buyuk", "buyuk")
+    _derinlik_denetle(veri)
     try:
-        belge = json.loads(veri.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
+        belge = json.loads(veri.decode("utf-8"), parse_constant=_sabit_yok, object_pairs_hook=_tekil_anahtar)
+    except (UnicodeDecodeError, ValueError, RecursionError):
         raise Gecersiz("gecerli JSON degil", "json")
     return dogrula(belge, motorlar)
 
