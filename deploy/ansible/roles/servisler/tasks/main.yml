@@ -27,6 +27,11 @@
     printf 'ALIG_FORM_SALT=%s\n' "$(openssl rand -hex 32)" > /etc/alig/env
   args:
     creates: /etc/alig/env
+- name: Denetim zinciri anahtari (yoksa eklenir, mevcut anahtar degismez)
+  ansible.builtin.shell: |
+    umask 077
+    grep -q '^ALIG_DENETIM_ANAHTARI=' /etc/alig/env || printf 'ALIG_DENETIM_ANAHTARI=%s\n' "$(openssl rand -hex 32)" >> /etc/alig/env
+  changed_when: false
 - name: Ortam dosyasi izinleri
   ansible.builtin.file:
     path: /etc/alig/env

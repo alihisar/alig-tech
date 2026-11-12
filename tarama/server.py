@@ -318,6 +318,10 @@ def main(argv=None):
         print("UYARI: ALIG_DOGRUDAN=1 ama ALIG_CALISTIRICI_SOKETI yok; dogrudan baglanti KAPALI kaldi", flush=True)
     if os.environ.get("ALIG_MSSQL") == "1":
         H.motorlar = ("postgresql", "mssql")
+    try:
+        depo.denetim_anahtari()
+    except depo.AnahtarHatasi as ex:
+        raise SystemExit("hata: %s" % ex)
     depo.baglan(a.db).close()
     print("dinliyor %s:%d" % (a.host, a.port), flush=True)
     ThreadingHTTPServer((a.host, a.port), H).serve_forever()

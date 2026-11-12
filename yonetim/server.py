@@ -303,8 +303,9 @@ class H(BaseHTTPRequestHandler):
         if Path(self.tarama_db).exists():
             tc = tdepo.baglan(self.tarama_db)
             try:
-                bozuk = tdepo.denetim_dogrula(tc)
-                zincir_t = "sağlam" if bozuk is None else "KIRIK: kayıt #%d" % bozuk
+                zd = tdepo.denetim_durum(tc, tdepo.denetim_anahtari())
+                bozuk = zd["bozuk"]
+                zincir_t = tdepo.denetim_metni(zd).replace("sağlam (anahtarsız kayıtlar)", "sağlam")
                 red = tc.execute("SELECT count(*) FROM denetim WHERE olay LIKE 'sirket siniri asildi%'").fetchone()[0]
                 kull = tc.execute("SELECT count(DISTINCT anahtar_sha256) FROM kullanim").fetchone()[0]
                 self._firma_esitle(tc)
@@ -312,7 +313,7 @@ class H(BaseHTTPRequestHandler):
                 pasif_n = tc.execute("SELECT count(*) FROM firma WHERE durum='pasif'").fetchone()[0]
             finally:
                 tc.close()
-        yb = depo.denetim_dogrula(con)
+        yb = depo.denetim_dogrula(con, tdepo.denetim_anahtari())
         kutu = lambda ad, deger, alt="", kotu=False: "<div class=\"stat%s\"><p class=\"stat-k\">%s</p><p class=\"stat-v\">%s</p><p class=\"stat-s\">%s</p></div>" % (" bad" if kotu else "", e(ad), e(deger), e(alt))  # noqa: E731
         ic = "<div class=\"stats\">" + "".join([
             kutu("Kayıtlı firma", firma_n, "aktif %d, pasif %d" % (firma_n - pasif_n, pasif_n)),
@@ -557,10 +558,12 @@ class H(BaseHTTPRequestHandler):
         except ValueError:
             sayfa = 1
         satirlar, bozuk, toplam = [], None, 0
+        zd = {"bozuk": None, "dogrulanamayan": 0, "anahtarli": False, "kayit": 0, "son": None}
         c = con if kaynak == "yonetim" else (tdepo.baglan(self.tarama_db) if Path(self.tarama_db).exists() else None)
         if c is not None:
             try:
-                bozuk = tdepo.denetim_dogrula(c)
+                zd = tdepo.denetim_durum(c, tdepo.denetim_anahtari())
+                bozuk = zd["bozuk"]
                 toplam = c.execute("SELECT count(*) FROM denetim").fetchone()[0]
                 for seq, z, ak, ol, oz in c.execute("SELECT seq, zaman_utc, aktor, olay, ozet FROM denetim ORDER BY seq DESC LIMIT 50 OFFSET ?", ((sayfa - 1) * 50,)):
                     satirlar.append([e(seq), e(ist(z)), e(ak), e(ol), "<code>%s</code>" % e(oz[:16])])
@@ -610,6 +613,10 @@ def main(argv=None):
     a = ap.parse_args(argv)
     H.ydb, H.form_db, H.tarama_db, H.yedek_dizini = a.db, a.form_db, a.tarama_db, a.yedek
     H.form_portu, H.tarama_portu, H.guvenli_cerez = a.form_portu, a.tarama_portu, not a.guvensiz_cerez
+    try:
+        depo.zincir.denetim_anahtari()
+    except depo.zincir.AnahtarHatasi as ex:
+        raise SystemExit("hata: %s" % ex)
     depo.baglan(a.db).close()
     print("yonetim paneli dinliyor 127.0.0.1:%d" % a.port, flush=True)
     ThreadingHTTPServer(("127.0.0.1", a.port), H).serve_forever()  # bilerek yalniz loopback

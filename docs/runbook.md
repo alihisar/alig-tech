@@ -9,7 +9,7 @@ Hedef: Ubuntu 24.04 tek sunucu, nginx (TLS), iki Python servisi (`alig-form` 809
 | Sürümler | `/srv/alig/releases/<sürüm>`, `current` ve `onceki` bağlantıları |
 | Veri (SQLite) | `/var/lib/alig/form.sqlite`, `/var/lib/alig/tarama.sqlite` |
 | Yedek | `/var/backups/alig/` (günlük 02:17 UTC, son 14 adet, 0600) |
-| Gizli tuz | `/etc/alig/env` (`ALIG_FORM_SALT`, yalnız root ve servis grubu okur) |
+| Gizli tuz ve denetim anahtarı | `/etc/alig/env` (`ALIG_FORM_SALT`, `ALIG_DENETIM_ANAHTARI`; yalnız root ve servis grubu okur) |
 | nginx günlükleri | `/var/log/nginx/alig-*.log` (30 gün; rapor bağlantısı kodu yazılmaz) |
 
 ## İlk kurulum
@@ -51,6 +51,14 @@ sudo rm -f /var/lib/alig/tarama.sqlite-wal /var/lib/alig/tarama.sqlite-shm
 sudo systemctl start alig-form alig-tarama
 python3 /srv/alig/current/tarama/depo.py dogrula /var/lib/alig/tarama.sqlite   # denetim zinciri
 ```
+
+### Denetim zinciri: anahtar ve zincir başı
+
+Yeni denetim kayıtları `ALIG_DENETIM_ANAHTARI` ile HMAC-SHA-256 olarak yazılır; anahtar yoksa eski SHA-256 biçimi kullanılır. Eski kayıtlar bozulmaz. Anahtarlı kayıtlardan sonra anahtarsız kayıt gelirse zincir kırık sayılır. Anahtar en az 32 karakter olmalı, kısa anahtarla servisler başlamaz.
+
+Doğrulama anahtarı ortamdan okur: `sudo bash -c 'set -a; . /etc/alig/env; python3 /srv/alig/current/tarama/depo.py dogrula /var/lib/alig/tarama.sqlite'`. Anahtar olmadan çalıştırılırsa bağlantı denetlenir, HMAC denetlenemez ve komut 1 döner.
+
+Anahtar ve veritabanı aynı sunucuda durduğu sürece, sunucuya tam erişen biri zinciri yeniden üretebilir. Bunu yakalamak için zincir başını düzenli olarak sunucu dışına yazın: `python3 /srv/alig/current/tarama/depo.py bas /var/lib/alig/tarama.sqlite > bas.json`. Sonradan `dogrula <db> --bas bas.json` ile kontrol edilir; zincir başı değişmişse ya da son kayıtlar kesilmişse zincir kırık çıkar. Zincir başının nereye gideceği `[doldurulacak: zincir başı hedefi]` olarak açık duruyor. Anahtarı yedeklerden ayrı saklayın; anahtar kaybolursa eski anahtarlı kayıtlar doğrulanamaz.
 
 Yedek, sunucuyla aynı diskte durur: sunucu kaybına karşı koruma sağlamaz. Yedek dizinini düzenli olarak başka bir yere kopyalayın `[doldurulacak: uzak yedek hedefi]`.
 

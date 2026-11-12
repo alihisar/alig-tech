@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -218,6 +219,80 @@ class DepoTests(unittest.TestCase):
             depo.denetim_ekle(c, "a", "o%d" % i)
         c.execute("DELETE FROM denetim WHERE seq=2")
         self.assertIsNotNone(depo.denetim_dogrula(c))
+
+    def test_anahtarli_zincir_ve_eski_kayitlar(self):
+        c = self.con()
+        depo.denetim_ekle(c, "a", "eski")  # anahtarsiz kayit
+        anahtar = "k" * 40
+        with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: anahtar}):
+            depo.denetim_ekle(c, "a", "yeni")
+            depo.denetim_ekle(c, "a", "yeni2")
+            self.assertIsNone(depo.denetim_dogrula(c))
+            self.assertEqual(depo.denetim_durum(c, anahtar.encode())["anahtarli"], True)
+        self.assertEqual(c.execute("SELECT mod FROM denetim ORDER BY seq").fetchall(), [(0,), (1,), (1,)])
+        d = depo.denetim_durum(c)  # anahtar yok: baglanti saglam, HMAC denetlenemedi
+        self.assertIsNone(d["bozuk"])
+        self.assertEqual(d["dogrulanamayan"], 2)
+        self.assertIn("anahtar olmadan", depo.denetim_metni(d))
+
+    def test_anahtarsiz_yeniden_uretilen_zincir_yakalanir(self):
+        c = self.con()
+        anahtar = ("k" * 40).encode()
+        with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: anahtar.decode()}):
+            for i in range(3):
+                depo.denetim_ekle(c, "a", "o%d" % i)
+        # saldirgan 2. kaydi degistirip zinciri SHA-256 ile bastan uretir, mod=1 birakir
+        c.execute("UPDATE denetim SET olay='sahte' WHERE seq=2")
+        onceki = ""
+        for seq, aktor, olay in c.execute("SELECT seq, aktor, olay FROM denetim ORDER BY seq").fetchall():
+            oz = depo.ozet_hesapla(seq, aktor, olay, onceki)
+            c.execute("UPDATE denetim SET onceki=?, ozet=? WHERE seq=?", (onceki, oz, seq))
+            onceki = oz
+        self.assertEqual(depo.denetim_dogrula(c, anahtar), 1)
+        # mod=0'a cevirirse: anahtarli kayitlardan sonra anahtarsiz kayit olmaz, ama hepsi 0 ise bas dosyasi yakalar
+        c.execute("UPDATE denetim SET mod=0")
+        self.assertIsNone(depo.denetim_dogrula(c, anahtar))  # tek basina yetmez: bu yuzden zincir basi disa aktarilir
+
+    def test_zincir_basi_disa_aktarilir_ve_bastan_uretim_yakalanir(self):
+        c = self.con()
+        for i in range(3):
+            depo.denetim_ekle(c, "a", "o%d" % i)
+        bas = depo.zincir_basi(c)
+        self.assertEqual(bas["seq"], 3)
+        self.assertIsNone(depo.denetim_durum(c, None, bas)["bozuk"])
+        c.execute("UPDATE denetim SET olay='sahte' WHERE seq=1")
+        onceki = ""
+        for seq, aktor, olay in c.execute("SELECT seq, aktor, olay FROM denetim ORDER BY seq").fetchall():
+            oz = depo.ozet_hesapla(seq, aktor, olay, onceki)
+            c.execute("UPDATE denetim SET onceki=?, ozet=? WHERE seq=?", (onceki, oz, seq))
+            onceki = oz
+        self.assertIsNone(depo.denetim_durum(c)["bozuk"])  # bas olmadan yakalanamaz
+        self.assertEqual(depo.denetim_durum(c, None, bas)["bozuk"], 3)  # bas ile yakalanir
+        c.execute("DELETE FROM denetim WHERE seq=3")  # son kayitlarin kesilmesi
+        self.assertEqual(depo.denetim_durum(c, None, bas)["bozuk"], 3)
+
+    def test_kisa_anahtar_reddedilir(self):
+        with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: "kisa"}):
+            with self.assertRaises(depo.AnahtarHatasi):
+                depo.denetim_anahtari()
+
+    def test_cli_bas_ve_dogrula(self):
+        yol = str(Path(tempfile.mkdtemp()) / "t.sqlite")
+        c = depo.baglan(yol)
+        with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: "k" * 40}):
+            depo.denetim_ekle(c, "a", "bir")
+        c.close()
+        ort = dict(os.environ, **{depo.ANAHTAR_ORTAM: "k" * 40})
+        calis = lambda *a: subprocess.run([sys.executable, str(ROOT / "tarama" / "depo.py"), *a], capture_output=True, text=True, env=ort)  # noqa: E731
+        r = calis("bas", yol)
+        self.assertEqual(r.returncode, 0)
+        dosya = Path(yol).with_suffix(".bas.json")
+        dosya.write_text(r.stdout, encoding="utf-8")
+        self.assertEqual(calis("dogrula", yol, "--bas", str(dosya)).returncode, 0)
+        self.assertEqual(calis("dogrula", yol).returncode, 0)
+        ort2 = {k: v for k, v in ort.items() if k != depo.ANAHTAR_ORTAM}
+        r = subprocess.run([sys.executable, str(ROOT / "tarama" / "depo.py"), "dogrula", yol], capture_output=True, text=True, env=ort2)
+        self.assertEqual(r.returncode, 1)  # anahtarli kayit anahtar olmadan dogrulanamadi
 
     def test_token_saklanmaz_ve_sure(self):
         c = self.con()

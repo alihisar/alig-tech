@@ -23,6 +23,7 @@ GOCLER = [
        guncelleme_utc TEXT NOT NULL, guncelleyen TEXT NOT NULL)""",
     """CREATE TABLE denetim(seq INTEGER PRIMARY KEY, zaman_utc TEXT NOT NULL, aktor TEXT NOT NULL, olay TEXT NOT NULL,
        onceki TEXT NOT NULL, ozet TEXT NOT NULL)""",
+    """ALTER TABLE denetim ADD COLUMN mod INTEGER NOT NULL DEFAULT 0""",
 ]
 BICIM = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -48,6 +49,7 @@ def baglan(yol):
 
 denetim_ekle = zincir.denetim_ekle
 denetim_dogrula = zincir.denetim_dogrula
+denetim_durum = zincir.denetim_durum
 
 
 # --- kullanicilar ---

@@ -1,7 +1,9 @@
-"""SQLite (WAL) deposu ve SHA-256 zincirli denetim kaydi. Zamanlar UTC.
-Dogrulama: python3 tarama/depo.py dogrula <db>"""
+"""SQLite (WAL) deposu ve zincirli denetim kaydi (anahtar varsa HMAC-SHA-256, yoksa SHA-256). Zamanlar UTC.
+Dogrulama: python3 tarama/depo.py dogrula <db> [--bas dosya.json]; zincir basi: python3 tarama/depo.py bas <db>"""
 import hashlib
+import hmac
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -27,6 +29,8 @@ GOCLER = [
        kanit TEXT NOT NULL, ad TEXT NOT NULL, ip TEXT NOT NULL, port INTEGER NOT NULL, veritabani TEXT NOT NULL,
        kullanici TEXT NOT NULL, maskele INTEGER NOT NULL DEFAULT 0, dil TEXT NOT NULL, olusturma_utc TEXT NOT NULL,
        bitis_utc TEXT NOT NULL, deneme INTEGER NOT NULL DEFAULT 0, durum TEXT NOT NULL DEFAULT 'bekliyor')""",
+    # anahtarli denetim zinciri: 0 = eski SHA-256 kaydi, 1 = HMAC-SHA-256 (ALIG_DENETIM_ANAHTARI)
+    """ALTER TABLE denetim ADD COLUMN mod INTEGER NOT NULL DEFAULT 0""",
 ]
 ISTEK_DAKIKA = 30
 ISTEK_DENEME = 3
@@ -53,25 +57,91 @@ def token_ozeti(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def ozet_hesapla(seq, aktor, olay, onceki):
-    return hashlib.sha256("|".join([str(seq), aktor, olay, onceki]).encode()).hexdigest()
+ANAHTAR_ORTAM = "ALIG_DENETIM_ANAHTARI"
+ANAHTAR_MIN = 32
+
+
+class AnahtarHatasi(ValueError):
+    pass
+
+
+def denetim_anahtari(ortam=None):
+    """Ortamdaki denetim anahtari (bytes) ya da tanimsizsa None. Kisa anahtar sessizce kabul edilmez."""
+    ham = (os.environ if ortam is None else ortam).get(ANAHTAR_ORTAM, "")
+    if not ham:
+        return None
+    if len(ham) < ANAHTAR_MIN:
+        raise AnahtarHatasi("%s en az %d karakter olmali" % (ANAHTAR_ORTAM, ANAHTAR_MIN))
+    return ham.encode()
+
+
+def ozet_hesapla(seq, aktor, olay, onceki, anahtar=None):
+    """anahtar yoksa eski SHA-256 bicimi; varsa HMAC-SHA-256 (ayri onek: iki bicim birbirine karismaz)."""
+    if anahtar is None:
+        return hashlib.sha256("|".join([str(seq), aktor, olay, onceki]).encode()).hexdigest()
+    return hmac.new(anahtar, "|".join(["k", str(seq), aktor, olay, onceki]).encode(), hashlib.sha256).hexdigest()
 
 
 def denetim_ekle(con, aktor, olay):
+    anahtar = denetim_anahtari()
     son = con.execute("SELECT seq, ozet FROM denetim ORDER BY seq DESC LIMIT 1").fetchone()
     seq, onceki = (son[0] + 1, son[1]) if son else (1, "")
-    con.execute("INSERT INTO denetim VALUES(?,?,?,?,?,?)", (seq, simdi(), aktor, olay, onceki, ozet_hesapla(seq, aktor, olay, onceki)))
+    con.execute("INSERT INTO denetim(seq, zaman_utc, aktor, olay, onceki, ozet, mod) VALUES(?,?,?,?,?,?,?)",
+                (seq, simdi(), aktor, olay, onceki, ozet_hesapla(seq, aktor, olay, onceki, anahtar), 1 if anahtar else 0))
     con.commit()
 
 
-def denetim_dogrula(con):
-    """Bozuk ilk kaydin seq'i, saglamsa None."""
-    onceki = ""
-    for seq, aktor, olay, on, oz in con.execute("SELECT seq, aktor, olay, onceki, ozet FROM denetim ORDER BY seq"):
-        if on != onceki or oz != ozet_hesapla(seq, aktor, olay, on):
-            return seq
+def denetim_durum(con, anahtar=None, bas=None):
+    """Zincirin ayrintili durumu.
+    bozuk: ilk bozuk kaydin seq'i ya da None. Bozukluk: baglanti kopuklugu, ozet uyusmazligi, anahtarli kayitlardan sonra
+      anahtarsiz kayit (surum dusurme), anahtar varken HMAC uyusmazligi ya da disa aktarilmis zincir basinin bulunmamasi.
+    dogrulanamayan: anahtar verilmediginden HMAC'i denetlenemeyen anahtarli kayit sayisi.
+    bas: {"seq", "ozet"} (daha once disa aktarilmis zincir basi) ya da None."""
+    onceki, anahtarli_goruldu, kayit, dogrulanamayan, bozuk, son = "", False, 0, 0, None, None
+    gorulen = {}
+    for seq, aktor, olay, on, oz, mod in con.execute("SELECT seq, aktor, olay, onceki, ozet, mod FROM denetim ORDER BY seq"):
+        kayit += 1
+        gorulen[seq] = oz
+        son = (seq, oz)
+        if bozuk is not None:
+            continue
+        if on != onceki:
+            bozuk = seq
+        elif mod == 1:
+            anahtarli_goruldu = True
+            if anahtar is None:
+                dogrulanamayan += 1
+            elif not hmac.compare_digest(oz, ozet_hesapla(seq, aktor, olay, on, anahtar)):
+                bozuk = seq
+        elif mod == 0:
+            if anahtarli_goruldu or not hmac.compare_digest(oz, ozet_hesapla(seq, aktor, olay, on)):
+                bozuk = seq
+        else:
+            bozuk = seq
         onceki = oz
-    return None
+    if bozuk is None and bas is not None and gorulen.get(bas["seq"]) != bas["ozet"]:
+        bozuk = bas["seq"]
+    return {"bozuk": bozuk, "kayit": kayit, "dogrulanamayan": dogrulanamayan, "anahtarli": anahtarli_goruldu, "son": son}
+
+
+def denetim_dogrula(con, anahtar=None):
+    """Bozuk ilk kaydin seq'i, saglamsa None. Anahtar verilmezse ortamdaki anahtar kullanilir."""
+    return denetim_durum(con, anahtar if anahtar is not None else denetim_anahtari())["bozuk"]
+
+
+def denetim_metni(durum):
+    """Panel ve CLI icin tek satirlik durum."""
+    if durum["bozuk"] is not None:
+        return "KIRIK: kayıt #%d" % durum["bozuk"]
+    if durum["dogrulanamayan"]:
+        return "bağlantı sağlam, ancak %d anahtarlı kayıt anahtar olmadan doğrulanamadı" % durum["dogrulanamayan"]
+    return "sağlam (anahtarlı)" if durum["anahtarli"] else "sağlam (anahtarsız kayıtlar)"
+
+
+def zincir_basi(con):
+    """Disa aktarilacak zincir basi: son kaydin seq'i ve ozeti. Bos zincirde None."""
+    son = con.execute("SELECT seq, zaman_utc, ozet FROM denetim ORDER BY seq DESC LIMIT 1").fetchone()
+    return {"seq": son[0], "zaman_utc": son[1], "ozet": son[2]} if son else None
 
 
 SERBEST_POSTA = {"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "yandex.com",
@@ -271,10 +341,28 @@ def suresi_dolanlari_sil(con):
     return n
 
 
-if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "dogrula":
-        bozuk = denetim_dogrula(baglan(sys.argv[2]))
-        print("denetim zinciri saglam" if bozuk is None else "denetim zinciri kirik: kayit #%d" % bozuk)
-        sys.exit(0 if bozuk is None else 1)
+def _komut(argv):
+    """python3 tarama/depo.py dogrula <db> [--bas dosya.json] | bas <db>  (anahtar: ALIG_DENETIM_ANAHTARI)"""
+    if len(argv) >= 3 and argv[1] == "bas":
+        bas = zincir_basi(baglan(argv[2]))
+        if bas is None:
+            print("zincir bos", file=sys.stderr)
+            return 1
+        print(json.dumps(bas, sort_keys=True))
+        return 0
+    if len(argv) in (3, 5) and argv[1] == "dogrula" and (len(argv) == 3 or argv[3] == "--bas"):
+        try:
+            anahtar = denetim_anahtari()
+            bas = json.load(open(argv[4], encoding="utf-8")) if len(argv) == 5 else None
+            durum = denetim_durum(baglan(argv[2]), anahtar, bas)
+        except (AnahtarHatasi, OSError, ValueError, KeyError, TypeError) as ex:
+            print("hata: %s" % ex, file=sys.stderr)
+            return 2
+        print("denetim zinciri %s" % denetim_metni(durum))
+        return 0 if durum["bozuk"] is None and not durum["dogrulanamayan"] else 1
     print(__doc__)
-    sys.exit(2)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(_komut(sys.argv))
