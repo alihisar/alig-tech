@@ -8,12 +8,13 @@ yedegi veri dizinine kopyala (docs/runbook.md).
 import argparse
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 KOK = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KOK))
-from tarama import depo  # noqa: E402
+from tarama import depo, saklama  # noqa: E402
+from yonetim import depo as ydepo  # noqa: E402
 
 VERITABANLARI = ("form.sqlite", "tarama.sqlite", "yonetim.sqlite")
 
@@ -45,12 +46,43 @@ def eskileri_sil(hedef_dizin, sakla):
     return silinen
 
 
+def talepleri_sil(veri, simdi=None):
+    """Saklama suresi dolan iletisim taleplerini ve durum notlarini siler; silme yonetim zincirine yazilir. Silinen sayiyi doner."""
+    g = saklama.gun("talep")
+    form = Path(veri) / "form.sqlite"
+    if g is None or not form.exists():
+        return 0
+    esik = ((simdi or datetime.now(timezone.utc)) - timedelta(days=g)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    con = sqlite3.connect(str(form))
+    try:
+        idler = [r[0] for r in con.execute("SELECT id FROM contact WHERE created_utc <= ?", (esik,))]
+        con.execute("DELETE FROM contact WHERE created_utc <= ?", (esik,))
+        con.commit()
+    finally:
+        con.close()
+    yon = Path(veri) / "yonetim.sqlite"
+    if idler and yon.exists():
+        y = ydepo.baglan(str(yon))
+        try:
+            y.executemany("DELETE FROM talep_durum WHERE talep_id=?", [(i,) for i in idler])
+            y.commit()
+            ydepo.denetim_ekle(y, "sistem", "saklama suresi doldu, %d talep silindi" % len(idler))
+        finally:
+            y.close()
+    return len(idler)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--veri", required=True)
     ap.add_argument("--yedek", required=True)
     ap.add_argument("--sakla", type=int, default=14)
     a = ap.parse_args(argv)
+    try:
+        saklama.dogrula()
+    except saklama.SaklamaHatasi as ex:
+        print(f"HATA: {ex}", file=sys.stderr)
+        return 2
     veri, yedek = Path(a.veri), Path(a.yedek)
     yedek.mkdir(parents=True, exist_ok=True)
     zaman = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -59,7 +91,9 @@ def main(argv=None):
     if tarama.exists():
         con = depo.baglan(str(tarama))
         print(f"suresi dolan rapor silindi: {depo.suresi_dolanlari_sil(con)}")
+        print(f"saklama suresi dolan firma silindi: {depo.saklama_uygula(con)}")
         con.close()
+    print(f"saklama suresi dolan talep silindi: {talepleri_sil(veri)}")
     for ad in VERITABANLARI:
         kaynak = veri / ad
         if not kaynak.exists():

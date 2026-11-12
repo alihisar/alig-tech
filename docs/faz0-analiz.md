@@ -40,9 +40,9 @@ Belgedeki "178 test" eski sayıdır; kural aynı kalır: test sayısı düşmez.
 | Müşteri talebiyle rapor silme | DONE | Rapor sayfasındaki düğme |
 | Silinen rapora eski bağlantıyla erişilememesi | DONE | Test var; kabul ölçütünün tamamı için ek negatif testler eklenecek |
 | Firma silme iş akışı | PARTIAL | Yönetici siler; müşteri talebi akışı yok |
-| Firma kaydı saklama süresi | MISSING | Süresiz duruyor |
-| Veri sınıfları ve yapılandırılabilir saklama politikası | MISSING | Süreler kod sabiti, sınıf tablosu yok |
-| Yedeklerden silme politikası | MISSING | Yedekler 14 adet tutuluyor, silinen veri yedekte kalır; belgelenmedi |
+| Firma kaydı saklama süresi | DONE | 365 gün varsayılan, ayarlanabilir; süre onayı bekliyor |
+| Veri sınıfları ve yapılandırılabilir saklama politikası | DONE | `tarama/saklama.py`, `docs/saklama-politikasi.md` |
+| Yedeklerden silme politikası | DONE (belge) | `docs/saklama-politikasi.md`; uzak yedek süresi Ali'den bekliyor |
 | KVKK metni taslağı | BLOCKED | Hukuki onay ister; yalnızca taslak yazılabilir |
 
 ## Modül 3: Health Intelligence v2 (P1)

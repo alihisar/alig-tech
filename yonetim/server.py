@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 KOK = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KOK))
-from tarama import depo as tdepo, kurallar, rapor as trapor  # noqa: E402
+from tarama import depo as tdepo, kurallar, rapor as trapor, saklama  # noqa: E402
 from yonetim import depo  # noqa: E402
 
 try:
@@ -595,6 +595,8 @@ class H(BaseHTTPRequestHandler):
         ic = "<dl class=\"facts\"><dt>Sürüm</dt><dd>%s</dd><dt>Sunucu saati</dt><dd>%s (Europe/Istanbul)</dd></dl>" % (e(surum), e(datetime.now(TR).strftime("%d.%m.%Y %H:%M")))
         ic += "<h2>Servisler</h2>" + tablo(["Servis", "Durum"], servis)
         ic += "<h2>Veritabanları</h2>" + tablo(["Ad", "Dosya", "Boyut"], dosyalar)
+        sak = [[e(a), e(sure + ("" if vars_ else " (ayarlı)")), e(yer), e(acik)] for a, sure, yer, acik, vars_ in saklama.tablo()]
+        ic += "<h2>Saklama süreleri</h2>" + tablo(["Sınıf", "Süre", "Nerede", "Açıklama"], sak) + "<p class=\"muted\">Varsayılanlar hukuken onaylanmış değerler değildir. Ayar: ALIG_SAKLAMA_&lt;SINIF&gt;_GUN.</p>"
         ic += "<h2>Yedekler</h2>" + tablo(["Dosya", "Boyut", "Zaman"], yedekler, "Yedek dizini tanımlı değil ya da boş.")
         ic += "<h2>Açık oturumlar</h2>" + tablo(["Kullanıcı", "Giriş", "Son erişim"], oturumlar)
         self._sayfa("Sistem", ic, o)
@@ -615,7 +617,8 @@ def main(argv=None):
     H.form_portu, H.tarama_portu, H.guvenli_cerez = a.form_portu, a.tarama_portu, not a.guvensiz_cerez
     try:
         depo.zincir.denetim_anahtari()
-    except depo.zincir.AnahtarHatasi as ex:
+        saklama.dogrula()
+    except (depo.zincir.AnahtarHatasi, saklama.SaklamaHatasi) as ex:
         raise SystemExit("hata: %s" % ex)
     depo.baglan(a.db).close()
     print("yonetim paneli dinliyor 127.0.0.1:%d" % a.port, flush=True)

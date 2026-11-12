@@ -22,7 +22,7 @@ from urllib.parse import parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import importlib.util  # noqa: E402
 
-from tarama import baglanti, calistirici, depo, hata, hedef, rapor, yukleme  # noqa: E402
+from tarama import baglanti, calistirici, depo, hata, hedef, rapor, saklama, yukleme  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("alig_form_server", Path(__file__).resolve().parent.parent / "form" / "server.py")
 _form = importlib.util.module_from_spec(_spec)
@@ -320,7 +320,8 @@ def main(argv=None):
         H.motorlar = ("postgresql", "mssql")
     try:
         depo.denetim_anahtari()
-    except depo.AnahtarHatasi as ex:
+        saklama.dogrula()
+    except (depo.AnahtarHatasi, saklama.SaklamaHatasi) as ex:
         raise SystemExit("hata: %s" % ex)
     depo.baglan(a.db).close()
     print("dinliyor %s:%d" % (a.host, a.port), flush=True)

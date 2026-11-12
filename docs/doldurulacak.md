@@ -33,7 +33,7 @@ Diğer açık kararlar (metinde değil, yapılandırmada):
 ## Firma kaydı (KVKK metnine girmeli)
 
 - Sağlık taraması yüklenirken şirket adı ve e-posta adresi **düz metin** olarak saklanır (`tarama.sqlite`, `firma` tablosu) ve raporla eşleştirilir. Önceki tasarımda yalnız geri döndürülemez özet tutuluyordu; sayfadaki not buna göre değiştirildi.
-- Firma kaydının saklama süresi yok: yönetici silene kadar durur. `[doldurulacak: firma kaydı saklama süresi ve silme talebi yolu]`
+- Firma kaydı 365 gün (ayarlanabilir) sonra silinir; süre ve müşteri silme talebi yolu onay bekliyor. `[doldurulacak: firma kaydı saklama süresi ve silme talebi yolu]`
 - Aydınlatma metninde yazılmalı: toplanan veri (şirket adı, e-posta), amaç (kayıt eşleştirme, sınır, iletişim), saklama süresi, silme hakkı.
 
 ## SQL Server taraması (ön sürüm)

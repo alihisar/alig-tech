@@ -1,10 +1,13 @@
 import hashlib
+import os
 import sqlite3
 import sys
 import tarfile
 import tempfile
 import threading
 import unittest
+from datetime import datetime
+from unittest import mock
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import functools
@@ -15,7 +18,8 @@ sys.path.insert(0, str(ROOT))
 import bakim  # noqa: E402
 import duman_testi  # noqa: E402
 import paketle  # noqa: E402
-from tarama import depo  # noqa: E402
+from tarama import depo, saklama  # noqa: E402
+from yonetim import depo as ydepo  # noqa: E402
 
 
 class PaketTests(unittest.TestCase):
@@ -50,7 +54,7 @@ class BakimTests(unittest.TestCase):
         con.commit()
         con.close()
         f = sqlite3.connect(veri / "form.sqlite")
-        f.execute("CREATE TABLE contact(i int)")
+        f.execute("CREATE TABLE contact(id INTEGER PRIMARY KEY, created_utc TEXT NOT NULL)")
         f.commit()
         f.close()
         for i in range(3):
@@ -63,6 +67,85 @@ class BakimTests(unittest.TestCase):
         self.assertEqual(oct(yeni.stat().st_mode)[-3:], "600")
         self.assertEqual(sqlite3.connect(veri / "tarama.sqlite").execute("SELECT count(*) FROM rapor").fetchone()[0], 0)
         self.assertEqual(sqlite3.connect(yeni).execute("PRAGMA integrity_check").fetchone()[0], "ok")
+
+
+FORM_SEMA = "CREATE TABLE contact(id INTEGER PRIMARY KEY, created_utc TEXT NOT NULL, name TEXT, company TEXT, email TEXT, db TEXT, message TEXT, ip_hash TEXT)"
+
+
+class SaklamaTests(unittest.TestCase):
+    def kur(self):
+        veri = Path(tempfile.mkdtemp())
+        con = depo.baglan(str(veri / "tarama.sqlite"))
+        return veri, con
+
+    def test_varsayilan_ve_ortam_ayari(self):
+        self.assertEqual(saklama.gun("firma", {}), 365)
+        self.assertEqual(saklama.gun("firma", {"ALIG_SAKLAMA_FIRMA_GUN": "90"}), 90)
+        self.assertIsNone(saklama.gun("firma", {"ALIG_SAKLAMA_FIRMA_GUN": "suresiz"}))
+        self.assertIsNone(saklama.gun("denetim", {}))
+        for kotu in ("abc", "-5", "99999", "1.5"):
+            with self.assertRaises(saklama.SaklamaHatasi):
+                saklama.gun("firma", {"ALIG_SAKLAMA_FIRMA_GUN": kotu})
+        with self.assertRaises(saklama.SaklamaHatasi):  # rapor suresiz olamaz
+            saklama.gun("rapor", {"ALIG_SAKLAMA_RAPOR_GUN": "0"})
+
+    def test_rapor_suresi_ortamdan(self):
+        veri, con = self.kur()
+        with mock.patch.dict(os.environ, {"ALIG_SAKLAMA_RAPOR_GUN": "7"}):
+            depo.rapor_ekle(con, "t", "postgresql", "tr", {"a": 1})
+        bitis = con.execute("SELECT bitis_utc, olusturma_utc FROM rapor").fetchone()
+        fark = datetime.strptime(bitis[0], "%Y-%m-%dT%H:%M:%SZ") - datetime.strptime(bitis[1], "%Y-%m-%dT%H:%M:%SZ")
+        self.assertEqual(fark.days, 7)
+
+    def test_eski_firma_silinir_etkin_raporlu_ve_yeni_firma_kalir(self):
+        veri, con = self.kur()
+        eski = depo.firma_kaydet(con, "eski.com", "Eski A.S.", "a@eski.com", "yukleme", zaman="2020-01-01T00:00:00Z")
+        raporlu = depo.firma_kaydet(con, "raporlu.com", "R", "a@raporlu.com", "yukleme", zaman="2020-01-01T00:00:00Z")
+        yeni = depo.firma_kaydet(con, "yeni.com", "Y", "a@yeni.com", "yukleme")
+        depo.rapor_ekle(con, "tok", "postgresql", "tr", {"a": 1}, firma_id=raporlu["id"])
+        self.assertEqual(depo.saklama_uygula(con), 1)
+        kalan = {r[0] for r in con.execute("SELECT id FROM firma")}
+        self.assertEqual(kalan, {raporlu["id"], yeni["id"]})
+        olaylar = [r[0] for r in con.execute("SELECT olay FROM denetim")]
+        self.assertTrue(any("saklama suresi doldu, firma #%d silindi" % eski["id"] == o for o in olaylar))
+        self.assertFalse(any("Eski A.S." in o or "eski.com" in o for o in olaylar))  # kisisel veri denetime yazilmaz
+        self.assertIsNone(depo.denetim_dogrula(con))
+
+    def test_firma_suresiz_ise_dokunulmaz(self):
+        veri, con = self.kur()
+        depo.firma_kaydet(con, "eski.com", "E", "a@eski.com", "yukleme", zaman="2020-01-01T00:00:00Z")
+        with mock.patch.dict(os.environ, {"ALIG_SAKLAMA_FIRMA_GUN": "0"}):
+            self.assertEqual(depo.saklama_uygula(con), 0)
+
+    def test_bakim_eski_talepleri_ve_durum_notlarini_siler(self):
+        veri, con = self.kur()
+        con.close()
+        f = sqlite3.connect(veri / "form.sqlite")
+        f.execute(FORM_SEMA)
+        f.execute("INSERT INTO contact(id, created_utc) VALUES(1,'2020-01-01T00:00:00Z')")
+        f.execute("INSERT INTO contact(id, created_utc) VALUES(2,'2999-01-01T00:00:00Z')")
+        f.commit()
+        f.close()
+        y = ydepo.baglan(str(veri / "yonetim.sqlite"))
+        y.execute("INSERT INTO talep_durum(talep_id, durum, aciklama, guncelleme_utc, guncelleyen) VALUES(1,'yeni','','2020-01-01T00:00:00Z','ali')")
+        y.execute("INSERT INTO talep_durum(talep_id, durum, aciklama, guncelleme_utc, guncelleyen) VALUES(2,'yeni','','2020-01-01T00:00:00Z','ali')")
+        y.commit()
+        y.close()
+        self.assertEqual(bakim.talepleri_sil(veri), 1)
+        self.assertEqual(sqlite3.connect(veri / "form.sqlite").execute("SELECT id FROM contact").fetchall(), [(2,)])
+        y = ydepo.baglan(str(veri / "yonetim.sqlite"))
+        self.assertEqual(y.execute("SELECT talep_id FROM talep_durum").fetchall(), [(2,)])
+        self.assertIn("1 talep silindi", y.execute("SELECT olay FROM denetim ORDER BY seq DESC LIMIT 1").fetchone()[0])
+        self.assertIsNone(ydepo.denetim_dogrula(y))
+
+    def test_bakim_gecersiz_saklama_ayarinda_durur(self):
+        veri, yedek = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        with mock.patch.dict(os.environ, {"ALIG_SAKLAMA_FIRMA_GUN": "abc"}):
+            self.assertEqual(bakim.main(["--veri", str(veri), "--yedek", str(yedek)]), 2)
+
+    def test_tablo_tum_siniflari_listeler(self):
+        adlar = [r[0] for r in saklama.tablo({})]
+        self.assertEqual(adlar, list(saklama.SINIFLAR))
 
 
 class DumanTests(unittest.TestCase):

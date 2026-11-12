@@ -164,7 +164,7 @@ class PanelTests(Taban):
 
     def test_sayfalar_acilir_ve_kacislidir(self):
         for yol, icerik in (("/yonetim/", "Yeni talep"), ("/yonetim/talepler", "ada@ornek.com"), ("/yonetim/taramalar", "Yüksek 1"),
-                            ("/yonetim/denetim", "Zincir sağlam"), ("/yonetim/denetim?kaynak=yonetim", "giris yapildi"), ("/yonetim/sistem", "Veritabanları")):
+                            ("/yonetim/denetim", "Zincir sağlam"), ("/yonetim/denetim?kaynak=yonetim", "giris yapildi"), ("/yonetim/sistem", "Veritabanları"), ("/yonetim/sistem", "Saklama süreleri")):
             r, g = self.istek("GET", yol)
             self.assertEqual(r.status, 200, yol)
             self.assertIn(icerik, g, yol)

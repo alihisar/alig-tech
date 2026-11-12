@@ -9,7 +9,12 @@ import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 
-SAKLAMA_GUN = 30
+try:
+    from tarama import saklama
+except ImportError:  # python3 tarama/depo.py ile dogrudan calisirken
+    import saklama
+
+SAKLAMA_GUN = 30  # varsayilan; gercek sure tarama/saklama.py'den okunur
 SINIR_GUN = 30
 SINIR_ADET = 2  # ucretsiz tarama sayisi: [doldurulacak: onay]
 GOCLER = [
@@ -293,7 +298,7 @@ def rapor_ekle(con, token, motor, dil, belge, firma_id=None):
     n = datetime.now(timezone.utc)
     con.execute("INSERT INTO rapor(token_sha256, olusturma_utc, bitis_utc, motor, dil, belge_json, firma_id) VALUES(?,?,?,?,?,?,?)",
                 (token_ozeti(token), n.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                 (n + timedelta(days=SAKLAMA_GUN)).strftime("%Y-%m-%dT%H:%M:%SZ"), motor, dil, json.dumps(belge, sort_keys=True), firma_id))
+                 (n + timedelta(days=saklama.gun("rapor"))).strftime("%Y-%m-%dT%H:%M:%SZ"), motor, dil, json.dumps(belge, sort_keys=True), firma_id))
     con.commit()
 
 
@@ -329,6 +334,21 @@ def rapor_sil_id(con, rid):
     n = con.execute("DELETE FROM rapor WHERE id=?", (rid,)).rowcount
     con.commit()
     return n
+
+
+def saklama_uygula(con, simdi_=None):
+    """Firma kaydi saklama suresini uygular: son etkinlikten bu yana sure gectiyse ve etkin raporu yoksa firma silinir.
+    Her silme denetim zincirine yazilir (firma adi ve e-postasi yazilmaz). Silinen firma sayisini doner."""
+    g = saklama.gun("firma")
+    if g is None:
+        return 0
+    esik = ((simdi_ or datetime.now(timezone.utc)) - timedelta(days=g)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    adaylar = con.execute("SELECT id FROM firma WHERE son_utc <= ? AND NOT EXISTS (SELECT 1 FROM rapor WHERE rapor.firma_id=firma.id AND rapor.bitis_utc > ?)",
+                          (esik, simdi())).fetchall()
+    for (fid,) in adaylar:
+        firma_sil(con, fid)
+        denetim_ekle(con, "sistem", "saklama suresi doldu, firma #%d silindi" % fid)
+    return len(adaylar)
 
 
 def suresi_dolanlari_sil(con):
