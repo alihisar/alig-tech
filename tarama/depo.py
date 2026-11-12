@@ -36,6 +36,8 @@ GOCLER = [
        bitis_utc TEXT NOT NULL, deneme INTEGER NOT NULL DEFAULT 0, durum TEXT NOT NULL DEFAULT 'bekliyor')""",
     # anahtarli denetim zinciri: 0 = eski SHA-256 kaydi, 1 = HMAC-SHA-256 (ALIG_DENETIM_ANAHTARI)
     """ALTER TABLE denetim ADD COLUMN mod INTEGER NOT NULL DEFAULT 0""",
+    # ayni dosya ikinci hak harcamasin: belgenin ozeti (icerik saklanmaz)
+    """ALTER TABLE kullanim ADD COLUMN belge_sha256 TEXT""",
 ]
 ISTEK_DAKIKA = 30
 ISTEK_DENEME = 3
@@ -289,8 +291,18 @@ def kullanim_say(con, anahtar, gun=SINIR_GUN):
     return con.execute("SELECT count(*) FROM kullanim WHERE anahtar_sha256=? AND zaman_utc>?", (anahtar, esik)).fetchone()[0]
 
 
-def kullanim_ekle(con, anahtar):
-    con.execute("INSERT INTO kullanim(anahtar_sha256, zaman_utc) VALUES(?,?)", (anahtar, simdi()))
+def belge_ozeti(belge):
+    return hashlib.sha256(json.dumps(belge, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def kullanim_tekrar(con, anahtar, ozet, gun=SINIR_GUN):
+    """Ayni sirket ayni belgeyi sinir penceresi icinde zaten yuklediyse True (yeni hak harcanmaz)."""
+    esik = (datetime.now(timezone.utc) - timedelta(days=gun)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return con.execute("SELECT 1 FROM kullanim WHERE anahtar_sha256=? AND belge_sha256=? AND zaman_utc>? LIMIT 1", (anahtar, ozet, esik)).fetchone() is not None
+
+
+def kullanim_ekle(con, anahtar, ozet=None):
+    con.execute("INSERT INTO kullanim(anahtar_sha256, zaman_utc, belge_sha256) VALUES(?,?,?)", (anahtar, simdi(), ozet))
     con.commit()
 
 

@@ -17,6 +17,13 @@ sys.path.insert(0, str(ROOT))
 from tarama import depo, katalog, kurallar, rapor, server as tserver, uret_toplayici, yukleme  # noqa: E402
 
 
+def farkli_belge(n):
+    """Her n icin ayri icerikli (dolayisiyla ayri ozetli) temiz belge: yinelenen yukleme sayilmasin."""
+    b = temiz_belge()
+    b["olusturma_utc"] = "2026-11-10T12:00:%02dZ" % n
+    return json.dumps(b).encode()
+
+
 def temiz_belge():
     k = {}
     for c in katalog.PG:
@@ -416,20 +423,79 @@ class SunucuTests(unittest.TestCase):
         self.assertEqual(c.getresponse().status, 413)
 
     def test_sirket_siniri_alan_adina_gore(self):
-        veri = json.dumps(temiz_belge()).encode()
-        kodlar = [self.yukle(veri, eposta="a@ornek.com").status, self.yukle(veri, eposta="b@ORNEK.com").status,
-                  self.yukle(veri, eposta="c@ornek.com").status, self.yukle(veri, eposta="d@baska.com").status]
+        kodlar = [self.yukle(farkli_belge(1), eposta="a@ornek.com").status, self.yukle(farkli_belge(2), eposta="b@ORNEK.com").status,
+                  self.yukle(farkli_belge(3), eposta="c@ornek.com").status, self.yukle(farkli_belge(4), eposta="d@baska.com").status]
         self.assertEqual(kodlar, [303, 303, 429, 303])
         con = depo.baglan(self.db)
         self.assertIsNone(depo.denetim_dogrula(con))
         self.assertNotIn("ornek.com", json.dumps(con.execute("SELECT * FROM kullanim").fetchall()))  # sinir tablosunda duz adres yok
 
     def test_sirket_siniri_ucretsiz_posta_adrese_gore(self):
-        veri = json.dumps(temiz_belge()).encode()
-        for _ in range(2):
-            self.assertEqual(self.yukle(veri, eposta="x@gmail.com").status, 303)
-        self.assertEqual(self.yukle(veri, eposta="x@gmail.com").status, 429)
-        self.assertEqual(self.yukle(veri, eposta="y@gmail.com").status, 303)
+        for n in (1, 2):
+            self.assertEqual(self.yukle(farkli_belge(n), eposta="x@gmail.com").status, 303)
+        self.assertEqual(self.yukle(farkli_belge(3), eposta="x@gmail.com").status, 429)
+        self.assertEqual(self.yukle(farkli_belge(3), eposta="y@gmail.com").status, 303)
+
+    def test_ayni_dosya_ikinci_hak_harcamaz(self):
+        veri = farkli_belge(7)
+        for _ in range(4):  # ayni dosya sinira takilmaz, her seferinde ayri rapor baglantisi uretilir
+            self.assertEqual(self.yukle(veri, eposta="t@tekrar.com").status, 303)
+        con = depo.baglan(self.db)
+        self.assertEqual(con.execute("SELECT count(*) FROM kullanim").fetchone()[0], 1)
+        self.assertEqual(con.execute("SELECT count(*) FROM rapor").fetchone()[0], 4)
+        olaylar = [o[0] for o in con.execute("SELECT olay FROM denetim")]
+        self.assertEqual(len([o for o in olaylar if "ayni dosya (hak harcanmadi)" in o]), 3)
+        self.assertRegex(con.execute("SELECT belge_sha256 FROM kullanim").fetchone()[0], r"^[0-9a-f]{64}$")  # icerik degil ozet saklanir
+        for n in (8, 9):  # farkli dosyalar ise hak harcar: 1 kullanildi, 2. hak var, 3. yok
+            self.assertEqual(self.yukle(farkli_belge(n), eposta="t@tekrar.com").status, 303 if n == 8 else 429)
+
+    def test_tekrar_baska_sirkette_hak_acmaz_ve_sinir_asilinca_tekrar_yine_gecer(self):
+        a, b = farkli_belge(1), farkli_belge(2)
+        self.assertEqual(self.yukle(a, eposta="x@bir.com").status, 303)
+        self.assertEqual(self.yukle(b, eposta="x@bir.com").status, 303)
+        self.assertEqual(self.yukle(farkli_belge(3), eposta="x@bir.com").status, 429)
+        self.assertEqual(self.yukle(a, eposta="x@bir.com").status, 303)  # daha once yuklenmis dosya
+        self.assertEqual(self.yukle(a, eposta="x@iki.com").status, 303)  # baska sirket kendi hakkini kullanir
+        con = depo.baglan(self.db)
+        self.assertEqual(con.execute("SELECT count(*) FROM kullanim").fetchone()[0], 3)
+
+    def test_silinen_rapora_hicbir_yoldan_erisilmez(self):
+        r = self.yukle(farkli_belge(1))
+        yol = r.getheader("Location")
+        self.assertEqual(self.get(yol)[0].status, 200)
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
+        c.request("POST", yol + "sil")
+        self.assertEqual(c.getresponse().status, 303)
+        for kosul in (yol, yol.rstrip("/"), yol + "sil"):
+            self.assertEqual(self.get(kosul)[0].status, 404, kosul)  # GET ile silme ucu da 404
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
+        c.request("POST", yol + "sil")
+        self.assertEqual(c.getresponse().status, 404)  # ikinci silme: rapor yok
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
+        c.request("HEAD", yol)
+        self.assertNotEqual(c.getresponse().status, 200)  # HEAD desteklenmez; icerik sizmaz
+        con = depo.baglan(self.db)
+        self.assertEqual(con.execute("SELECT count(*) FROM rapor").fetchone()[0], 0)
+        self.assertNotIn("belge_json", "".join(str(x) for x in con.execute("SELECT olay FROM denetim")))
+
+    def test_silinen_ve_suresi_dolan_rapor_baskasininkini_etkilemez(self):
+        l1 = self.yukle(farkli_belge(1), eposta="a@bir.com").getheader("Location")
+        l2 = self.yukle(farkli_belge(2), eposta="b@iki.com").getheader("Location")
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
+        c.request("POST", l1 + "sil")
+        c.getresponse().read()
+        self.assertEqual(self.get(l1)[0].status, 404)
+        self.assertEqual(self.get(l2)[0].status, 200)
+        con = depo.baglan(self.db)
+        con.execute("UPDATE rapor SET bitis_utc='2000-01-01T00:00:00Z'")
+        con.commit()
+        self.assertEqual(self.get(l2)[0].status, 404)  # silinmeden once de, suresi dolunca erisilmez
+
+    def test_firma_silinince_raporlari_baglantiyla_erisilmez(self):
+        l1 = self.yukle(farkli_belge(1), eposta="a@bir.com").getheader("Location")
+        con = depo.baglan(self.db)
+        depo.firma_sil(con, depo.firma_listele(con)[0]["id"])
+        self.assertEqual(self.get(l1)[0].status, 404)
 
     def test_gecersiz_dosya_hak_harcamaz(self):
         for _ in range(3):
@@ -483,14 +549,13 @@ class SunucuTests(unittest.TestCase):
             depo.firma_durum_yaz(con, fid, "uydurma")
 
     def test_firma_sinir_sifirlama_ve_silme(self):
-        veri = json.dumps(temiz_belge()).encode()
-        for _ in range(2):
-            self.assertEqual(self.yukle(veri, eposta="a@dolu.com").status, 303)
-        self.assertEqual(self.yukle(veri, eposta="a@dolu.com").status, 429)
+        for n in (1, 2):
+            self.assertEqual(self.yukle(farkli_belge(n), eposta="a@dolu.com").status, 303)
+        self.assertEqual(self.yukle(farkli_belge(3), eposta="a@dolu.com").status, 429)
         con = depo.baglan(self.db)
         fid = depo.firma_listele(con)[0]["id"]
         self.assertEqual(depo.firma_sinir_sifirla(con, fid), 2)
-        self.assertEqual(self.yukle(veri, eposta="a@dolu.com").status, 303)
+        self.assertEqual(self.yukle(farkli_belge(3), eposta="a@dolu.com").status, 303)
         self.assertEqual(depo.firma_sil(con, fid), 3)
         self.assertEqual((depo.firma_listele(con), depo.rapor_listele(con)), ([], []))
         self.assertIsNone(depo.firma_sil(con, fid))

@@ -155,15 +155,17 @@ class H(BaseHTTPRequestHandler):
             if firma["durum"] != "aktif":
                 depo.denetim_ekle(con, "sistem", "pasif firma yuklemesi reddedildi, firma #%d" % firma["id"])
                 return self._hata(403, "pasif", dil)
+            ozet = depo.belge_ozeti(belge)
             with KILIT:
-                asildi = depo.kullanim_say(con, anahtar_s) >= self.sirket_adet
-                if not asildi:
-                    depo.kullanim_ekle(con, anahtar_s)
+                tekrar = depo.kullanim_tekrar(con, anahtar_s, ozet)  # ayni dosya: hak harcanmaz
+                asildi = not tekrar and depo.kullanim_say(con, anahtar_s) >= self.sirket_adet
+                if not asildi and not tekrar:
+                    depo.kullanim_ekle(con, anahtar_s, ozet)
             if asildi:
                 depo.denetim_ekle(con, "sistem", "sirket siniri asildi, istek reddedildi")
                 return self._hata(429, "sinir", dil, extra=(("Retry-After", str(depo.SINIR_GUN * 86400)),))
             depo.rapor_ekle(con, anahtar, belge["motor"], dil, belge, firma["id"])
-            depo.denetim_ekle(con, "musteri", "toplama dosyasi yuklendi, firma #%d, motor=%s, kontrol=%d" % (firma["id"], belge["motor"], len(belge["kontroller"])))
+            depo.denetim_ekle(con, "musteri", "toplama dosyasi yuklendi, firma #%d, motor=%s, kontrol=%d%s" % (firma["id"], belge["motor"], len(belge["kontroller"]), ", ayni dosya (hak harcanmadi)" if tekrar else ""))
         finally:
             con.close()
         self._send(303, extra=(("Location", "/rapor/%s/" % anahtar),))
