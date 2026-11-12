@@ -1,0 +1,42 @@
+[Unit]
+Description=alig.tech Kip B calistiricisi (dogrudan baglantili tarama)
+After=network.target
+
+[Service]
+# Web servisinden ayri kullanici. Servis sirlari (ortam dosyasi) ve veri dizini bu surece verilmez.
+User={{ calistirici_kullanici }}
+Group={{ calistirici_kullanici }}
+RuntimeDirectory=alig-calistirici
+RuntimeDirectoryMode=0750
+Environment=ALIG_YASAK_AGLAR={{ calistirici_yasak_aglar | join(',') }}
+ExecStart=/usr/bin/python3 {{ kok_dizin }}/current/tarama/calistirici.py --soket /run/alig-calistirici/calistirici.sock --izinli-kullanici {{ servis_kullanici }}
+Restart=on-failure
+RestartSec=2
+# sertlestirme
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+InaccessiblePaths={{ veri_dizini }} {{ yedek_dizini }} /etc/alig
+# Disariya baglanir ama ic aga, yerel adreslere ve bulut meta veri adresine baglanamaz (kod denetimine ek ikinci kat).
+IPAddressDeny=localhost link-local multicast 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7
+UMask=0007
+
+[Install]
+WantedBy=multi-user.target

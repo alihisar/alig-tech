@@ -63,7 +63,7 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 178 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
+Birim testleri: 194 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
 <!-- oto:bitis testler -->
 
 ## Dizinler
@@ -145,7 +145,7 @@ Sınama adımları: `docs/mssql-onsurum.md`.
 
 ### Doğrudan bağlantı (Kip B, kapalı)
 
-Müşteri bağlantı bilgisini verir, tarama sunucudan çalışır: `/api/tarama/baglan`. Yalnızca `ALIG_DOGRUDAN=1` ile açılır ve yalnızca
+Müşteri bağlantı bilgisini verir, tarama ayrı bir çalıştırıcı süreçte (`tarama/calistirici.py`) çalışır: `/api/tarama/baglan`. Canlıda yalnızca `dogrudan_baglanti: true` (Ansible) ile açılır ve yalnızca
 yönetim panelinden "Doğrudan bağlantı izni" verilen firmalar kullanabilir. Parola saklanmaz. Canlıya almadan önce yapılması
 gerekenler: `docs/kip-b-tasarim.md`.
 

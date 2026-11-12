@@ -8,12 +8,12 @@ Durum: PostgreSQL için ilk dilim kodlandı, **varsayılan olarak kapalı** (`AL
 | Tarama (sahiplik kanıtı, süper kullanıcı reddi, TLS, sabit katalog) | `tarama/baglanti.py`, `tests/test_baglanti.py` | Kodlandı; gerçek PostgreSQL 16 + TLS ile elle sınandı |
 | İstek akışı ve sayfalar | `tarama/server.py` (`/api/tarama/baglan`), `tarama/hata.py` | Kodlandı |
 | Firma izni | Yönetim paneli, firma ayrıntısı: "Doğrudan bağlantı izni ver" | Kodlandı |
-| Ayrı çalıştırıcı süreci ve systemd birimi | yok | **Yazılmadı** |
+| Ayrı çalıştırıcı süreci ve systemd birimi | `tarama/calistirici.py`, `tests/test_calistirici.py`, `alig-calistirici.service.j2` | Kodlandı; gerçek sunucuda systemd altında sınanmadı |
 | SQL Server | yok | **Yazılmadı** (kanıt yöntemi belirsiz) |
 
 ## Tasarımdan sapmalar ve açık kalanlar
 
-- **Ayrı çalıştırıcı yok.** Tarama, tarama servisinin içinden `psql` alt süreci olarak çalışır; alt sürece yalnızca gereken ortam değişkenleri verilir. Tasarımdaki ayrı kullanıcı, ayrı systemd birimi ve iş kuyruğu yazılmadı. Canlıya almadan önce yazılmalı. Mevcut `alig-tarama` birimi dışarıya bağlantıyı engeller (`IPAddressDeny=any`), yani özellik açılsa bile canlıda bu birimin içinden çalışmaz; bu bilerek gevşetilmedi.
+- **Çalıştırıcı gerçek sunucuda denenmedi.** Tarama artık ayrı bir süreçte (`alig-calistirici`) koşar: ayrı kullanıcı, veri dizinine ve servis sırlarına erişim yok, iç ağ systemd düzeyinde de yasak. Web süreci parolayı yerel soketten bellekte iletir ve dışarıya bağlanamaz. Canlı başlatıcı (`tarama/server.py`) çalıştırıcı soketi olmadan özelliği açmaz. Birim dosyası, soket izinleri ve `SupplementaryGroups` ayarı gerçek bir systemd üzerinde sınanmadı; `ansible-lint` ve birim testleri geçti. İş kuyruğu yok: istek tarama bitene kadar açık kalır.
 - **E-posta doğrulaması yerine yönetici izni.** Gönderim yöntemi seçilmediği için firma kimliği e-postayla doğrulanmıyor. Onun yerine doğrudan bağlantı yalnızca yöneticinin panelden izin verdiği firmalara açık. İzinli bir firmanın e-posta adresini bilen biri onun adına istek açabilir; kendi yönetmediği bir veritabanını yine taratamaz (sahiplik kanıtı gerekir), ama firmanın tarama hakkını harcayabilir.
 - **Sunucu sertifikası doğrulanmıyor.** Bağlantı `sslmode=require` ile şifrelidir ama sertifika denetlenmez; araya giren biri parolayı okuyabilir. `verify-full` için müşteriden CA dosyası alma adımı yazılmadı.
 - **Hedef adresi saklanıyor.** Sunucu adı ve IP, istek kaydında en çok bir gün durur (taramayı çalıştırmak için gerekir). Denetim kaydına yalnızca özeti yazılır. Parola hiçbir yerde saklanmaz.

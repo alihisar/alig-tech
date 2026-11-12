@@ -20,3 +20,9 @@ yonetim_portu: 8092
 # Yonetim paneline internetten izin verilen IP adresleri. Bos ise panel internete ACILMAZ;
 # SSH tuneli ile erisilir: ssh -L 8092:127.0.0.1:8092 deploy@sunucu  ->  http://localhost:8092/yonetim/
 yonetim_izinli_ipler: []
+# Kip B (dogrudan baglantili tarama). false iken calistirici servisi KURULMAZ ve ozellik kapali kalir.
+# Acmadan once: docs/kip-b-tasarim.md icindeki "canliya almadan once" maddeleri.
+dogrudan_baglanti: false
+calistirici_kullanici: alig-calistirici
+# Kendi adres araliklarimiz: calistirici bu aglara baglanmayi reddeder. Ornek: ["203.0.113.0/24"]
+calistirici_yasak_aglar: []

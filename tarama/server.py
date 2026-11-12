@@ -22,7 +22,7 @@ from urllib.parse import parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import importlib.util  # noqa: E402
 
-from tarama import baglanti, depo, hata, hedef, rapor, yukleme  # noqa: E402
+from tarama import baglanti, calistirici, depo, hata, hedef, rapor, yukleme  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("alig_form_server", Path(__file__).resolve().parent.parent / "form" / "server.py")
 _form = importlib.util.module_from_spec(_spec)
@@ -59,7 +59,8 @@ class H(BaseHTTPRequestHandler):
     sslmode = "require"
     yasak_aglar = ()            # kendi adres araliklarimiz: ALIG_YASAK_AGLAR
     hedef_dogrula = staticmethod(hedef.dogrula)
-    tara = staticmethod(baglanti.tara)
+    tara = staticmethod(baglanti.tara)   # yalniz yerel gelistirme: calistirici_soketi yoksa surec ici
+    calistirici_soketi = None            # uretimde zorunlu: tarama ayri calistirici surecinde kosar
     sys_version = ""
 
     def _send(self, kod, govde=b"", ctype="text/plain; charset=utf-8", extra=()):
@@ -251,12 +252,17 @@ class H(BaseHTTPRequestHandler):
             if not TARAMA_YUVASI.acquire(blocking=False):
                 return self._hata(503, "mesgul", dil, extra=(("Retry-After", "120"),))
             try:
-                belge = self.tara(h, i["veritabani"], i["kullanici"], f["parola"], i["kanit"], psql=self.psql,
-                                  sslmode=self.sslmode, maskele=bool(i["maskele"]))
+                if self.calistirici_soketi:
+                    belge = calistirici.uzaktan_tara(self.calistirici_soketi, h, i["veritabani"], i["kullanici"], f["parola"],
+                                                     i["kanit"], maskele=bool(i["maskele"]))
+                else:
+                    belge = self.tara(h, i["veritabani"], i["kullanici"], f["parola"], i["kanit"], psql=self.psql,
+                                      sslmode=self.sslmode, maskele=bool(i["maskele"]))
             except baglanti.BaglantiHatasi as e:
                 depo.denetim_ekle(con, "sistem", "dogrudan tarama basarisiz (%s), firma #%d, hedef=%s" % (e.kod, firma["id"], h.ozet()[:16]))
-                tur = {"kanit": "kanit", "super": "super", "zaman": "zaman"}.get(e.kod, "baglanti")
-                return self._hata(504 if tur == "zaman" else 422, tur, dil)
+                tur = {"kanit": "kanit", "super": "super", "zaman": "zaman", "mesgul": "mesgul", "calistirici": "mesgul",
+                       "hedef": "hedef"}.get(e.kod, "baglanti")
+                return self._hata({"zaman": 504, "mesgul": 503}.get(tur, 422), tur, dil)
             finally:
                 TARAMA_YUVASI.release()
             with KILIT:
@@ -291,6 +297,16 @@ class H(BaseHTTPRequestHandler):
         print(self.command, yol, a[1] if len(a) > 1 else "", flush=True)
 
 
+def dogrudan_ayarla(ortam, H):
+    """Kip B'yi yalniz ayri calistirici soketi verilmisse acar. Acildiysa True."""
+    if ortam.get("ALIG_DOGRUDAN") != "1" or not ortam.get("ALIG_CALISTIRICI_SOKETI"):
+        return False
+    H.dogrudan = True
+    H.calistirici_soketi = ortam["ALIG_CALISTIRICI_SOKETI"]
+    H.yasak_aglar = tuple(x.strip() for x in ortam.get("ALIG_YASAK_AGLAR", "").split(",") if x.strip())
+    return True
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=os.environ.get("ALIG_TARAMA_DB", "tarama.sqlite"))
@@ -298,9 +314,8 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=8091)
     a = ap.parse_args(argv)
     H.db_yolu = a.db
-    if os.environ.get("ALIG_DOGRUDAN") == "1":
-        H.dogrudan = True
-        H.yasak_aglar = tuple(x.strip() for x in os.environ.get("ALIG_YASAK_AGLAR", "").split(",") if x.strip())
+    if os.environ.get("ALIG_DOGRUDAN") == "1" and not dogrudan_ayarla(os.environ, H):
+        print("UYARI: ALIG_DOGRUDAN=1 ama ALIG_CALISTIRICI_SOKETI yok; dogrudan baglanti KAPALI kaldi", flush=True)
     if os.environ.get("ALIG_MSSQL") == "1":
         H.motorlar = ("postgresql", "mssql")
     depo.baglan(a.db).close()

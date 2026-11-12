@@ -6,6 +6,12 @@ After=network.target
 User={{ servis_kullanici }}
 Group={{ servis_kullanici }}
 EnvironmentFile=/etc/alig/env
+{% if dogrudan_baglanti %}
+# Kip B acik: tarama, ayri calistirici servisine yerel soketten devredilir. Bu birim disariya baglanmaz.
+Environment=ALIG_DOGRUDAN=1
+Environment=ALIG_CALISTIRICI_SOKETI=/run/alig-calistirici/calistirici.sock
+SupplementaryGroups={{ calistirici_kullanici }}
+{% endif %}
 ExecStart=/usr/bin/python3 {{ kok_dizin }}/current/tarama/server.py --db {{ veri_dizini }}/tarama.sqlite --host 127.0.0.1 --port {{ tarama_portu }}
 Restart=on-failure
 RestartSec=2

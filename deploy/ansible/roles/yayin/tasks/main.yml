@@ -78,7 +78,7 @@
         state: restarted
         enabled: true
         daemon_reload: true
-      loop: [alig-form, alig-tarama, alig-yonetim]
+      loop: "{{ ['alig-form', 'alig-tarama', 'alig-yonetim'] + (['alig-calistirici'] if dogrudan_baglanti else []) }}"
     - name: nginx yeniden yukle
       ansible.builtin.service:
         name: nginx
@@ -102,7 +102,7 @@
       ansible.builtin.systemd:
         name: "{{ item }}"
         state: restarted
-      loop: [alig-form, alig-tarama, alig-yonetim]
+      loop: "{{ ['alig-form', 'alig-tarama', 'alig-yonetim'] + (['alig-calistirici'] if dogrudan_baglanti else []) }}"
       when: simdiki.stdout | length > 0
     - name: Yayin basarisiz
       ansible.builtin.fail:
