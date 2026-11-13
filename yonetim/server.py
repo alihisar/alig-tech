@@ -38,7 +38,7 @@ DURUM_AD = {"yeni": "Yeni", "gorusuluyor": "Görüşülüyor", "kapandi": "Kapan
 DB_AD = {"pg": "PostgreSQL", "ms": "SQL Server", "my": "MySQL", "multi": "Birden çok", "unsure": "Emin değil"}
 FIRMA_DURUM_AD = {"aktif": "Aktif", "pasif": "Pasif"}
 KAYNAK_AD = {"tarama": "Sağlık taraması", "talep": "İletişim talebi"}
-MENU = (("/yonetim/", "Özet"), ("/yonetim/firmalar", "Firmalar"), ("/yonetim/talepler", "Talepler"), ("/yonetim/taramalar", "Taramalar"),
+MENU = (("/yonetim/", "Özet"), ("/yonetim/firmalar", "Firmalar"), ("/yonetim/talepler", "Talepler"), ("/yonetim/portal-talepleri", "Portal talepleri"), ("/yonetim/taramalar", "Taramalar"),
         ("/yonetim/denetim", "Denetim kaydı"), ("/yonetim/sistem", "Sistem"))
 
 
@@ -209,6 +209,8 @@ class H(BaseHTTPRequestHandler):
                 return self._firma(con, o, int(m.group(1)))
             if yol == "/yonetim/talepler":
                 return self._talepler(con, o, q)
+            if yol == "/yonetim/portal-talepleri":
+                return self._portal_talepleri(con, o, q)
             if yol == "/yonetim/taramalar":
                 return self._taramalar(con, o)
             m = re.match(r"^/yonetim/taramalar/(\d{1,9})$", yol)
@@ -256,6 +258,9 @@ class H(BaseHTTPRequestHandler):
                     return self._send(422, b"gecersiz durum\n", "text/plain; charset=utf-8")
                 depo.talep_durum_yaz(con, int(m.group(1)), f["durum"], f.get("aciklama", ""), o["ad"])
                 return self._yonlendir("/yonetim/talepler")
+            m = re.match(r"^/yonetim/portal-talepleri/(\d{1,9})/durum$", yol)
+            if m:
+                return self._portal_talep_durum(con, o, int(m.group(1)), f)
             m = re.match(r"^/yonetim/firmalar/(\d{1,9})/(durum|not|sinir|sil|izin)$", yol)
             if m:
                 return self._firma_islem(con, o, int(m.group(1)), m.group(2), f)
@@ -572,6 +577,52 @@ class H(BaseHTTPRequestHandler):
             tc.close()
         depo.denetim_ekle(con, o["ad"], olay)
         self._yonlendir("/yonetim/firmalar" if islem == "sil" or f.get("donus") == "liste" else "/yonetim/firmalar/%d" % fid)
+
+    PORTAL_TUR_AD = {"denetim": "Denetim talebi", "destek": "Destek talebi", "diger": "Diğer talep", "silme": "Hesap ve veri silme talebi"}
+    PORTAL_DURUM_AD = {"yeni": "Yeni", "inceleniyor": "İnceleniyor", "tamamlandi": "Tamamlandı", "reddedildi": "Reddedildi"}
+
+    def _portal_talepleri(self, con, o, q):
+        """Musteri portalindan gelen hizmet ve silme talepleri. Silme talebi yalniz kayittir: kimlik dogrulamasindan sonra
+        firma sayfasindaki Firmayi sil ile uygulanir."""
+        if not Path(self.tarama_db).exists():
+            return self._sayfa("Portal talepleri", "<p class=\"muted\">Tarama veritabanı yok.</p>", o)
+        suz = (q.get("durum") or [""])[0]
+        tc = tdepo.baglan(self.tarama_db)
+        try:
+            talepler = tdepo.portal_talep_listele(tc, suz or None)
+        finally:
+            tc.close()
+        satirlar = []
+        for t in talepler:
+            sec = "".join("<option value=\"%s\"%s>%s</option>" % (k, " selected" if k == t["durum"] else "", e(v)) for k, v in self.PORTAL_DURUM_AD.items())
+            form = ("<form method=\"post\" action=\"/yonetim/portal-talepleri/%d/durum\" class=\"inline\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
+                    "<label class=\"vh\" for=\"pd-%d\">Durum</label><select id=\"pd-%d\" name=\"durum\">%s</select>"
+                    "<button class=\"btn btn-sm\" type=\"submit\">Kaydet</button></form>") % (t["id"], e(o["csrf"]), t["id"], t["id"], sec)
+            firma = "<a href=\"/yonetim/firmalar/%d\">%s</a>" % (t["firma_id"], e(t["firma_ad"] or "(adsız firma)"))
+            satirlar.append([e(ist(t["olusturma_utc"])), firma, e(self.PORTAL_TUR_AD.get(t["tur"], t["tur"])),
+                             "<strong>%s</strong><br><span class=\"msg\">%s</span>" % (e(t["konu"]), e(t["mesaj"])) if t["tur"] != "silme" else "<span class=\"muted\">Kimlik doğrulanınca firma sayfasından silinir</span>",
+                             form])
+        suzgec = "<p class=\"filters\">Süz: <a href=\"/yonetim/portal-talepleri\">Tümü</a> " + " ".join(
+            "<a href=\"/yonetim/portal-talepleri?durum=%s\">%s</a>" % (k, e(v)) for k, v in self.PORTAL_DURUM_AD.items()) + "</p>"
+        depo.denetim_ekle(con, o["ad"], "portal talepleri goruntulendi")
+        self._sayfa("Portal talepleri", suzgec + tablo(["Zaman", "Firma", "Tür", "İçerik", "Durum"], satirlar, "Portal talebi yok."), o)
+
+    def _portal_talep_durum(self, con, o, tid, f):
+        if f.get("durum") not in tdepo.TALEP_DURUMLARI:
+            return self._send(422, b"gecersiz durum\n", "text/plain; charset=utf-8")
+        tc = tdepo.baglan(self.tarama_db)
+        try:
+            with tdepo.islem(tc) as t:
+                if not tdepo.portal_talep_durum_yaz(t, tid, f["durum"]):
+                    return self._send(404, b"yok\n", "text/plain; charset=utf-8")
+                olay = "portal talebi #%d durumu: %s" % (tid, f["durum"])
+                tdepo.denetim_ekle(t, "yonetici:" + o["ad"], olay, {"talep": tid, "sonuc": f["durum"]})
+        except sqlite3.IntegrityError:   # ornegin kapanmis silme talebini, ayni firmada baska acik talep varken yeniden acmak
+            return self._send(409, b"durum degistirilemedi\n", "text/plain; charset=utf-8")
+        finally:
+            tc.close()
+        depo.denetim_ekle(con, o["ad"], olay)
+        self._yonlendir("/yonetim/portal-talepleri")
 
     def _talepler(self, con, o, q):
         durumlar = depo.talep_durumlari(con)

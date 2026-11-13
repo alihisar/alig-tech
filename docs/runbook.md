@@ -162,6 +162,8 @@ Portal `/portal/` altındadır. Açmak için `group_vars/all.yml` içinde `muste
 - Firma izolasyonu veri katmanındadır (`tarama/portal_depo.py` `Kapsam`): her sorgu oturumdaki kullanıcının firmasıyla sınırlıdır; başka firmanın raporu var olmayan kimlikle aynı yanıtı verir.
 - Platform yöneticisinin hesabı ve oturumu ayrıdır (`yonetim.sqlite`); portal hesabı panele girmez.
 - Bir firmayı panelden pasif yapmak o firmanın portal girişini ve açık oturumlarını hemen geçersiz kılar; firma silinince hesapları da silinir.
+- Portaldan kullanıcı: rapor listesi (son 20 satırda önceki taramaya göre puan değişimi), raporu kalıcı silme (onay sayfası + form kodu; silinen rapor ücretsiz tarama hakkını geri vermez), ücretsiz tarama hakkı ve yenilenme tarihi, hizmet talebi (firma başına günde en çok 5), hesap ve veri silme talebi (firma başına tek açık talep).
+- Yönetici tarafı: panelde **Portal talepleri** (durum: Yeni, İnceleniyor, Tamamlandı, Reddedildi). Silme talebi yalnız kayıttır, veriyi kendiliğinden silmez: kimliği doğrulayıp firma sayfasındaki **Firmayı sil** ile uygulayın (portal hesapları ve talepleri de silinir), sonra talebi Tamamlandı yapın. Talep sahibine otomatik e-posta gitmez; yanıt sizin e-postanızdan verilir.
 - Parola sıfırlama bu dilimde yoktur: parolasını unutan kullanıcı için yeni bir hesap isteği yapılamaz (adreste etkin hesap varsa istek yeni hesap açmaz). Parola sıfırlama sonraki dilimde gelir; o zamana kadar canlıya açmayın.
 
 ## Sorun giderme

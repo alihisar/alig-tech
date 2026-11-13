@@ -29,6 +29,10 @@ DENEME_PENCERE_DK = 15
 DENEME_EPOSTA = 5
 DENEME_IP = 10
 BICIM = "%Y-%m-%dT%H:%M:%SZ"
+HIZMET_TURLERI = ("denetim", "destek", "diger")
+KONU_EN_COK = 120
+MESAJ_EN_COK = 2000
+TALEP_GUNLUK = 5
 
 
 class PortalHata(ValueError):
@@ -223,6 +227,68 @@ class Kapsam:
 
     def profil(self):
         return {"firma": self.firma_ad, "eposta": self.eposta, "dil": self.dil}
+
+    def rapor_sil(self, rid):
+        """Firmanin raporunu siler. Silinen sayi: baska firmanin ya da olmayan rapor icin 0 (varligi sizmaz)."""
+        if not isinstance(rid, int) or isinstance(rid, bool):
+            return 0
+        with depo.islem(self._con) as c:
+            n = c.execute("DELETE FROM rapor WHERE id=? AND firma_id=? AND dogrulandi=1", (rid, self._firma_id)).rowcount
+            if n:
+                depo.denetim_ekle(c, "portal:%d" % self.kullanici_id, "portal raporu silindi #%d" % rid,
+                                  {"firma": self._firma_id, "rapor": rid, "kullanici": self.kullanici_id, "sonuc": "basarili"})
+            return n
+
+    def kullanim(self, sinir):
+        """Ucretsiz tarama hakki: {sinir, kullanilan, kalan, gun, yenilenme_utc}. yenilenme_utc: en eski hakkin dondugu an
+        (kullanilan 0 ise None). Sayim depo.kullanim_say ile ayni anahtar ve pencereyi kullanir."""
+        f = depo.firma_getir(self._con, self._firma_id)
+        anahtar = depo._firma_ozeti(f)
+        esik = (datetime.now(timezone.utc) - timedelta(days=depo.SINIR_GUN)).strftime(BICIM)
+        zamanlar = [r[0] for r in self._con.execute("SELECT zaman_utc FROM kullanim WHERE anahtar_sha256=? AND zaman_utc>? ORDER BY zaman_utc", (anahtar, esik))]
+        yenilenme = None
+        if zamanlar:
+            yenilenme = _z(datetime.strptime(zamanlar[0], BICIM).replace(tzinfo=timezone.utc) + timedelta(days=depo.SINIR_GUN))
+        return {"sinir": sinir, "kullanilan": len(zamanlar), "kalan": max(0, sinir - len(zamanlar)), "gun": depo.SINIR_GUN, "yenilenme_utc": yenilenme}
+
+    def talepler(self, limit=100):
+        """Firmanin talepleri, yeniden eskiye: [{id, tur, konu, mesaj, durum, olusturma_utc}]."""
+        return [dict(zip(("id", "tur", "konu", "mesaj", "durum", "olusturma_utc"), r)) for r in self._con.execute(
+            "SELECT id, tur, konu, mesaj, durum, olusturma_utc FROM portal_talep WHERE firma_id=? ORDER BY id DESC LIMIT ?", (self._firma_id, int(limit)))]
+
+    def talep_ekle(self, tur, konu, mesaj):
+        """Hizmet talebi: (id, None) ya da (None, neden): tur | konu | mesaj | sinir. Firma basina 24 saatte en cok TALEP_GUNLUK."""
+        if tur not in HIZMET_TURLERI:
+            return None, "tur"
+        konu = konu.strip() if isinstance(konu, str) else ""
+        mesaj = mesaj.strip() if isinstance(mesaj, str) else ""
+        if not konu or len(konu) > KONU_EN_COK or any(ord(c) < 32 or ord(c) == 127 for c in konu):
+            return None, "konu"
+        if not mesaj or len(mesaj) > MESAJ_EN_COK or any((ord(c) < 32 and c not in "\n\r\t") or ord(c) == 127 for c in mesaj):
+            return None, "mesaj"
+        with depo.islem(self._con) as c:
+            esik = _z(_simdi() - timedelta(hours=24))
+            if c.execute("SELECT count(*) FROM portal_talep WHERE firma_id=? AND tur!='silme' AND olusturma_utc>?", (self._firma_id, esik)).fetchone()[0] >= TALEP_GUNLUK:
+                return None, "sinir"
+            z = depo.simdi()
+            tid = c.execute("INSERT INTO portal_talep(firma_id, kullanici_id, tur, konu, mesaj, olusturma_utc, guncelleme_utc) VALUES(?,?,?,?,?,?,?)",
+                            (self._firma_id, self.kullanici_id, tur, konu, mesaj, z, z)).lastrowid
+            depo.denetim_ekle(c, "portal:%d" % self.kullanici_id, "portal hizmet talebi #%d (%s)" % (tid, tur),
+                              {"firma": self._firma_id, "talep": tid, "kullanici": self.kullanici_id, "sonuc": "basarili"})
+            return tid, None
+
+    def silme_talebi_ekle(self):
+        """Hesap ve verilerin silinmesi talebi: (id, True) yeni, (id, False) zaten acik talep var. Silme yonetici islemidir."""
+        with depo.islem(self._con) as c:
+            var = c.execute("SELECT id FROM portal_talep WHERE firma_id=? AND tur='silme' AND durum IN ('yeni', 'inceleniyor')", (self._firma_id,)).fetchone()
+            if var:
+                return var[0], False
+            z = depo.simdi()
+            tid = c.execute("INSERT INTO portal_talep(firma_id, kullanici_id, tur, olusturma_utc, guncelleme_utc) VALUES(?,?,'silme',?,?)",
+                            (self._firma_id, self.kullanici_id, z, z)).lastrowid
+            depo.denetim_ekle(c, "portal:%d" % self.kullanici_id, "portal veri silme talebi #%d" % tid,
+                              {"firma": self._firma_id, "talep": tid, "kullanici": self.kullanici_id, "sonuc": "bekliyor"})
+            return tid, True
 
 
 _KAPSAM_IZNI = object()

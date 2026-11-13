@@ -350,6 +350,58 @@ class PanelTests(Taban):
         self.assertNotIn("/sil\"><button class=\"btn btn-ghost\" type=\"submit\">Raporu şimdi sil", o)   # musteri silme formu yok
         self.assertEqual(self.istek("GET", "/yonetim/taramalar/1?gorunum=x")[1], g)
 
+    def portal_talepleri_ekle(self):
+        t = tdepo.baglan(self.tdb)
+        tdepo.firma_kaydet(t, "ornek.com.tr", "Ornek AS", "a@ornek.com.tr", "portal")
+        fid = t.execute("SELECT id FROM firma WHERE anahtar='ornek.com.tr'").fetchone()[0]
+        z = tdepo.simdi()
+        for tur, konu, mesaj in (("denetim", "Yillik <b>denetim</b>", "13 kume"), ("silme", "", "")):
+            t.execute("INSERT INTO portal_talep(firma_id, kullanici_id, tur, konu, mesaj, olusturma_utc, guncelleme_utc) VALUES(?,?,?,?,?,?,?)", (fid, 1, tur, konu, mesaj, z, z))
+        t.commit()
+        ids = [r[0] for r in t.execute("SELECT id FROM portal_talep ORDER BY id")]
+        t.close()
+        return fid, ids
+
+    def test_portal_talepleri_listelenir_ve_durum_degisir(self):
+        fid, (denetim, silme) = self.portal_talepleri_ekle()
+        g = self.istek("GET", "/yonetim/portal-talepleri")
+        self.assertEqual(g[0].status, 200)
+        self.assertIn("Portal talepleri", g[1])
+        self.assertIn("Denetim talebi", g[1])
+        self.assertIn("Hesap ve veri silme talebi", g[1])
+        self.assertIn("Yillik &lt;b&gt;denetim&lt;/b&gt;", g[1])            # kacirilir
+        self.assertNotIn("<b>denetim</b>", g[1])
+        self.assertIn('href="/yonetim/firmalar/%d"' % fid, g[1])             # silme firma sayfasindan
+        r, _ = self.istek("POST", "/yonetim/portal-talepleri/%d/durum" % denetim, {"durum": "inceleniyor", "csrf": self.csrf()})
+        self.assertEqual((r.status, r.getheader("Location")), (303, "/yonetim/portal-talepleri"))
+        t = tdepo.baglan(self.tdb)
+        self.assertEqual(t.execute("SELECT durum FROM portal_talep WHERE id=?", (denetim,)).fetchone()[0], "inceleniyor")
+        self.assertTrue(any("portal talebi #%d durumu: inceleniyor" % denetim == o for (o,) in t.execute("SELECT olay FROM denetim")))
+        self.assertIsNone(tdepo.denetim_dogrula(t))
+        self.assertIn("Yillik", self.istek("GET", "/yonetim/portal-talepleri?durum=inceleniyor")[1])
+        self.assertNotIn("Yillik", self.istek("GET", "/yonetim/portal-talepleri?durum=yeni")[1])
+
+    def test_portal_talebi_durum_korumalari(self):
+        _, (denetim, silme) = self.portal_talepleri_ekle()
+        yol = "/yonetim/portal-talepleri/%d/durum" % denetim
+        self.assertEqual(self.istek("POST", yol, {"durum": "tamamlandi"})[0].status, 403)                         # CSRF
+        self.assertEqual(self.istek("POST", yol, {"durum": "silindi", "csrf": self.csrf()})[0].status, 422)
+        self.assertEqual(self.istek("POST", "/yonetim/portal-talepleri/99999/durum", {"durum": "yeni", "csrf": self.csrf()})[0].status, 404)
+        self.assertEqual(self.istek("POST", yol, {"durum": "tamamlandi"}, cerez=False)[0].status, 303)            # oturumsuz
+        t = tdepo.baglan(self.tdb)
+        self.assertEqual(t.execute("SELECT durum FROM portal_talep WHERE id=?", (denetim,)).fetchone()[0], "yeni")
+        # kapanmis silme talebi, ayni firmada baska acik silme talebi varken yeniden acilamaz
+        self.istek("POST", "/yonetim/portal-talepleri/%d/durum" % silme, {"durum": "tamamlandi", "csrf": self.csrf()})
+        t.execute("INSERT INTO portal_talep(firma_id, kullanici_id, tur, olusturma_utc, guncelleme_utc) SELECT firma_id, 1, 'silme', olusturma_utc, olusturma_utc FROM portal_talep WHERE id=?", (silme,))
+        t.commit()
+        self.assertEqual(self.istek("POST", "/yonetim/portal-talepleri/%d/durum" % silme, {"durum": "yeni", "csrf": self.csrf()})[0].status, 409)
+        self.assertEqual(t.execute("SELECT durum FROM portal_talep WHERE id=?", (silme,)).fetchone()[0], "tamamlandi")
+
+    def test_portal_talepleri_menude_ve_giris_ister(self):
+        self.assertIn('href="/yonetim/portal-talepleri"', self.istek("GET", "/yonetim/")[1])
+        r, _ = self.istek("GET", "/yonetim/portal-talepleri", cerez=False)
+        self.assertEqual((r.status, r.getheader("Location")), (303, "/yonetim/giris"))
+
     def test_sistem_sayfasi_puan_katsayilarini_gosterir(self):
         from tarama import puan
         g = self.istek("GET", "/yonetim/sistem")[1]

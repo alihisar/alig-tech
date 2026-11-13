@@ -197,6 +197,8 @@ html:not(.demo-ready) .btns,html.demo-ready .nojs-note,html:not(.demo-ready) .au
 .portal-page{max-width:40rem;margin:2rem auto}
 .portal-page .err{padding:.6rem .9rem;border-left:4px solid #b3261e;background:#fff;margin:1rem 0}
 .portal-nav{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;justify-content:space-between;max-width:72rem;margin:0 auto;padding:.75rem 1rem;border-top:1px solid var(--line-strong)}
+.portal-nav nav{display:flex;flex-wrap:wrap;gap:1rem}
+.portal-nav nav a{font-weight:600}
 .rapor-sekme{display:flex;flex-wrap:wrap;gap:.5rem;margin:1.25rem 0}
 .rapor-sekme a{padding:.5rem 1rem;border:1px solid var(--line-strong);border-radius:var(--r-s);color:var(--fg);text-decoration:none;font-weight:600}
 .rapor-sekme a[aria-current=page]{background:var(--fg);color:var(--bg);border-color:var(--fg)}

@@ -534,7 +534,8 @@ class SunucuTests(HttpTaban):
         self.assertEqual(own.status, 200)
         self.assertIn("Denetim sonuçları", own.govde)
         self.assertIn("Genel durum", self.istek("GET", "/portal/rapor/%d/?gorunum=yonetici" % a, cerez=kod_a).govde)
-        self.assertNotIn("/sil", own.govde)   # silme bu dilimde yok; token yok
+        self.assertIn('href="/portal/rapor/%d/sil"' % a, own.govde)
+        self.assertNotIn('action="/rapor/', own.govde)   # tokenli silme yolu yok
         # baska firmanin raporu: var olmayan kimlikle ayni yanit
         yabanci = self.istek("GET", "/portal/rapor/%d/" % b, cerez=kod_a)
         yok = self.istek("GET", "/portal/rapor/99999/", cerez=kod_a)
@@ -596,6 +597,275 @@ class SunucuTests(HttpTaban):
         panel = self.istek("GET", "/portal/", cerez=kod).govde
         self.assertNotIn("<script>alert(1)", panel)
         self.assertIn("&lt;script&gt;", panel)
+
+
+class PortalIslemTests(unittest.TestCase):
+    """Rapor silme, kullanim hakki, hizmet ve silme talepleri: hepsi firma kapsaminda."""
+
+    def setUp(self):
+        self.con = yeni_db()
+        _, self.fa = hesap_ac(self.con, "ali@firma-a.com.tr", "Firma A")
+        _, self.fb = hesap_ac(self.con, "veli@firma-b.com.tr", "Firma B")
+        self.a = rapor_ekle(self.con, self.fa, "2026-11-01T10:00:00Z")
+        self.b = rapor_ekle(self.con, self.fb, "2026-11-02T10:00:00Z")
+        self.ks_a = oturum(self.con, "ali@firma-a.com.tr")
+        self.ks_b = oturum(self.con, "veli@firma-b.com.tr")
+
+    def test_rapor_silme_yalniz_kendi_firmasi(self):
+        self.assertEqual(self.ks_a.rapor_sil(self.b), 0)
+        self.assertIsNotNone(depo.rapor_getir_id(self.con, self.b))   # baskasinin raporu duruyor
+        self.assertEqual(self.ks_a.rapor_sil(99999), 0)
+        for kotu in ("1", None, True, 1.0, [self.a], "1 OR 1=1", -1, 0):
+            self.assertEqual(self.ks_a.rapor_sil(kotu), 0, repr(kotu))
+        self.assertIsNotNone(depo.rapor_getir_id(self.con, self.a))
+        self.assertEqual(self.ks_a.rapor_sil(self.a), 1)
+        self.assertIsNone(depo.rapor_getir_id(self.con, self.a))
+        self.assertEqual(self.ks_a.rapor_sil(self.a), 0)               # ikinci kez: idempotent
+        self.assertIsNotNone(depo.rapor_getir_id(self.con, self.b))
+
+    def test_dogrulanmamis_rapor_portaldan_silinemez(self):
+        bekleyen = rapor_ekle(self.con, self.fa, "2026-11-07T10:00:00Z", dogrulandi=False)
+        self.assertEqual(self.ks_a.rapor_sil(bekleyen), 0)
+        self.assertIsNotNone(depo.rapor_getir_id(self.con, bekleyen))
+
+    def test_silme_denetime_yazilir_ve_hak_geri_gelmez(self):
+        anahtar = depo.sirket_anahtari("ali@firma-a.com.tr")
+        depo.kullanim_ekle(self.con, anahtar)
+        self.ks_a.rapor_sil(self.a)
+        self.assertEqual(depo.kullanim_say(self.con, anahtar), 1)
+        self.assertIsNone(depo.denetim_dogrula(self.con))
+        olay = self.con.execute("SELECT aktor, olay, alanlar FROM denetim WHERE olay LIKE 'portal raporu silindi%'").fetchone()
+        self.assertEqual(olay[1], "portal raporu silindi #%d" % self.a)
+        self.assertEqual(json.loads(olay[2])["firma"], self.fa)
+
+    def test_kullanim_hakki(self):
+        k = self.ks_a.kullanim(2)
+        self.assertEqual((k["sinir"], k["kullanilan"], k["kalan"], k["yenilenme_utc"]), (2, 0, 2, None))
+        anahtar = depo.sirket_anahtari("ali@firma-a.com.tr")
+        depo.kullanim_ekle(self.con, anahtar)
+        depo.kullanim_ekle(self.con, anahtar)
+        k = self.ks_a.kullanim(2)
+        self.assertEqual((k["kullanilan"], k["kalan"]), (2, 0))
+        self.assertTrue(k["yenilenme_utc"] > depo.simdi())
+        self.assertEqual(self.ks_a.kullanim(1)["kalan"], 0)
+        self.assertEqual(self.ks_b.kullanim(2)["kullanilan"], 0)   # baska firmanin kullanimi sayilmaz
+        eski = (datetime.now(timezone.utc) - timedelta(days=depo.SINIR_GUN + 1)).strftime(portal_depo.BICIM)
+        self.con.execute("UPDATE kullanim SET zaman_utc=?", (eski,))
+        self.assertEqual(self.ks_a.kullanim(2)["kullanilan"], 0)   # pencere disindaki hak sayilmaz
+        self.assertEqual(depo.kullanim_say(self.con, anahtar), self.ks_a.kullanim(2)["kullanilan"])
+
+    def test_hizmet_talebi_dogrulama(self):
+        kotu = (("yok", "Konu", "Mesaj", "tur"), ("silme", "Konu", "Mesaj", "tur"), (None, "Konu", "Mesaj", "tur"),
+                ("denetim", "", "Mesaj", "konu"), ("denetim", "   ", "Mesaj", "konu"), ("denetim", "K" * 121, "Mesaj", "konu"), ("denetim", "A\nB", "Mesaj", "konu"), ("denetim", None, "Mesaj", "konu"),
+                ("denetim", "Konu", "", "mesaj"), ("denetim", "Konu", "M" * 2001, "mesaj"), ("denetim", "Konu", "A\x00B", "mesaj"), ("denetim", "Konu", None, "mesaj"))
+        for tur, konu, mesaj, neden in kotu:
+            self.assertEqual(self.ks_a.talep_ekle(tur, konu, mesaj), (None, neden), repr((tur, konu[:5] if konu else konu, neden)))
+        self.assertEqual(self.ks_a.talepler(), [])
+        tid, _ = self.ks_a.talep_ekle("destek", "Yavas sorgu", "Birinci satir\nIkinci satir")   # satir sonu mesajda serbest
+        self.assertTrue(tid)
+        t = self.ks_a.talepler()[0]
+        self.assertEqual((t["tur"], t["konu"], t["durum"], t["mesaj"]), ("destek", "Yavas sorgu", "yeni", "Birinci satir\nIkinci satir"))
+
+    def test_talep_gunluk_sinir_firma_basina(self):
+        for i in range(portal_depo.TALEP_GUNLUK):
+            self.assertTrue(self.ks_a.talep_ekle("diger", "Konu %d" % i, "Mesaj")[0])
+        self.assertEqual(self.ks_a.talep_ekle("diger", "Fazla", "Mesaj"), (None, "sinir"))
+        self.assertTrue(self.ks_b.talep_ekle("diger", "B talebi", "Mesaj")[0])   # baska firma etkilenmez
+        self.con.execute("UPDATE portal_talep SET olusturma_utc='2000-01-01T00:00:00Z'")
+        self.assertTrue(self.ks_a.talep_ekle("diger", "Yeni gun", "Mesaj")[0])
+
+    def test_talepler_firmalar_arasi_ayri(self):
+        self.ks_a.talep_ekle("denetim", "A konusu", "A mesaji")
+        self.ks_b.talep_ekle("destek", "B konusu", "B mesaji")
+        self.assertEqual([t["konu"] for t in self.ks_a.talepler()], ["A konusu"])
+        self.assertEqual([t["konu"] for t in self.ks_b.talepler()], ["B konusu"])
+        self.assertEqual({t["firma_id"] for t in depo.portal_talep_listele(self.con)}, {self.fa, self.fb})   # yonetici ikisini de gorur
+
+    def test_silme_talebi_tek_acik_ve_firma_kapsamli(self):
+        tid, yeni = self.ks_a.silme_talebi_ekle()
+        self.assertTrue(yeni)
+        self.assertEqual(self.ks_a.silme_talebi_ekle(), (tid, False))
+        self.assertEqual(self.con.execute("SELECT count(*) FROM portal_talep WHERE tur='silme'").fetchone()[0], 1)
+        self.assertTrue(self.ks_b.silme_talebi_ekle()[1])                  # baska firmanin talebi ayri
+        depo.portal_talep_durum_yaz(self.con, tid, "tamamlandi")
+        tid2, yeni2 = self.ks_a.silme_talebi_ekle()                        # kapanan talepten sonra yenisi acilabilir
+        self.assertTrue(yeni2 and tid2 != tid)
+        import sqlite3
+        with self.assertRaises(sqlite3.IntegrityError):                    # kisit veri tabaninda da
+            self.con.execute("INSERT INTO portal_talep(firma_id, kullanici_id, tur, olusturma_utc, guncelleme_utc) VALUES(?,1,'silme','x','x')", (self.fa,))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.con.execute("UPDATE portal_talep SET tur='yonetici' WHERE id=?", (tid,))
+
+    def test_silme_talebi_verileri_silmez(self):
+        self.ks_a.silme_talebi_ekle()
+        self.assertIsNotNone(depo.rapor_getir_id(self.con, self.a))
+        self.assertIsNotNone(depo.firma_getir(self.con, self.fa))
+        self.assertTrue(oturum(self.con, "ali@firma-a.com.tr"))
+
+    def test_firma_silinince_talepler_gider(self):
+        self.ks_a.talep_ekle("diger", "Konu", "Mesaj")
+        self.ks_a.silme_talebi_ekle()
+        depo.firma_sil(self.con, self.fa)
+        self.assertEqual(self.con.execute("SELECT count(*) FROM portal_talep WHERE firma_id=?", (self.fa,)).fetchone()[0], 0)
+
+    def test_durum_yazma(self):
+        tid, _ = self.ks_a.talep_ekle("diger", "Konu", "Mesaj")
+        with self.assertRaises(ValueError):
+            depo.portal_talep_durum_yaz(self.con, tid, "silindi")
+        self.assertEqual(depo.portal_talep_durum_yaz(self.con, 99999, "tamamlandi"), 0)
+        self.assertEqual(depo.portal_talep_durum_yaz(self.con, tid, "inceleniyor"), 1)
+        self.assertEqual(self.ks_a.talepler()[0]["durum"], "inceleniyor")
+        self.assertEqual([t["id"] for t in depo.portal_talep_listele(self.con, "yeni")], [])
+
+    def test_statik_talep_sorgulari_firma_kosulu_tasir(self):
+        kaynak = (ROOT / "tarama" / "portal_depo.py").read_text(encoding="utf-8")
+        sorgular = re.findall(r'"((?:SELECT|DELETE|UPDATE)[^"]*portal_talep[^"]*)"', kaynak)
+        self.assertGreaterEqual(len(sorgular), 3)
+        for sorgu in sorgular:
+            self.assertIn("firma_id=?", sorgu, sorgu)
+
+
+class PortalIslemHttpTests(HttpTaban):
+    def kur(self):
+        self.hesap("ali@firma-a.com.tr", "Firma A")
+        self.hesap("veli@firma-b.com.tr", "Firma B")
+        con = self.con()
+        fa, fb = [f["id"] for f in sorted(depo.firma_listele(con), key=lambda f: f["anahtar"])]
+        self.a, self.b = rapor_ekle(con, fa, "2026-11-01T10:00:00Z"), rapor_ekle(con, fb, "2026-11-02T10:00:00Z")
+        self.fa, self.fb = fa, fb
+        self.kod_a = self.giris("ali@firma-a.com.tr")[1]
+        self.kod_b = self.giris("veli@firma-b.com.tr")[1]
+        self.csrf_a = portal_depo.kapsam(self.con(), self.kod_a).csrf
+
+    def var(self, rid):
+        return depo.rapor_getir_id(self.con(), rid) is not None
+
+    def test_panel_kullanim_ve_degisim(self):
+        self.kur()
+        con = self.con()
+        depo.kullanim_ekle(con, depo.sirket_anahtari("ali@firma-a.com.tr"))
+        p = self.istek("GET", "/portal/", cerez=self.kod_a).govde
+        self.assertIn("1 / 2 kullanıldı (son 30 gün), kalan: 1", p)
+        self.assertIn("yenilenir", p)
+        self.assertIn("Önceki taramaya göre", p)
+        self.assertIn('href="/portal/rapor/%d/sil"' % self.a, p)
+        self.assertNotIn('href="/portal/rapor/%d/sil"' % self.b, p)
+
+    def test_panel_degisim_sutunu(self):
+        import test_gecmis
+        self.kur()
+        con = self.con()
+        once, simdi = test_gecmis.belge(zaman="2026-11-01T00:00:00Z"), test_gecmis.belge(zaman="2026-11-05T00:00:00Z")
+        once["kontroller"]["pg_autovacuum"]["satirlar"][0]["setting"] = "off"
+        depo.rapor_ekle(con, "x1", "postgresql", "tr", once, self.fa)
+        depo.rapor_ekle(con, "x2", "postgresql", "tr", simdi, self.fa)
+        p = self.istek("GET", "/portal/", cerez=self.kod_a).govde
+        self.assertRegex(p, r"puan \+\d+")
+
+    def test_rapor_silme_akisi(self):
+        self.kur()
+        g = self.istek("GET", "/portal/rapor/%d/sil" % self.a, cerez=self.kod_a)
+        self.assertEqual(g.status, 200)
+        self.assertIn("Raporu kalıcı olarak sil", g.govde)
+        self.assertTrue(self.var(self.a))                                  # GET hicbir sey silmez
+        self.assertEqual(self.istek("POST", "/portal/rapor/%d/sil" % self.a, {"csrf": "yanlis"}, cerez=self.kod_a).status, 403)
+        self.assertEqual(self.istek("POST", "/portal/rapor/%d/sil" % self.a, {}, cerez=self.kod_a).status, 403)
+        self.assertTrue(self.var(self.a))
+        self.assertEqual(self.istek("POST", "/portal/rapor/%d/sil" % self.a, {"csrf": self.csrf_a}, cerez=self.kod_a, origin="https://kotu.example").status, 403)
+        self.assertTrue(self.var(self.a))
+        p = self.istek("POST", "/portal/rapor/%d/sil" % self.a, {"csrf": self.csrf_a}, cerez=self.kod_a)
+        self.assertEqual(p.status, 200)
+        self.assertIn("Rapor silindi", p.govde)
+        self.assertFalse(self.var(self.a))
+        self.assertEqual(self.istek("POST", "/portal/rapor/%d/sil" % self.a, {"csrf": self.csrf_a}, cerez=self.kod_a).status, 404)
+
+    def test_baska_firmanin_raporu_silinemez(self):
+        self.kur()
+        yok = self.istek("GET", "/portal/rapor/99999/sil", cerez=self.kod_a)
+        yabanci = self.istek("GET", "/portal/rapor/%d/sil" % self.b, cerez=self.kod_a)
+        self.assertEqual((yabanci.status, yabanci.govde), (404, yok.govde))       # onay sayfasi bile gosterilmez
+        p = self.istek("POST", "/portal/rapor/%d/sil" % self.b, {"csrf": self.csrf_a}, cerez=self.kod_a)
+        self.assertEqual((p.status, p.govde), (404, yok.govde))
+        self.assertTrue(self.var(self.b))
+
+    def test_oturumsuz_islemler_giris_sayfasina_gider(self):
+        self.kur()
+        for yol in ("/portal/talepler", "/portal/hesap", "/portal/rapor/%d/sil" % self.a):
+            g = self.istek("GET", yol)
+            self.assertEqual((g.status, g.getheader("Location")), (303, "/portal/"), yol)
+        for yol, form in (("/portal/rapor/%d/sil" % self.a, {"csrf": self.csrf_a}), ("/portal/talepler", {"csrf": self.csrf_a, "tur": "diger", "konu": "k", "mesaj": "m"}),
+                          ("/portal/hesap/silme-talebi", {"csrf": self.csrf_a})):
+            p = self.istek("POST", yol, form)
+            self.assertEqual((p.status, p.getheader("Location")), (303, "/portal/"), yol)
+        self.assertTrue(self.var(self.a))
+        self.assertEqual(self.con().execute("SELECT count(*) FROM portal_talep").fetchone()[0], 0)
+
+    def test_hizmet_talebi_akisi(self):
+        self.kur()
+        self.assertIn("Henüz talebiniz yok", self.istek("GET", "/portal/talepler", cerez=self.kod_a).govde)
+        form = {"csrf": self.csrf_a, "tur": "denetim", "konu": "Yillik denetim", "mesaj": "13 kumeyi denetletmek istiyoruz.", "dil": "tr"}
+        for kotu, kod, metin in (({"tur": "silme"}, 422, "Geçerli bir talep türü"), ({"konu": ""}, 422, "Konuyu girin"), ({"mesaj": ""}, 422, "Mesajı girin"), ({"csrf": "x"}, 403, "Form kodu")):
+            r = self.istek("POST", "/portal/talepler", dict(form, **kotu), cerez=self.kod_a)
+            self.assertEqual(r.status, kod)
+            self.assertIn(metin, r.govde)
+        r = self.istek("POST", "/portal/talepler", form, cerez=self.kod_a)
+        self.assertEqual(r.status, 200)
+        self.assertIn("Talebiniz alındı", r.govde)
+        liste = self.istek("GET", "/portal/talepler", cerez=self.kod_a).govde
+        self.assertIn("Yillik denetim", liste)
+        self.assertIn("Alındı", liste)
+        self.assertNotIn("Yillik denetim", self.istek("GET", "/portal/talepler", cerez=self.kod_b).govde)   # baska firma gormez
+        self.assertEqual(self.istek("POST", "/portal/talepler", form, cerez=self.kod_a, origin="https://kotu.example").status, 403)
+        self.assertEqual(self.con().execute("SELECT count(*) FROM portal_talep").fetchone()[0], 1)
+
+    def test_hizmet_talebi_gunluk_sinir_http(self):
+        self.kur()
+        form = {"csrf": self.csrf_a, "tur": "diger", "konu": "k", "mesaj": "m"}
+        for _ in range(portal_depo.TALEP_GUNLUK):
+            self.assertEqual(self.istek("POST", "/portal/talepler", form, cerez=self.kod_a).status, 200)
+        r = self.istek("POST", "/portal/talepler", form, cerez=self.kod_a)
+        self.assertEqual(r.status, 429)
+        self.assertIn("en çok 5 talep", r.govde)
+
+    def test_silme_talebi_akisi(self):
+        self.kur()
+        h = self.istek("GET", "/portal/hesap", cerez=self.kod_a).govde
+        self.assertIn("Hesap ve verilerimin silinmesini iste", h)
+        self.assertEqual(self.istek("POST", "/portal/hesap/silme-talebi", {"csrf": "x"}, cerez=self.kod_a).status, 403)
+        self.assertEqual(self.con().execute("SELECT count(*) FROM portal_talep").fetchone()[0], 0)
+        r = self.istek("POST", "/portal/hesap/silme-talebi", {"csrf": self.csrf_a}, cerez=self.kod_a)
+        self.assertEqual(r.status, 200)
+        self.assertIn("Silme talebiniz alındı", r.govde)
+        self.istek("POST", "/portal/hesap/silme-talebi", {"csrf": self.csrf_a}, cerez=self.kod_a)   # ikinci tiklama
+        self.assertEqual(self.con().execute("SELECT count(*) FROM portal_talep WHERE tur='silme'").fetchone()[0], 1)
+        h = self.istek("GET", "/portal/hesap", cerez=self.kod_a).govde
+        self.assertIn("Silme talebiniz alındı (durum: Alındı)", h)
+        self.assertNotIn("Hesap ve verilerimin silinmesini iste", h)
+        self.assertTrue(self.var(self.a))                                   # veri hemen silinmez
+        self.assertIn("Hesap ve verilerimin silinmesini iste", self.istek("GET", "/portal/hesap", cerez=self.kod_b).govde)   # baska firma etkilenmez
+
+    def test_denetim_ve_gizli_veri(self):
+        self.kur()
+        self.istek("POST", "/portal/talepler", {"csrf": self.csrf_a, "tur": "diger", "konu": "GIZLIKONU", "mesaj": "GIZLIMESAJ"}, cerez=self.kod_a)
+        self.istek("POST", "/portal/hesap/silme-talebi", {"csrf": self.csrf_a}, cerez=self.kod_a)
+        self.istek("POST", "/portal/rapor/%d/sil" % self.a, {"csrf": self.csrf_a}, cerez=self.kod_a)
+        con = self.con()
+        self.assertIsNone(depo.denetim_dogrula(con))
+        olaylar = [x[0] for x in con.execute("SELECT olay FROM denetim")]
+        for beklenen in ("portal hizmet talebi #", "portal veri silme talebi #", "portal raporu silindi #%d" % self.a):
+            self.assertTrue(any(beklenen in o for o in olaylar), beklenen)
+        ham = json.dumps(con.execute("SELECT aktor, olay, alanlar FROM denetim").fetchall())
+        for gizli in ("GIZLIKONU", "GIZLIMESAJ", "ali@firma-a.com.tr"):
+            self.assertNotIn(gizli, ham)
+
+    def test_ingilizce_sayfalar(self):
+        self.kur()
+        con = self.con()
+        con.execute("UPDATE portal_kullanici SET dil='en' WHERE eposta='ali@firma-a.com.tr'")
+        con.commit()
+        for yol, metin in (("/portal/", "Your free scan allowance"), ("/portal/talepler", "New service request"), ("/portal/hesap", "Request deletion of my account and data"),
+                           ("/portal/rapor/%d/sil" % self.a, "Delete the report permanently")):
+            self.assertIn(metin, self.istek("GET", yol, cerez=self.kod_a).govde, yol)
 
 
 if __name__ == "__main__":

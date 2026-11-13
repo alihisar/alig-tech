@@ -26,7 +26,7 @@ Sıra `docs/master-prompt-v2.md` belgesindeki önceliklere göredir (P0 önce). 
 | 14 | P1 | Rapor: yönetici özeti ve teknik rapor görünümleri, yazdırma düzeni | TR ve EN, kanıt ile yorum ayrı | **tamam** (`?gorunum=yonetici` ya da `?gorunum=teknik`, varsayılan teknik; yönetici özeti yalnız kural çıktısından, dil modeli yok; bulgu kartında Kanıt ve Yorum ayrı blok; kanıtı eksik tarama “temiz” denmez; yazdırma düzeni tema C'de, `tests/test_rapor_gorunum.py`) |
 | 15 | P1 | E-posta doğrulamasının gönderimden bağımsız kısmı: tek kullanımlık süreli kod, takılabilir gönderici | Gönderici yokken canlıda açılmaz | **kod tamam, kapalı** (rapor bağlantısı yalnız e-postayla, giden kutusu + `alig-posta` servisi, SMTP yalnız TLS; açmak için SMTP sağlayıcısı ve gönderen adres Ali'den) |
 | 16 | P1 | Müşteri portalı 1: giriş, firma izolasyonu veri erişim katmanında, izolasyon testleri | Başka firmanın kaydına tahmin edilen kimlikle erişilemez | **kod tamam, kapalı** (`/portal/`, `ALIG_PORTAL=1` ve e-posta doğrulaması gerekir; kayıt, tek kullanımlık süreli e-posta kodu, giriş, oturum, firma kapsamlı `Kapsam`, rapor listesi ve görüntüleme, `tests/test_portal.py`; parola sıfırlama yok: canlıya açmadan önce eklenmeli; gerçek SMTP ile denenmedi) |
-| 17 | P1 | Müşteri portalı 2: tarama geçmişi, rapor silme, hizmet talebi, kullanım hakkı, veri silme talebi | TR ve EN, test | bekliyor |
+| 17 | P1 | Müşteri portalı 2: tarama geçmişi, rapor silme, hizmet talebi, kullanım hakkı, veri silme talebi | TR ve EN, test | **kod tamam, kapalı** (geçmiş tablosunda önceki taramaya göre puan değişimi; rapor silme onay sayfası ve form koduyla, firma kapsamlı; ücretsiz tarama hakkı ve yenilenme tarihi; hizmet talebi; silme talebi yalnız kayıt; panelde Portal talepleri; `tests/test_portal.py`, `tests/test_yonetim.py`; talep e-postası otomatik gitmez) |
 | 18 | P1 | Ana sayfa: hizmet kartları, "nasıl çalışır", güvenlik yaklaşımı, SSS | Kanıtsız iddia yok, boyut bütçesi içinde | bekliyor |
 | 19 | P1 | Örnek rapor sayfası: test verisinden üretilmiş ve öyle etiketlenmiş | Sayfa, i18n, test | bekliyor |
 | 20 | P1 | Yönetim paneli: gösterge sayıları ve ticari süreç durumları (basit durum makinesi ve not) | Test | bekliyor |
@@ -60,6 +60,8 @@ Kod incelemesinden (`docs/kod-inceleme.md`) gelen açık maddeler:
 | Doğrudan bağlantı ve SQL Server | Kapalı | `ALIG_DOGRUDAN`, `ALIG_MSSQL` |
 | Müşteri portalı | Kapalı; e-posta doğrulaması açık değilse açılmaz | `ALIG_PORTAL`, `musteri_portali` |
 | Portal girişi | E-posta + parola (en az 12 karakter), ikinci faktör yok; aynı kurumsal alan adı aynı firma | `tarama/portal_depo.py` |
+| Portal hizmet talebi | Firma başına günde en çok 5; konu 120, mesaj 2000 karakter; türler: denetim, destek, diğer | `tarama/portal_depo.py` |
+| Portal silme talebi | Yalnız kayıt; kimlik doğrulaması ve silme yönetici işlemi; firma başına tek açık talep | panel, Portal talepleri |
 | Portal giriş sınırları | E-posta başına 5, IP başına 10 hatalı deneme / 15 dk; oturum 30 dk boşta, en çok 8 saat; doğrulama kodu 24 saat | `tarama/portal_depo.py` |
 | Kanıt modeli: önemden duruma eşleme | Kritik ve yüksek FAIL; orta, düşük ve bilgi WARNING | `tarama/kanit.py` `BULGU_DURUMU` |
 | Kanıt modeli: kural kategorisi ve güven düzeyi | Kural başına seçildi, liste `docs/kural-katalogu.md` | kural tanımı (`tarama/kurallar.py`, `tarama/kurallar_mssql.py`) |

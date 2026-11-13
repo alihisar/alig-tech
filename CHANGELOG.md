@@ -2,6 +2,10 @@
 
 ## Yayınlanmadı
 
+- Müşteri portalı, ikinci dilim (varsayılan kapalı): tarama geçmişinde önceki taramaya göre puan değişimi, rapor silme
+  (onay sayfası, form kodu, yalnız kendi firması), ücretsiz tarama hakkı ve yenilenme tarihi, hizmet talebi (günde en
+  çok 5), hesap ve veri silme talebi (yalnız kayıt; silme yönetici işlemi). Yönetim panelinde Portal talepleri sayfası:
+  durum değişimi iki denetim zincirine de yazılır. TR ve EN.
 - Müşteri portalı, ilk dilim (`/portal/`, varsayılan kapalı): hesap isteği ve tek kullanımlık, süreli e-posta doğrulaması
   (GET hiçbir şey değiştirmez, hesap düğmeyle açılır), parola girişi (scrypt, deneme sınırı), oturum, rapor listesi ve
   görüntüleme. Firma izolasyonu veri erişim katmanındadır: her sorgu oturumdaki kullanıcının firmasına bağlıdır, başka

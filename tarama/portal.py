@@ -16,6 +16,7 @@ from tarama import depo, kurallar, portal_depo, posta, puan, rapor
 
 KOD = re.compile(r"^/portal/dogrula/([A-Za-z0-9_\-]{43})$")
 RAPOR = re.compile(r"^/portal/rapor/([0-9]{1,12})/?$")
+RAPOR_SIL = re.compile(r"^/portal/rapor/([0-9]{1,12})/sil$")
 COREZ = "alig_portal"
 CSP = "default-src 'self'; img-src 'self'; style-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
 
@@ -34,6 +35,24 @@ M = {
            "firma": "Firma", "cikis": "Çıkış yap", "raporlar": "Raporlarınız", "rapor_yok": "Henüz raporunuz yok.",
            "rapor_b": ("Rapor", "Tarama zamanı (UTC)", "Motor", "Bulgular", "Sağlık puanı"), "rapor_g": "Raporu aç", "geri": "Raporlara dön",
            "puan_yok": "-", "bulgu_yok": "bulgu yok", "bulgu_n": "%d bulgu", "bulunamadi": "Bulunamadı", "bulunamadi_l": "Böyle bir rapor yok.",
+           "nav": ("Raporlar", "Taleplerim", "Hesap ve veri"), "degisim": "Önceki taramaya göre", "degisim_yok": "-",
+           "degisim_puan": "puan %s", "kullanim": "Ücretsiz tarama hakkınız", "kullanim_d": "%d / %d kullanıldı (son %d gün), kalan: %d",
+           "kullanim_y": "En eski hakkınız %s tarihinde (UTC) yenilenir.", "sil": "Sil",
+           "sil_b": "Raporu sil", "sil_l": "Bu raporu kalıcı olarak silmek istiyor musunuz? Silinen rapor geri getirilemez ve ücretsiz tarama hakkınızı geri vermez.",
+           "sil_d": "Raporu kalıcı olarak sil", "silindi": "Rapor silindi", "silindi_l": "Rapor kalıcı olarak silindi.", "vazgec": "Vazgeç",
+           "talepler": "Taleplerim", "talep_yeni": "Yeni hizmet talebi", "talep_yok": "Henüz talebiniz yok.",
+           "talep_a": "Denetim ya da destek isteyin; talebinizi ekibimiz inceler ve e-postanızla size döner. Talep bir hizmet sözleşmesi ya da fiyat teklifi yerine geçmez.",
+           "tur": "Talep türü", "turler": {"denetim": "Veritabanı denetimi", "destek": "DBA desteği", "diger": "Diğer"},
+           "konu": "Konu", "mesaj": "Mesaj", "talep_g": "Talebi gönder", "talep_tamam": "Talebiniz alındı",
+           "talep_tamam_l": "Talebiniz kaydedildi. Ekibimiz inceleyip size dönecek.",
+           "talep_b": ("Zaman (UTC)", "Tür", "Konu", "Durum"),
+           "durumlar": {"yeni": "Alındı", "inceleniyor": "İnceleniyor", "tamamlandi": "Tamamlandı", "reddedildi": "Reddedildi"},
+           "e_tur": "Geçerli bir talep türü seçin.", "e_konu": "Konuyu girin (en çok 120 karakter).", "e_mesaj": "Mesajı girin (en çok 2000 karakter).",
+           "e_sinir": "Bir günde en çok 5 talep gönderebilirsiniz. Yarın tekrar deneyin.", "e_csrf": "Form kodu geçersiz. Sayfayı yenileyip tekrar deneyin.",
+           "hesap": "Hesap ve veri", "hesap_a": "Hesabınızın ve firmanıza ait raporların silinmesini isteyebilirsiniz. Talep kaydedilir; kimliğinizi doğrulayıp silme işlemini ekibimiz yapar. Silinen veri geri getirilemez. Denetim kaydı (kim, ne zaman, hangi işlem) bütünlüğü için tutulur; içinde parola, rapor içeriği ya da e-posta adresi bulunmaz.",
+           "hesap_d": "Hesap ve verilerimin silinmesini iste", "hesap_var": "Silme talebiniz alındı (durum: %s). Ekibimiz sizinle iletişime geçecek.",
+           "hesap_yeni": "Silme talebiniz alındı", "hesap_yeni_l": "Talebiniz kaydedildi. Ekibimiz kimliğinizi doğrulayıp silme işlemini yapacak.",
+           "hesap_firma": "Firma", "hesap_eposta": "Giriş e-postası",
            "ana": "alig.tech"},
     "en": {"baslik": "Customer portal", "giris": "Sign in", "eposta": "Email", "parola": "Password", "sirket": "Company name",
            "parola_n": "At least %d characters.", "kayit": "Request an account", "kayit_l": "No account yet?", "giris_l": "Already have an account?",
@@ -49,6 +68,24 @@ M = {
            "firma": "Company", "cikis": "Sign out", "raporlar": "Your reports", "rapor_yok": "You have no reports yet.",
            "rapor_b": ("Report", "Scan time (UTC)", "Engine", "Findings", "Health score"), "rapor_g": "Open report", "geri": "Back to reports",
            "puan_yok": "-", "bulgu_yok": "no findings", "bulgu_n": "%d findings", "bulunamadi": "Not found", "bulunamadi_l": "There is no such report.",
+           "nav": ("Reports", "My requests", "Account and data"), "degisim": "Compared with the previous scan", "degisim_yok": "-",
+           "degisim_puan": "score %s", "kullanim": "Your free scan allowance", "kullanim_d": "%d of %d used (last %d days), remaining: %d",
+           "kullanim_y": "Your oldest allowance renews on %s (UTC).", "sil": "Delete",
+           "sil_b": "Delete report", "sil_l": "Do you want to delete this report permanently? A deleted report cannot be restored and does not give back your free scan allowance.",
+           "sil_d": "Delete the report permanently", "silindi": "Report deleted", "silindi_l": "The report was deleted permanently.", "vazgec": "Cancel",
+           "talepler": "My requests", "talep_yeni": "New service request", "talep_yok": "You have no requests yet.",
+           "talep_a": "Ask for an audit or support; our team reviews your request and replies by email. A request is not a service contract or a price quote.",
+           "tur": "Request type", "turler": {"denetim": "Database audit", "destek": "DBA support", "diger": "Other"},
+           "konu": "Subject", "mesaj": "Message", "talep_g": "Send request", "talep_tamam": "Request received",
+           "talep_tamam_l": "Your request was saved. Our team will review it and get back to you.",
+           "talep_b": ("Time (UTC)", "Type", "Subject", "Status"),
+           "durumlar": {"yeni": "Received", "inceleniyor": "In review", "tamamlandi": "Completed", "reddedildi": "Rejected"},
+           "e_tur": "Choose a valid request type.", "e_konu": "Enter the subject (at most 120 characters).", "e_mesaj": "Enter the message (at most 2000 characters).",
+           "e_sinir": "You can send at most 5 requests a day. Try again tomorrow.", "e_csrf": "The form code is invalid. Reload the page and try again.",
+           "hesap": "Account and data", "hesap_a": "You can ask for your account and your company's reports to be deleted. The request is recorded; our team verifies your identity and carries out the deletion. Deleted data cannot be restored. The audit log (who, when, which action) is kept for integrity; it contains no password, report content or email address.",
+           "hesap_d": "Request deletion of my account and data", "hesap_var": "Your deletion request was received (status: %s). Our team will contact you.",
+           "hesap_yeni": "Deletion request received", "hesap_yeni_l": "Your request was saved. Our team will verify your identity and carry out the deletion.",
+           "hesap_firma": "Company", "hesap_eposta": "Sign-in email",
            "ana": "alig.tech"},
 }
 
@@ -62,9 +99,10 @@ def _kabuk(d, baslik, icerik, kapsam=None):
     kok = "/en/" if d == "en" else "/"
     nav = ""
     if kapsam is not None:
-        nav = ("<form class=\"portal-nav\" method=\"post\" action=\"/portal/cikis\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
-               "<span>%s: %s</span> <button class=\"btn btn-ghost\" type=\"submit\">%s</button></form>") % (
-            escape(kapsam.csrf), escape(m["firma"]), escape(kapsam.firma_ad), escape(m["cikis"]))
+        baglar = "".join("<a href=\"%s\">%s</a>" % (h_, escape(a)) for h_, a in zip(("/portal/", "/portal/talepler", "/portal/hesap"), m["nav"]))
+        nav = ("<div class=\"portal-nav\"><nav aria-label=\"%s\">%s</nav><form method=\"post\" action=\"/portal/cikis\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
+               "<span>%s: %s</span> <button class=\"btn btn-ghost\" type=\"submit\">%s</button></form></div>") % (
+            escape(m["baslik"]), baglar, escape(kapsam.csrf), escape(m["firma"]), escape(kapsam.firma_ad), escape(m["cikis"]))
     return ("<!doctype html>\n<html lang=\"%s\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
             "<meta name=\"robots\" content=\"noindex,nofollow\"><title>%s | alig.tech</title>"
             "<link rel=\"stylesheet\" href=\"/assets/base.css\"><link rel=\"stylesheet\" href=\"/assets/style.css\"></head><body>"
@@ -127,20 +165,87 @@ def _bulgu_puan(belge):
         return None, None
 
 
-def panel_sayfasi(ks):
+def _degisim(ks, r, m):
+    """Onceki taramaya gore puan degisimi (ayni firma ve sunucu kimligi); yoksa '-'. Bozuk rapor listeyi dusurmez."""
+    try:
+        o = ks.onceki(r)
+        if not o:
+            return m["degisim_yok"]
+        a, y = puan.hesapla(kurallar.incele(o["belge"])).genel, puan.hesapla(kurallar.incele(r["belge"])).genel
+        if a is None or y is None:
+            return m["degisim_yok"]
+        f = y - a
+        return m["degisim_puan"] % ("+%d" % f if f > 0 else ("\u2212%d" % -f if f < 0 else "0"))
+    except Exception:  # noqa: BLE001
+        return m["degisim_yok"]
+
+
+DEGISIM_SATIR = 20   # karsilastirma her satirda onceki raporu okur: yalniz en yeni satirlar icin hesaplanir
+
+
+def panel_sayfasi(ks, sirket_adet):
     m = M[ks.dil]
     satir = []
-    for r in ks.raporlar():
+    for i, r in enumerate(ks.raporlar()):
         n, p = _bulgu_puan(r["belge"])
         bulgu = "-" if n is None else (m["bulgu_yok"] if n == 0 else m["bulgu_n"] % n)
+        degisim = _degisim(ks, r, m) if i < DEGISIM_SATIR else m["degisim_yok"]
+        zaman = r["belge"].get("olusturma_utc", "-") if isinstance(r["belge"], dict) else "-"
         satir.append("<tr><th scope=\"row\">#%d</th><td data-label=\"%s\">%s</td><td data-label=\"%s\">%s</td><td data-label=\"%s\">%s</td>"
-                     "<td data-label=\"%s\">%s</td><td><a href=\"/portal/rapor/%d/\">%s</a></td></tr>" % (
-                         r["id"], escape(m["rapor_b"][1]), escape(r["belge"].get("olusturma_utc", "-") if isinstance(r["belge"], dict) else "-"),
-                         escape(m["rapor_b"][2]), escape(str(r["motor"])), escape(m["rapor_b"][3]), escape(bulgu),
-                         escape(m["rapor_b"][4]), escape(p or m["puan_yok"]), r["id"], escape(m["rapor_g"])))
-    tablo = ("<table class=\"tiers durumlar\"><thead><tr>%s<th scope=\"col\"></th></tr></thead><tbody>%s</tbody></table>" % (
-        "".join("<th scope=\"col\">%s</th>" % escape(b) for b in m["rapor_b"]), "".join(satir))) if satir else "<p>%s</p>" % escape(m["rapor_yok"])
-    return _kabuk(ks.dil, m["baslik"], "<article class=\"prose portal-page\"><h1>%s</h1><h2>%s</h2>%s</article>" % (escape(m["baslik"]), escape(m["raporlar"]), tablo), ks)
+                     "<td data-label=\"%s\">%s</td><td data-label=\"%s\">%s</td><td><a href=\"/portal/rapor/%d/\">%s</a> <a href=\"/portal/rapor/%d/sil\">%s</a></td></tr>" % (
+                         r["id"], escape(m["rapor_b"][1]), escape(str(zaman)), escape(m["rapor_b"][2]), escape(str(r["motor"])), escape(m["rapor_b"][3]), escape(bulgu),
+                         escape(m["rapor_b"][4]), escape(p or m["puan_yok"]), escape(m["degisim"]), escape(degisim), r["id"], escape(m["rapor_g"]), r["id"], escape(m["sil"])))
+    tablo = ("<table class=\"tiers durumlar\"><thead><tr>%s<th scope=\"col\">%s</th><th scope=\"col\"></th></tr></thead><tbody>%s</tbody></table>" % (
+        "".join("<th scope=\"col\">%s</th>" % escape(b) for b in m["rapor_b"]), escape(m["degisim"]), "".join(satir))) if satir else "<p>%s</p>" % escape(m["rapor_yok"])
+    k = ks.kullanim(sirket_adet)
+    kul = "<p>%s</p>" % escape(m["kullanim_d"] % (k["kullanilan"], k["sinir"], k["gun"], k["kalan"]))
+    if k["yenilenme_utc"]:
+        kul += "<p class=\"fine\">%s</p>" % escape(m["kullanim_y"] % k["yenilenme_utc"])
+    return _kabuk(ks.dil, m["baslik"], "<article class=\"prose portal-page\"><h1>%s</h1><h2>%s</h2>%s<h2>%s</h2>%s</article>" % (
+        escape(m["baslik"]), escape(m["kullanim"]), kul, escape(m["raporlar"]), tablo), ks)
+
+
+def sil_sayfasi(ks, rid):
+    m = M[ks.dil]
+    return _kabuk(ks.dil, m["sil_b"], ("<article class=\"prose portal-page\"><h1>%s</h1><p class=\"lead\">%s</p>"
+                                       "<form method=\"post\" action=\"/portal/rapor/%d/sil\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
+                                       "<p><button class=\"btn\" type=\"submit\">%s</button> <a class=\"btn btn-ghost\" href=\"/portal/\">%s</a></p></form></article>") % (
+        escape(m["sil_b"]), escape(m["sil_l"]), rid, escape(ks.csrf), escape(m["sil_d"]), escape(m["vazgec"])), ks)
+
+
+def talepler_sayfasi(ks, hata_metni="", form=None):
+    m = M[ks.dil]
+    form = form or {}
+    satir = ["<tr><td data-label=\"%s\">%s</td><td data-label=\"%s\">%s</td><td data-label=\"%s\">%s</td><td data-label=\"%s\">%s</td></tr>" % (
+        escape(m["talep_b"][0]), escape(t["olusturma_utc"]), escape(m["talep_b"][1]), escape(m["turler"].get(t["tur"], t["tur"])),
+        escape(m["talep_b"][2]), escape(t["konu"]), escape(m["talep_b"][3]), escape(m["durumlar"][t["durum"]]))
+        for t in ks.talepler() if t["tur"] != "silme"]
+    liste = ("<table class=\"tiers durumlar\"><thead><tr>%s</tr></thead><tbody>%s</tbody></table>" % (
+        "".join("<th scope=\"col\">%s</th>" % escape(b) for b in m["talep_b"]), "".join(satir))) if satir else "<p>%s</p>" % escape(m["talep_yok"])
+    secenek = "".join("<option value=\"%s\"%s>%s</option>" % (k, " selected" if form.get("tur") == k else "", escape(v)) for k, v in m["turler"].items())
+    f = ("<form class=\"form\" method=\"post\" action=\"/portal/talepler\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
+         "<div class=\"field field-wide\"><label for=\"t-tur\">%s</label><select id=\"t-tur\" name=\"tur\">%s</select></div>"
+         "<div class=\"field field-wide\"><label for=\"t-konu\">%s</label><input id=\"t-konu\" name=\"konu\" type=\"text\" maxlength=\"%d\" value=\"%s\" required></div>"
+         "<div class=\"field field-wide\"><label for=\"t-mesaj\">%s</label><textarea id=\"t-mesaj\" name=\"mesaj\" rows=\"6\" maxlength=\"%d\" required>%s</textarea></div>"
+         "<p class=\"form-foot\"><button class=\"btn\" type=\"submit\">%s</button></p></form>") % (
+        escape(ks.csrf), escape(m["tur"]), secenek, escape(m["konu"]), portal_depo.KONU_EN_COK, escape(form.get("konu", "")),
+        escape(m["mesaj"]), portal_depo.MESAJ_EN_COK, escape(form.get("mesaj", "")), escape(m["talep_g"]))
+    return _kabuk(ks.dil, m["talepler"], "<article class=\"prose portal-page\"><h1>%s</h1><p>%s</p>%s<h2>%s</h2>%s<h2>%s</h2>%s</article>" % (
+        escape(m["talepler"]), escape(m["talep_a"]), "<p class=\"err\" role=\"alert\">%s</p>" % escape(hata_metni) if hata_metni else "",
+        escape(m["talep_yeni"]), f, escape(m["talepler"]), liste), ks)
+
+
+def hesap_sayfasi(ks):
+    m = M[ks.dil]
+    acik = [t for t in ks.talepler() if t["tur"] == "silme" and t["durum"] in ("yeni", "inceleniyor")]
+    if acik:
+        islem = "<p class=\"lead\">%s</p>" % escape(m["hesap_var"] % m["durumlar"][acik[0]["durum"]])
+    else:
+        islem = ("<form method=\"post\" action=\"/portal/hesap/silme-talebi\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
+                 "<p><button class=\"btn\" type=\"submit\">%s</button></p></form>") % (escape(ks.csrf), escape(m["hesap_d"]))
+    return _kabuk(ks.dil, m["hesap"], ("<article class=\"prose portal-page\"><h1>%s</h1><dl class=\"facts\"><dt>%s</dt><dd>%s</dd><dt>%s</dt><dd>%s</dd></dl>"
+                                       "<p>%s</p>%s</article>") % (escape(m["hesap"]), escape(m["hesap_firma"]), escape(ks.firma_ad),
+                                                                   escape(m["hesap_eposta"]), escape(ks.eposta), escape(m["hesap_a"]), islem), ks)
 
 
 # ---- istek isleme ----
@@ -193,10 +298,16 @@ def isle(h, metod):
         con.close()
 
 
+def _bulunamadi(ks):
+    m = M[ks.dil]
+    return _kabuk(ks.dil, m["bulunamadi"], "<article class=\"prose portal-page\"><h1>%s</h1><p>%s</p><p><a href=\"/portal/\">%s</a></p></article>" % (
+        escape(m["bulunamadi"]), escape(m["bulunamadi_l"]), escape(m["geri"])), ks)
+
+
 def _get(h, con, yol, q, d):
     ks = portal_depo.kapsam(con, _cerez(h))
     if yol == "/portal/":
-        return _gonder(h, 200, panel_sayfasi(ks) if ks else giris_sayfasi(d))
+        return _gonder(h, 200, panel_sayfasi(ks, h.sirket_adet) if ks else giris_sayfasi(d))
     if yol == "/portal/kayit":
         return _gonder(h, 200, kayit_sayfasi(d))
     mk = KOD.match(yol)
@@ -206,6 +317,17 @@ def _get(h, con, yol, q, d):
         if not dil:
             return _gonder(h, 404, mesaj_sayfasi(d, m["dogrula_yok"], m["dogrula_yok_l"], ("/portal/kayit?dil=%s" % d, m["kayit"])))
         return _gonder(h, 200, dogrula_sayfasi(dil, mk.group(1)))
+    if yol in ("/portal/talepler", "/portal/hesap") or RAPOR_SIL.match(yol):
+        if not ks:
+            return _yonlendir(h, "/portal/")
+        if yol == "/portal/talepler":
+            return _gonder(h, 200, talepler_sayfasi(ks))
+        if yol == "/portal/hesap":
+            return _gonder(h, 200, hesap_sayfasi(ks))
+        rid = int(RAPOR_SIL.match(yol).group(1))
+        if not ks.rapor(rid):   # baska firmanin ya da olmayan rapor icin onay sayfasi bile gosterilmez
+            return _gonder(h, 404, _bulunamadi(ks))
+        return _gonder(h, 200, sil_sayfasi(ks, rid))
     mr = RAPOR.match(yol)
     if mr:
         if not ks:
@@ -213,19 +335,18 @@ def _get(h, con, yol, q, d):
         r = ks.rapor(int(mr.group(1)))
         m = M[ks.dil]
         if not r:
-            return _gonder(h, 404, _kabuk(ks.dil, m["bulunamadi"], "<article class=\"prose portal-page\"><h1>%s</h1><p>%s</p><p><a href=\"/portal/\">%s</a></p></article>" % (
-                escape(m["bulunamadi"]), escape(m["bulunamadi_l"]), escape(m["geri"])), ks))
+            return _gonder(h, 404, _bulunamadi(ks))
         onceki = ks.onceki(r)
         g = rapor.gorunum_sec((q.get("gorunum") or [None])[0])
         govde, _, _ = rapor.govde(r, ks.dil, "", eylemler=False, onceki=onceki, gorunum=g)
         depo.denetim_ekle(con, "portal:%d" % ks.kullanici_id, "portal raporu goruntulendi #%d" % r["id"],
                           {"firma": ks.firma_id, "rapor": r["id"], "kullanici": ks.kullanici_id, "sonuc": "basarili"})
-        return _gonder(h, 200, _kabuk(ks.dil, rapor.M[ks.dil]["baslik"], "<p><a href=\"/portal/\">%s</a></p>%s" % (escape(m["geri"]), govde), ks))
+        return _gonder(h, 200, _kabuk(ks.dil, rapor.M[ks.dil]["baslik"], "<p><a href=\"/portal/\">%s</a> <a href=\"/portal/rapor/%d/sil\">%s</a></p>%s" % (escape(m["geri"]), r["id"], escape(m["sil"]), govde), ks))
     return h._send(404, b"yok\n")
 
 
 def _post(h, con, yol, d):
-    f = h._form(2048)
+    f = h._form(32768)
     m0 = M[d]
     if f is None:
         return _gonder(h, 415, mesaj_sayfasi(d, m0["baslik"], m0["e_istek"]))
@@ -239,6 +360,9 @@ def _post(h, con, yol, d):
             depo.denetim_ekle(con, "portal:%d" % ks.kullanici_id, "portal cikisi yapildi", {"firma": ks.firma_id, "kullanici": ks.kullanici_id, "sonuc": "basarili"})
             portal_depo.cikis(con, _cerez(h))
         return _yonlendir(h, "/portal/", (_cerez_yaz(h, "", 0),))
+    ks = portal_depo.kapsam(con, _cerez(h)) if yol in ("/portal/talepler", "/portal/hesap/silme-talebi") or RAPOR_SIL.match(yol) else None
+    if ks is not None or yol in ("/portal/talepler", "/portal/hesap/silme-talebi") or RAPOR_SIL.match(yol):
+        return _oturumlu_post(h, con, yol, f, ks)
     if yol == "/portal/giris":
         if not h.sinir.allow(h._ip()):
             return _gonder(h, 429, mesaj_sayfasi(d, m["baslik"], m["e_hiz"]), (("Retry-After", "900"),))
@@ -285,3 +409,29 @@ def _kayit(h, con, f, d):
         metin = {"eposta": m["e_eposta"], "parola": m["e_parola"] % (portal_depo.PAROLA_EN_AZ, portal_depo.PAROLA_EN_COK), "sirket": m["e_sirket"]}[e.kod]
         return _gonder(h, 422, kayit_sayfasi(d, metin))
     return _gonder(h, 200, mesaj_sayfasi(d, m["gonderildi"], m["gonderildi_l"] % portal_depo.KOD_SAAT))
+
+
+def _oturumlu_post(h, con, yol, f, ks):
+    """Oturum ve form kodu (csrf) gerektiren islemler. Oturum yoksa giris sayfasina, kod yanlissa 403."""
+    if ks is None:
+        return _yonlendir(h, "/portal/")
+    m = M[ks.dil]
+    if not portal_depo.csrf_dogru(ks, f.get("csrf")):
+        return _gonder(h, 403, mesaj_sayfasi(ks.dil, m["baslik"], m["e_csrf"]))
+    ms = RAPOR_SIL.match(yol)
+    if ms:
+        if not ks.rapor_sil(int(ms.group(1))):
+            return _gonder(h, 404, _bulunamadi(ks))
+        return _gonder(h, 200, _kabuk(ks.dil, m["silindi"], "<article class=\"prose portal-page\"><h1>%s</h1><p class=\"lead\">%s</p><p><a class=\"btn\" href=\"/portal/\">%s</a></p></article>" % (
+            escape(m["silindi"]), escape(m["silindi_l"]), escape(m["geri"])), ks))
+    if yol == "/portal/hesap/silme-talebi":
+        _, yeni = ks.silme_talebi_ekle()
+        return _gonder(h, 200, _kabuk(ks.dil, m["hesap_yeni"], "<article class=\"prose portal-page\"><h1>%s</h1><p class=\"lead\">%s</p><p><a href=\"/portal/hesap\">%s</a></p></article>" % (
+            escape(m["hesap_yeni"] if yeni else m["hesap"]), escape(m["hesap_yeni_l"]), escape(m["hesap"])), ks))
+    if not h.sinir.allow(h._ip()):
+        return _gonder(h, 429, mesaj_sayfasi(ks.dil, m["baslik"], m["e_hiz"]), (("Retry-After", "3600"),))
+    tid, neden = ks.talep_ekle(f.get("tur"), f.get("konu"), f.get("mesaj"))
+    if tid is None:
+        return _gonder(h, 429 if neden == "sinir" else 422, talepler_sayfasi(ks, m["e_" + neden], f))
+    return _gonder(h, 200, _kabuk(ks.dil, m["talep_tamam"], "<article class=\"prose portal-page\"><h1>%s</h1><p class=\"lead\">%s</p><p><a href=\"/portal/talepler\">%s</a></p></article>" % (
+        escape(m["talep_tamam"]), escape(m["talep_tamam_l"]), escape(m["talepler"])), ks))

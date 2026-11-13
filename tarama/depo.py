@@ -83,6 +83,14 @@ GOCLER = [
        olusturma_utc TEXT NOT NULL, son_erisim_utc TEXT NOT NULL)""",
     """CREATE TABLE portal_deneme(id INTEGER PRIMARY KEY, anahtar TEXT NOT NULL, zaman_utc TEXT NOT NULL)""",
     """CREATE INDEX portal_deneme_anahtar ON portal_deneme(anahtar, zaman_utc)""",
+    # portal talepleri: hizmet talebi (denetim, destek, diger) ve hesap/veri silme talebi (silme). Silme talebi yalniz kaydedilir;
+    # kimlik dogrulamasi ve silme yonetici islemidir (panel). Firma basina tek acik silme talebi.
+    """CREATE TABLE portal_talep(id INTEGER PRIMARY KEY AUTOINCREMENT, firma_id INTEGER NOT NULL, kullanici_id INTEGER NOT NULL,
+       tur TEXT NOT NULL CHECK (tur IN ('denetim', 'destek', 'diger', 'silme')), konu TEXT NOT NULL DEFAULT '', mesaj TEXT NOT NULL DEFAULT '',
+       durum TEXT NOT NULL DEFAULT 'yeni' CHECK (durum IN ('yeni', 'inceleniyor', 'tamamlandi', 'reddedildi')),
+       olusturma_utc TEXT NOT NULL, guncelleme_utc TEXT NOT NULL)""",
+    """CREATE INDEX portal_talep_firma ON portal_talep(firma_id, olusturma_utc)""",
+    """CREATE UNIQUE INDEX portal_talep_acik_silme ON portal_talep(firma_id) WHERE tur='silme' AND durum IN ('yeni', 'inceleniyor')""",
 ]
 ISTEK_DAKIKA = 30
 BEKLEME_SAAT = 24      # e-postayla dogrulanmamis rapor bu sure sonunda silinir
@@ -455,6 +463,7 @@ def firma_sil(con, fid):
     for tablo in ("portal_kod", "portal_oturum"):   # firmanin portal kullanicilarinin kodlari ve oturumlari
         con.execute("DELETE FROM %s WHERE kullanici_id IN (SELECT id FROM portal_kullanici WHERE firma_id=?)" % tablo, (fid,))
     con.execute("DELETE FROM portal_kullanici WHERE firma_id=?", (fid,))
+    con.execute("DELETE FROM portal_talep WHERE firma_id=?", (fid,))
     con.execute("DELETE FROM kullanim WHERE anahtar_sha256=?", (_firma_ozeti(f),))
     con.execute("DELETE FROM baglanti_istegi WHERE firma_id=?", (fid,))
     con.execute("DELETE FROM firma WHERE id=?", (fid,))
@@ -565,6 +574,27 @@ def onceki_rapor(con, rapor):
 
 def rapor_getir_id(con, rid):
     return _rapor(con.execute("SELECT %s FROM rapor WHERE id=?" % _RAPOR_KOLON, (rid,)).fetchone())
+
+
+# --- portal talepleri (yonetici gorunumu; firma gorunumu tarama/portal_depo.py Kapsam) ---
+TALEP_DURUMLARI = ("yeni", "inceleniyor", "tamamlandi", "reddedildi")
+
+
+def portal_talep_listele(con, durum=None, limit=200):
+    """Tum firmalarin portal talepleri (yalniz yonetici paneli): [{id, firma_id, firma_ad, tur, konu, mesaj, durum, olusturma_utc}]."""
+    kosul, arg = ("WHERE t.durum=?", (durum, int(limit))) if durum in TALEP_DURUMLARI else ("", (int(limit),))
+    return [dict(zip(("id", "firma_id", "firma_ad", "tur", "konu", "mesaj", "durum", "olusturma_utc"), r)) for r in con.execute(
+        "SELECT t.id, t.firma_id, f.ad, t.tur, t.konu, t.mesaj, t.durum, t.olusturma_utc FROM portal_talep t LEFT JOIN firma f ON f.id=t.firma_id "
+        "%s ORDER BY t.id DESC LIMIT ?" % kosul, arg)]
+
+
+def portal_talep_durum_yaz(con, tid, durum):
+    """Etkilenen satir sayisi (0: talep yok). Gecersiz durumda ValueError."""
+    if durum not in TALEP_DURUMLARI:
+        raise ValueError("gecersiz durum")
+    n = con.execute("UPDATE portal_talep SET durum=?, guncelleme_utc=? WHERE id=?", (durum, simdi(), tid)).rowcount
+    con.commit()
+    return n
 
 
 # --- giden kutusu (tarama/posta.py gonderir) ---
