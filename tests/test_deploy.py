@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "deploy"))
 sys.path.insert(0, str(ROOT))
 import bakim  # noqa: E402
+import hazirlik  # noqa: E402
 import duman_testi  # noqa: E402
 import paketle  # noqa: E402
 from tarama import depo, saklama  # noqa: E402
@@ -294,6 +295,102 @@ class GeriYuklemeTests(unittest.TestCase):
         fy = bakim.yedekle(veri / "form.sqlite", yedek, "20261112T000000Z")
         self.assertEqual(bakim.geri_yukle(yy, veri, evet=True, cikti=lambda *_: None), 0)
         self.assertEqual(bakim.geri_yukle(fy, veri, evet=True, cikti=lambda *_: None), 0)
+
+
+class HazirlikTests(unittest.TestCase):
+    """deploy/hazirlik.py: sunucu denetimi gecici dizinde sinanir; gercek sunucu kaniti degildir."""
+    def kur(self, mod_env=0o640, mod_veri=0o750, mod_db=0o600):
+        kok = Path(tempfile.mkdtemp())
+        v = hazirlik.yukle_degiskenler()
+        for p, m in (("/etc/alig", 0o750), (v["veri_dizini"], mod_veri), (v["yedek_dizini"], 0o700)):
+            (kok / p.lstrip("/")).mkdir(parents=True)
+            (kok / p.lstrip("/")).chmod(m)
+        env = kok / "etc/alig/env"
+        env.write_text("ALIG_FORM_SALT=%s\nALIG_DENETIM_ANAHTARI=%s\n" % ("a" * 64, "b" * 64))
+        env.chmod(mod_env)
+        db = kok / v["veri_dizini"].lstrip("/") / "tarama.sqlite"
+        db.write_text("x")
+        db.chmod(mod_db)
+        return kok, v
+
+    def bul(self, sonuc, parca):
+        return [d for a, d, _ in sonuc if parca in a]
+
+    def sunucu(self, kok, v, disk=None):
+        return hazirlik.sunucu(v, str(kok), servis_kontrol=False, disk=disk or shutil.disk_usage)
+
+    def test_dogru_kurulum_gecer_ve_sir_degeri_yazdirilmaz(self):
+        kok, v = self.kur()
+        sonuc = self.sunucu(kok, v)
+        self.assertEqual(self.bul(sonuc, "izinleri"), ["PASS"] * 4)
+        self.assertEqual(self.bul(sonuc, "ALIG_DENETIM_ANAHTARI"), ["PASS"])
+        self.assertNotIn("b" * 20, repr(sonuc))
+
+    def test_acik_izin_ve_gevsek_dosya_yakalanir(self):
+        kok, v = self.kur(mod_env=0o644, mod_veri=0o755, mod_db=0o644)
+        sonuc = self.sunucu(kok, v)
+        self.assertIn("FAIL", self.bul(sonuc, "/etc/alig/env izinleri"))
+        self.assertIn("FAIL", self.bul(sonuc, v["veri_dizini"] + " izinleri"))
+        self.assertEqual(self.bul(sonuc, "yalniz sahibine acik: tarama.sqlite"), ["FAIL"])
+
+    def test_eksik_ya_da_kisa_anahtar_yakalanir(self):
+        kok, v = self.kur()
+        (kok / "etc/alig/env").write_text("ALIG_FORM_SALT=kisa\n")
+        sonuc = self.sunucu(kok, v)
+        self.assertEqual(self.bul(sonuc, "ALIG_FORM_SALT"), ["FAIL"])
+        self.assertEqual(self.bul(sonuc, "ALIG_DENETIM_ANAHTARI"), ["FAIL"])
+
+    def test_disk_esikleri(self):
+        D = type("D", (), {})
+        def disk(bos):
+            d = D()
+            d.total, d.free = 100 * (1 << 30), int(bos * (1 << 30))
+            return d
+        self.assertEqual(hazirlik.disk_durumu("/", lambda _: disk(50))[0], "PASS")
+        self.assertEqual(hazirlik.disk_durumu("/", lambda _: disk(15))[0], "WARN")
+        self.assertEqual(hazirlik.disk_durumu("/", lambda _: disk(5))[0], "FAIL")
+        kok, v = self.kur()
+        self.assertEqual(self.bul(self.sunucu(kok, v, disk=lambda _: disk(5)), "disk doluluk"), ["FAIL", "FAIL"])
+
+    def test_yerel_ozet_gercek_sunucu_satirlari_not_tested(self):
+        sonuc = hazirlik.yerel()
+        durum = {a: d for a, d, _ in sonuc}
+        self.assertEqual(durum["GERCEK DAGITIM ansible-playbook site.yml"], "NOT_TESTED")
+        self.assertEqual(durum["KURU CALISTIRMA ansible-playbook site.yml --check --diff"], "NOT_TESTED")
+        self.assertNotIn("FAIL", durum.values())
+
+    def test_kontrol_listesi_yalniz_done_ya_da_not_tested(self):
+        metin = (ROOT / "docs" / "canli-kontrol-listesi.md").read_text(encoding="utf-8")
+        satirlar = [x for x in metin.splitlines() if x.startswith("| ") and not x.startswith(("| Madde", "| ---"))]
+        self.assertGreater(len(satirlar), 20)
+        for x in satirlar:
+            durum = x.split("|")[2].strip()
+            self.assertIn(durum, ("DONE", "NOT_TESTED"), x)
+            if durum == "DONE":  # kanitsiz DONE olmaz
+                self.assertTrue(x.split("|")[3].strip(), x)
+
+    def test_yazdir_fail_varsa_hata_kodu(self):
+        self.assertEqual(hazirlik.yazdir([("a", "PASS", ""), ("b", "FAIL", "x")], cikti=lambda *_: None), 1)
+        self.assertEqual(hazirlik.yazdir([("a", "PASS", ""), ("b", "WARN", "x")], cikti=lambda *_: None), 0)
+
+
+class BakimDiskTests(unittest.TestCase):
+    def test_disk_dolu_ise_yedek_alinmaz_veri_silinmez(self):
+        veri, yedek = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        con = depo.baglan(str(veri / "tarama.sqlite"))
+        depo.rapor_ekle(con, "t", "postgresql", "tr", {"a": 1})
+        con.close()
+        D = type("D", (), {"total": 1000, "free": 10})
+        self.assertFalse(bakim.disk_yeterli(veri, yedek, lambda _: D)[0])
+        with mock.patch.object(bakim, "disk_yeterli", return_value=(False, "dolu")):
+            self.assertEqual(bakim.main(["--veri", str(veri), "--yedek", str(yedek)]), 1)
+        self.assertEqual(list(yedek.iterdir()), [])
+        self.assertEqual(depo.baglan(str(veri / "tarama.sqlite")).execute("SELECT count(*) FROM rapor").fetchone()[0], 1)
+
+    def test_yeterli_yer_varsa_gecer(self):
+        veri, yedek = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        D = type("D", (), {"total": 1 << 30, "free": 1 << 29})
+        self.assertTrue(bakim.disk_yeterli(veri, yedek, lambda _: D)[0])
 
 
 class DumanTests(unittest.TestCase):

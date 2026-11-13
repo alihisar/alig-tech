@@ -250,7 +250,12 @@ class SunucuTests(Temel):
         self.assertEqual(g.status, 200)
         self.assertIn("Sağlık taraması raporu", g.read().decode())
         self.assertEqual(self.post(self.istek(r), {"parola": PAROLA}).status, 404)   # istek tek kullanimlik
-        ham = b"".join(Path(p).read_bytes() for p in Path(self.d).glob("s.sqlite*"))
+        ham = b""
+        for p in Path(self.d).glob("s.sqlite*"):
+            try:  # -shm/-wal dosyalari sunucu baglantisi kapanirken kaybolabilir
+                ham += p.read_bytes()
+            except FileNotFoundError:
+                pass
         self.assertNotIn(PAROLA.encode(), ham)
         self.assertFalse(any("93.184.216.34" in o or "db.ornek.com" in o for o in self.olaylar()))
         self.assertTrue(any("dogrudan tarama tamamlandi" in o for o in self.olaylar()))

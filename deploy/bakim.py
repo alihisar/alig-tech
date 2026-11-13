@@ -43,6 +43,16 @@ def yedekle(kaynak, hedef_dizin, zaman):
     return hedef
 
 
+def disk_yeterli(veri, yedek, kullanilan=shutil.disk_usage, oran=0.10):
+    """Yedek icin yeterli yer var mi: bos alan, veritabanlarinin toplam boyutunun iki katindan ve disk boyutunun %10'undan az olmamali.
+    (yeterli_mi, aciklama). Yer yoksa yedek alinmaz; veri silinmez."""
+    toplam = sum((Path(veri) / ad).stat().st_size for ad in VERITABANLARI if (Path(veri) / ad).exists())
+    d = kullanilan(str(yedek))
+    gereken = max(2 * toplam, int(d.total * oran))
+    mb = lambda x: x // (1 << 20)  # noqa: E731
+    return d.free >= gereken, f"yedek diskinde bos {mb(d.free)} MB, gereken en az {mb(gereken)} MB"
+
+
 def _ozet(yol):
     h = hashlib.sha256()
     with open(yol, "rb") as f:
@@ -238,6 +248,10 @@ def main(argv=None):
     yedek.mkdir(parents=True, exist_ok=True)
     zaman = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     hata = 0
+    yeterli, mesaj = disk_yeterli(veri, yedek)
+    if not yeterli:
+        print(f"HATA: disk dolu, yedek alinmadi ({mesaj})", file=sys.stderr)
+        return 1
     tarama = veri / "tarama.sqlite"
     if tarama.exists():
         con = depo.baglan(str(tarama))

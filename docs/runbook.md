@@ -130,6 +130,8 @@ Paneldeki her işlem (giriş, talep ve rapor görüntüleme, durum değişikliğ
 
 ## Bu repoda neyin sınandığı
 
+Katman katman durum: `docs/canli-kontrol-listesi.md` (DONE ya da NOT_TESTED). Dağıtımdan sonra: `python3 /srv/alig/current/deploy/hazirlik.py sunucu` (kullanıcılar, izinler, anahtarlar, disk, servisler, portlar; sır değerlerini yazdırmaz, FAIL varsa 1 döner).
+
 Sınandı: paket tekrarlanabilirliği, bakım ve yedek betiği, duman testi, nginx yapılandırması (`nginx -t` ve gerçek nginx 1.24 ile uçtan uca: TLS, yönlendirme, başlıklar, vekil, yükleme sınırı, günlükte kod gizleme), `current` bağlantısı değiştirme mantığı, Ansible söz dizimi ve lint.
 
 Sınanmadı (gerçek sunucuda ilk çalıştırmada izleyin): Ansible'ın gerçek bir sunucuya uygulanması, ufw ve sshd kuralları, certbot ile sertifika alma, systemd birimlerinin sertleştirme ayarlarıyla başlaması (`SystemCallFilter`, `MemoryDenyWriteExecute`). Bir birim başlamazsa önce `journalctl -u alig-form` ve `systemd-analyze security alig-form` bakın, ayarı gevşetmek yerine nedenini bulun.
