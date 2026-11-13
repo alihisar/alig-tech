@@ -194,7 +194,17 @@ html:not(.demo-ready) .btns,html.demo-ready .nojs-note,html:not(.demo-ready) .au
 .finding-card.sev-yuksek{border-left-color:#c2570c}
 .finding-card.sev-orta{border-left-color:var(--signal)}
 .ev{margin-top:.4rem;display:grid;gap:.2rem;font-size:.9rem}
-@media print{.top,.foot,.report form,.report .btn{display:none}.finding-card{break-inside:avoid;background:transparent}}
+.rapor-sekme{display:flex;flex-wrap:wrap;gap:.5rem;margin:1.25rem 0}
+.rapor-sekme a{padding:.5rem 1rem;border:1px solid var(--line-strong);border-radius:var(--r-s);color:var(--fg);text-decoration:none;font-weight:600}
+.rapor-sekme a[aria-current=page]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.isler{margin:.75rem 0 0 1.25rem;list-style:decimal}
+.isler li{margin-top:.6rem}
+.kanit-blok,.yorum-blok{margin-top:.9rem}
+.kanit-blok h4,.yorum-blok h4{font-size:.95rem;font-weight:700;padding-bottom:.25rem;border-bottom:1px solid var(--line-strong)}
+.kanit-blok{font-variant-numeric:tabular-nums}
+.riskler tbody th{font-weight:700}
+@page{margin:16mm}
+@media print{.top,.foot,.report form,.report .btn,.rapor-sekme{display:none}body{background:#fff;color:#000;font-size:11pt}.report{max-width:none}.finding-card{break-inside:avoid;background:transparent;border:1px solid #000;border-left-width:4px}.report h2,.report h3,.report h4{break-after:avoid}.report table{break-inside:auto}.report tr{break-inside:avoid}.report thead{display:table-header-group}.report a{color:#000;text-decoration:none}}
 .prose a.btn{color:var(--on-signal);text-decoration:none}
 .prose a.btn-ghost{color:var(--fg)}
 .field input[type=checkbox]{width:auto;margin-right:.5rem}

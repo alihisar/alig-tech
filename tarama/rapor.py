@@ -61,7 +61,34 @@ M = {
            "karsi_b": ("Kural", "Denetim", "Değişim", "Önce", "Şimdi"),
            "karsi_d": {"NEW": "Yeni", "REGRESSED": "Kötüleşti", "PERSISTING": "Sürüyor", "RESOLVED": "Çözüldü", "UNKNOWN": "Bilinmiyor"},
            "karsi_n": {"kanit_kayboldu": "bu taramada kanıt yetersiz: çözüldü sayılmaz", "onceki_kanit_yok": "önceki taramada kanıt yoktu: yeni mi bilinmiyor"},
-           "karsi_yok": "İki taramada da sorun çıkan denetim yok."},
+           "karsi_yok": "İki taramada da sorun çıkan denetim yok.",
+           "gorunumler": {"yonetici": "Yönetici özeti", "teknik": "Teknik rapor"}, "gorunum_a": "Rapor görünümü",
+           "yo_durum": "Genel durum", "yo_riskler": "En önemli riskler", "yo_isler": "Yapılması gerekenler (öncelik sırasıyla)",
+           "yo_degisim": "Önceki taramaya göre değişim", "yo_dayanak": "Bu özet neye dayanır",
+           "yo_d": {"kritik": "Acil dikkat gerekiyor: en az bir kritik bulgu var.",
+                    "yuksek": "Dikkat gerekiyor: yüksek önemde bulgu var, kritik bulgu yok.",
+                    "kucuk": "Küçük iyileştirmeler gerekiyor: yalnız orta, düşük ya da bilgi düzeyinde bulgu var.",
+                    "temiz": "Bu taramada bulgu çıkmadı.",
+                    "yok": "Genel durum belirlenemedi: puana giren denetimlerin hiçbirinde kanıt yok."},
+           "yo_kanitsiz": "Ancak %d denetim için yeterli kanıt gelmedi; bu konular temiz sayılmadı.",
+           "yo_risk_yok": "Listelenecek bulgu yok.",
+           "yo_kismi": "Çıkan bir bulgu yok, ancak değerlendirme eksik: %d / %d denetim için kanıt geldi. Kanıtı gelmeyen konular temiz sayılmadı.",
+           "yo_puan": "Sağlık puanı %s, kanıt kapsamı %s. Puan yalnız bu raporun baktığı konuları anlatır.",
+           "yo_risk_b": ("Risk", "Önem", "Olası iş etkisi", "Kanıt türü"), "yo_daha": "Ve %d bulgu daha var; ayrıntısı teknik raporda.",
+           "tur": {"HIGH": "Kesin kanıt: ayar ya da katalog durumu", "MEDIUM": "İstatistik ya da anlık görüntü",
+                   "LOW": "Hipotez: dolaylı işaret, kesin sonuç değil"},
+           "yo_is_yok": "Bu taramada öncelikli bir iş yok.",
+           "yo_is_a": "Öneriler tavsiye niteliğindedir; hiçbir değişiklik uygulanmamıştır. Uygulamadan önce teknik raporun ön koşul ve doğrulama bölümüne bakın.",
+           "yo_is_b": "iş büyüklüğü",
+           "yo_onceki_yok": "Karşılaştırılacak önceki tarama bulunamadı (aynı firma ve aynı sunucu kimliğiyle daha önce yüklenmiş bir tarama gerekir).",
+           "yo_onceki": "Önceki tarama: %s. Sağlık puanı: %s.",
+           "yo_dayanak_a": "Bu özet, teknik raporun bulgularından kurallarla üretilir; yorum yazan bir model kullanılmaz. "
+                           "Kanıt türü sütunu bulgunun ne kadar kesin olduğunu gösterir: hipotez olarak işaretli bulgu kesin sonuç değildir, doğrulanmalıdır.",
+           "ayr": "Ölçüm ve yorum", "kanit_b": "Kanıt", "yorum_b": "Yorum", "tur_e": "Kanıt türü",
+           "once_sonra": "Değişiklikten önce ve sonra",
+           "once_sonra_l": ["Önerileri önce kendi ortamınızda ve bir bakım penceresinde sınayın; bu araç hiçbir değişiklik uygulamaz.",
+                            "Değişiklikten önce yedek ve geri alma planı hazırlayın; her bulgunun geri alma notu yukarıdadır.",
+                            "Değişiklikten sonra aynı taramayı yeniden çalıştırın; bulgunun kalktığını ve önceki taramayla karşılaştırmada Çözüldü olarak göründüğünü doğrulayın."]},
     "en": {"baslik": "Health check report", "ozet": "Summary", "tarama": "Scan time (UTC)", "motor": "Engine",
            "surum": "Masked", "evet": "yes", "hayir": "no", "bulgu": "Findings", "yok": "No findings in this scan.",
            "kanit": "Evidence", "neden": "Why it matters", "oneri": "Proposal", "risk": "Risk of the proposal", "geri": "Rollback",
@@ -120,7 +147,34 @@ M = {
            "karsi_b": ("Rule", "Check", "Change", "Before", "Now"),
            "karsi_d": {"NEW": "New", "REGRESSED": "Regressed", "PERSISTING": "Persisting", "RESOLVED": "Resolved", "UNKNOWN": "Unknown"},
            "karsi_n": {"kanit_kayboldu": "not enough evidence in this scan: not counted as resolved", "onceki_kanit_yok": "no evidence in the previous scan: unknown whether it is new"},
-           "karsi_yok": "No check had a problem in either scan."},
+           "karsi_yok": "No check had a problem in either scan.",
+           "gorunumler": {"yonetici": "Executive summary", "teknik": "Technical report"}, "gorunum_a": "Report view",
+           "yo_durum": "Overall status", "yo_riskler": "Top risks", "yo_isler": "Actions in priority order",
+           "yo_degisim": "Change since the previous scan", "yo_dayanak": "What this summary is based on",
+           "yo_d": {"kritik": "Urgent attention needed: there is at least one critical finding.",
+                    "yuksek": "Attention needed: there are high-severity findings and no critical finding.",
+                    "kucuk": "Minor improvements needed: only medium, low or informational findings.",
+                    "temiz": "No findings in this scan.",
+                    "yok": "The overall status could not be determined: none of the scored checks has evidence."},
+           "yo_kanitsiz": "However, %d checks did not return enough evidence; those topics are not counted as clean.",
+           "yo_risk_yok": "There are no findings to list.",
+           "yo_kismi": "There are no findings, but the assessment is incomplete: evidence came for %d of %d checks. Topics without evidence are not counted as clean.",
+           "yo_puan": "Health score %s, evidence coverage %s. The score only describes what this report looks at.",
+           "yo_risk_b": ("Risk", "Severity", "Possible business impact", "Evidence type"), "yo_daha": "And %d more findings; details are in the technical report.",
+           "tur": {"HIGH": "Firm evidence: a setting or catalog state", "MEDIUM": "Statistics or a snapshot",
+                   "LOW": "Hypothesis: an indirect sign, not a firm conclusion"},
+           "yo_is_yok": "There is no priority work in this scan.",
+           "yo_is_a": "The actions are advisory; no changes have been applied. Before acting, see the prerequisites and verification section of the technical report.",
+           "yo_is_b": "effort",
+           "yo_onceki_yok": "No previous scan to compare with was found (an earlier upload with the same firm and the same server identity is needed).",
+           "yo_onceki": "Previous scan: %s. Health score: %s.",
+           "yo_dayanak_a": "This summary is produced by rules from the findings of the technical report; no model writes commentary. "
+                           "The evidence type column shows how firm a finding is: a finding marked as a hypothesis is not a firm conclusion and must be verified.",
+           "ayr": "Measurement and interpretation", "kanit_b": "Evidence", "yorum_b": "Interpretation", "tur_e": "Evidence type",
+           "once_sonra": "Before and after a change",
+           "once_sonra_l": ["Test the proposals in your own environment and in a maintenance window first; this tool applies no changes.",
+                            "Prepare a backup and a rollback plan before any change; each finding's rollback note is above.",
+                            "After the change, run the same scan again; confirm the finding is gone and shows as Resolved in the comparison with the previous scan."]},
 }
 
 
@@ -297,20 +351,125 @@ def _karsilastirma(c, m, d):
     return "\n".join(p)
 
 
-def govde(rapor, dil, token, eylemler=True, onceki=None):
-    """onceki: karsilastirilacak onceki rapor (depo.onceki_rapor) ya da None."""
-    m = M[dil if dil in M else "tr"]
+GORUNUMLER = ("yonetici", "teknik")   # ilki yonetici ozeti; varsayilan gorunum teknik rapordur (onceki davranis)
+
+
+def gorunum_sec(deger):
+    """Sorgu parametresinden gorunum: bilinmeyen ya da yanlis turdeki deger teknik rapora duser."""
+    return deger if isinstance(deger, str) and deger in GORUNUMLER else "teknik"
+
+
+def _sekme(secili, m):
+    """Iki gorunum arasi baglantilar. Goreli sorgu baglantisi: sayfa nereden acildiysa (musteri ya da yonetim paneli) orada kalir."""
+    ogeler = ["<a href=\"?gorunum=%s\"%s>%s</a>" % (g, " aria-current=\"page\"" if g == secili else "", escape(m["gorunumler"][g])) for g in GORUNUMLER]
+    return "<nav class=\"rapor-sekme\" aria-label=\"%s\">%s</nav>" % (escape(m["gorunum_a"]), "".join(ogeler))
+
+
+def _siralama(bulgu):
+    return sorted(bulgu, key=lambda b: (kanit.ONEM_SIRASI.index(b["onem"]), b["kural"]))
+
+
+def _yonetici(belge, sonuc, bulgu, pn, onceki, m, d):
+    """Yonetici ozeti: yalniz kural ciktisindan, deterministik. Genel durum en agir bulguya gore; kanitsiz denetim temiz sayilmaz."""
+    sirali = _siralama(bulgu)
+    if pn.genel is None:
+        durum = m["yo_d"]["yok"]
+    else:
+        agir = sirali[0]["onem"] if sirali else None
+        eksik = pn.uygulanabilir - pn.olculen
+        if agir is None and eksik:   # bulgu yok ama kanit eksik: "temiz" denmez
+            durum = m["yo_kismi"] % (pn.olculen, pn.uygulanabilir)
+        else:
+            durum = m["yo_d"]["kritik" if agir == "kritik" else "yuksek" if agir == "yuksek" else "kucuk" if agir else "temiz"]
+            if eksik:
+                durum += " " + m["yo_kanitsiz"] % eksik
+    p = ["<h2>%s</h2><p><strong>%s</strong></p>" % (escape(m["yo_durum"]), escape(durum))]
+    if pn.genel is not None:
+        p.append("<p>%s</p>" % escape(m["yo_puan"] % ("%d/100" % pn.genel, m["yuzde"] % pn.kapsam)))
+    p.append("<h2>%s</h2>" % escape(m["yo_riskler"]))
+    if sirali:
+        satir = []
+        for b in sirali[:5]:
+            hucre = (m["onem"][b["onem"]], b["neden"][d], m["tur"][b["guven"]])
+            satir.append("<tr><th scope=\"row\">%s</th>%s</tr>" % (escape(b["baslik"][d]), "".join(
+                "<td data-label=\"%s\">%s</td>" % (escape(e), escape(h)) for e, h in zip(m["yo_risk_b"][1:], hucre))))
+        p.append("<table class=\"tiers durumlar riskler\"><thead><tr>%s</tr></thead><tbody>%s</tbody></table>" % (
+            "".join("<th scope=\"col\">%s</th>" % escape(e) for e in m["yo_risk_b"]), "".join(satir)))
+        if len(sirali) > 5:
+            p.append("<p>%s</p>" % escape(m["yo_daha"] % (len(sirali) - 5)))
+    else:
+        p.append("<p>%s</p>" % escape(m["yo_risk_yok"]))
+    p.append("<h2>%s</h2>" % escape(m["yo_isler"]))
+    if sirali:
+        p.append("<ol class=\"isler\">%s</ol>" % "".join(
+            "<li><strong>%s.</strong> %s (%s: %s)</li>" % (escape(b["baslik"][d]), escape(b["oneri"][d]), escape(m["yo_is_b"]), escape(m["isb"][b["is"]]))
+            for b in sirali))
+        p.append("<p>%s</p>" % escape(m["yo_is_a"]))
+    else:
+        p.append("<p>%s</p>" % escape(m["yo_is_yok"]))
+    p.append("<h2>%s</h2>" % escape(m["yo_degisim"]))
+    if onceki:
+        c = gecmis.karsilastir(onceki["belge"], belge)
+        puan_m = lambda x: m["puan_yok_k"] if x.genel is None else "%d/100" % x.genel   # noqa: E731
+        p.append("<p>%s</p>" % escape(m["yo_onceki"] % (c.onceki_tarih, "%s \u2192 %s" % (puan_m(c.onceki_puan), puan_m(c.yeni_puan)))))
+        p.append("<p>%s</p>" % escape(", ".join("%s: %d" % (m["karsi_d"][x], n) for x, n in c.say().items() if n) or m["karsi_yok"]))
+        if c.katalog_farkli:
+            p.append("<p>%s</p>" % escape(m["karsi_katalog"]))
+    else:
+        p.append("<p>%s</p>" % escape(m["yo_onceki_yok"]))
+    p.append("<h2>%s</h2><p>%s</p>" % (escape(m["yo_dayanak"]), escape(m["yo_dayanak_a"])))
+    return "\n".join(p)
+
+
+def _bulgu_karti(b, m, d):
+    """Kanit blogu (olculen ve kaynak) ile yorum blogu (anlam, oneri, risk) ayri: yorum kanit gibi okunmasin."""
+    kanit_blok = ["<div class=\"kanit-blok\"><h4>%s</h4>" % escape(m["kanit_b"]),
+                  "<p><strong>%s.</strong> %s (%s). %s: %s. %s: %s (%s).</p>" % (
+                      escape(m["kural"]), escape(b["kural"]), escape(m["kategori"][b["kategori"]]), escape(m["durum_e"]), escape(m["durum"][b["durum"]]),
+                      escape(m["guven"]), escape(m["guven_d"][b["guven"]]), escape(m["tur"][b["guven"]])),
+                  "<p><strong>%s.</strong> %s</p>" % (escape(m["kaynak"]), ", ".join("<code>%s</code>" % escape(x) for x in b["kaynak"])),
+                  _kanit(b["kanit"], m), "</div>"]
+    yorum = ["<div class=\"yorum-blok\"><h4>%s</h4>" % escape(m["yorum_b"])]
+    for anahtar, etiket in (("neden", "neden"), ("oneri", "oneri"), ("risk", "risk"), ("geri_alma", "geri")):
+        yorum.append("<p><strong>%s.</strong> %s</p>" % (escape(m[etiket]), escape(b[anahtar][d])))
+    yorum.append("<p><strong>%s.</strong> %s</p></div>" % (escape(m["is"]), escape(m["isb"][b["is"]])))
+    return ("<section class=\"finding-card sev-%s\"><h3>%s: %s</h3>" % (escape(b["onem"]), escape(m["onem"][b["onem"]]), escape(b["baslik"][d]))
+            + "".join(kanit_blok) + "".join(yorum) + "</section>")
+
+
+def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik"):
+    """onceki: karsilastirilacak onceki rapor (depo.onceki_rapor) ya da None. gorunum: GORUNUMLER (gecersiz deger teknik)."""
     d = dil if dil in M else "tr"
+    m = M[d]
+    gorunum = gorunum_sec(gorunum)
     belge = rapor["belge"]
     sonuc = kurallar.incele(belge)
     bulgu, olcul = sonuc.bulgular, sonuc.olculemeyen
     pn = puan.hesapla(sonuc)
-    sayim = {o: sum(1 for b in bulgu if b["onem"] == o) for o in kurallar.ONEM}
-    durum_sayim = sonuc.sayim()
     motor = belge.get("motor", "postgresql")
     p = ["<article class=\"wrap prose report\">", "<h1>%s</h1>" % escape(m["baslik"]), "<p>%s</p>" % escape(m["uyari"]),
-         "<p><strong>%s</strong></p>" % escape(m["onsurum"]) if motor == "mssql" else "",
-         "<h2>%s</h2>" % escape(m["ozet"]), "<dl class=\"facts\">",
+         "<p><strong>%s</strong></p>" % escape(m["onsurum"]) if motor == "mssql" else "", _sekme(gorunum, m)]
+    if gorunum == "yonetici":
+        p += ["<dl class=\"facts\">",
+              "<dt>%s</dt><dd>%s</dd>" % (escape(m["tarama"]), escape(belge["olusturma_utc"])),
+              "<dt>%s</dt><dd>%s</dd>" % (escape(m["motor"]), escape(katalog.MOTOR_AD.get(motor, motor))), "</dl>",
+              _yonetici(belge, sonuc, bulgu, pn, onceki, m, d)]
+    else:
+        p += _teknik(rapor, belge, sonuc, bulgu, pn, onceki, motor, m, d)
+    p.append("<p>%s: %s</p>" % (escape(m["bitis"]), escape(rapor["bitis_utc"])))
+    if not eylemler:
+        p.append("</article>")
+        return "\n".join(p), bulgu, olcul
+    p.append("<form method=\"post\" action=\"/rapor/%s/sil\"><button class=\"btn btn-ghost\" type=\"submit\">%s</button></form>" % (escape(token), escape(m["sil"])))
+    p.append("<p><a class=\"btn\" href=\"%s#iletisim\">%s</a></p></article>" % ("/en/" if d == "en" else "/", escape(m["cta"])))
+    return "\n".join(p), bulgu, olcul
+
+
+def _teknik(rapor, belge, sonuc, bulgu, pn, onceki, motor, m, d):
+    """Teknik rapor: ozet bilgileri, puan, karsilastirma, bulgu kartlari (kanit ve yorum ayri), denetim tablosu, kapsam."""
+    sayim = {o: sum(1 for b in bulgu if b["onem"] == o) for o in kurallar.ONEM}
+    durum_sayim = sonuc.sayim()
+    p = ["<h2>%s</h2>" % escape(m["ozet"]), "<dl class=\"facts\">",
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["tarama"]), escape(belge["olusturma_utc"])),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["motor"]), escape(katalog.MOTOR_AD.get(motor, motor))),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["surum"]), escape(m["evet"] if belge.get("maskeli") else m["hayir"])),
@@ -321,34 +480,21 @@ def govde(rapor, dil, token, eylemler=True, onceki=None):
          _surum(sonuc, motor, m), _rol(sonuc, motor, m), _kapsam(belge, m), "</dl>", _puan(pn, sonuc, m, d),
          _karsilastirma(gecmis.karsilastir(onceki["belge"], belge), m, d) if onceki else "", "<h2>%s</h2>" % escape(m["bulgu"]),
          "" if bulgu else "<p>%s</p>" % escape(m["yok"])]
-    for b in bulgu:
-        p.append("<section class=\"finding-card sev-%s\"><h3>%s: %s</h3>" % (escape(b["onem"]), escape(m["onem"][b["onem"]]), escape(b["baslik"][d])))
-        p.append("<p><strong>%s.</strong> %s (%s). %s: %s. %s: %s.</p>" % (
-            escape(m["kural"]), escape(b["kural"]), escape(m["kategori"][b["kategori"]]), escape(m["durum_e"]), escape(m["durum"][b["durum"]]),
-            escape(m["guven"]), escape(m["guven_d"][b["guven"]])))
-        for anahtar, etiket in (("neden", "neden"), ("oneri", "oneri"), ("risk", "risk"), ("geri_alma", "geri")):
-            p.append("<p><strong>%s.</strong> %s</p>" % (escape(m[etiket]), escape(b[anahtar][d])))
-        p.append("<p><strong>%s.</strong> %s</p>" % (escape(m["is"]), escape(m["isb"][b["is"]])))
-        p.append("<p><strong>%s.</strong> %s</p>" % (escape(m["kaynak"]), ", ".join("<code>%s</code>" % escape(x) for x in b["kaynak"])))
-        p.append("<p><strong>%s.</strong></p>%s</section>" % (escape(m["kanit"]), _kanit(b["kanit"], m)))
+    p += [_bulgu_karti(b, m, d) for b in bulgu]
+    if bulgu:
+        p.append("<h2>%s</h2><ul class=\"plain\">%s</ul>" % (escape(m["once_sonra"]), "".join("<li>%s</li>" % escape(x) for x in m["once_sonra_l"])))
     p.append(_durumlar(sonuc, m, d))
     kapsam_l = list(m["kapsam_l"])
     db = _db(belge)
     if db and db[2]:
         kapsam_l.insert(0, m["db_k"] % len(db[2]))
     p.append("<h2>%s</h2><ul class=\"plain\">%s</ul>" % (escape(m["kapsam"]), "".join("<li>%s</li>" % escape(x) for x in kapsam_l)))
-    p.append("<p>%s: %s</p>" % (escape(m["bitis"]), escape(rapor["bitis_utc"])))
-    if not eylemler:
-        p.append("</article>")
-        return "\n".join(p), bulgu, olcul
-    p.append("<form method=\"post\" action=\"/rapor/%s/sil\"><button class=\"btn btn-ghost\" type=\"submit\">%s</button></form>" % (escape(token), escape(m["sil"])))
-    p.append("<p><a class=\"btn\" href=\"%s#iletisim\">%s</a></p></article>" % ("/en/" if d == "en" else "/", escape(m["cta"])))
-    return "\n".join(p), bulgu, olcul
+    return p
 
 
-def sayfa(rapor, dil, token, onceki=None):
+def sayfa(rapor, dil, token, onceki=None, gorunum="teknik"):
     d = dil if dil in M else "tr"
-    icerik, _, _ = govde(rapor, d, token, onceki=onceki)
+    icerik, _, _ = govde(rapor, d, token, onceki=onceki, gorunum=gorunum)
     return ("<!doctype html>\n<html lang=\"%s\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
             "<meta name=\"robots\" content=\"noindex,nofollow\"><title>%s | alig.tech</title>"
             "<link rel=\"stylesheet\" href=\"/assets/base.css\"><link rel=\"stylesheet\" href=\"/assets/style.css\"></head><body>"

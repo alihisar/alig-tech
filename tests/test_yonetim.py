@@ -340,6 +340,16 @@ class PanelTests(Taban):
         self.assertTrue(any("rapor goruntulendi #%d (karsilastirma #%d)" % (rid, rid - 1) == o for (o,) in t.execute("SELECT olay FROM denetim")))
         self.assertNotIn("Önceki taramayla karşılaştırma", self.istek("GET", "/yonetim/taramalar/1")[1])   # kimliksiz eski rapor
 
+    def test_yonetim_raporu_iki_gorunum_sunar(self):
+        g = self.istek("GET", "/yonetim/taramalar/1")[1]
+        self.assertIn("Denetim sonuçları", g)                      # varsayilan: teknik
+        self.assertIn('href="?gorunum=yonetici"', g)
+        o = self.istek("GET", "/yonetim/taramalar/1?gorunum=yonetici")[1]
+        self.assertIn("Genel durum", o)
+        self.assertNotIn("Denetim sonuçları", o)
+        self.assertNotIn("/sil\"><button class=\"btn btn-ghost\" type=\"submit\">Raporu şimdi sil", o)   # musteri silme formu yok
+        self.assertEqual(self.istek("GET", "/yonetim/taramalar/1?gorunum=x")[1], g)
+
     def test_sistem_sayfasi_puan_katsayilarini_gosterir(self):
         from tarama import puan
         g = self.istek("GET", "/yonetim/sistem")[1]

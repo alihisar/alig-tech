@@ -213,7 +213,7 @@ class H(BaseHTTPRequestHandler):
                 return self._taramalar(con, o)
             m = re.match(r"^/yonetim/taramalar/(\d{1,9})$", yol)
             if m:
-                return self._tarama(con, o, int(m.group(1)))
+                return self._tarama(con, o, int(m.group(1)), q)
             if yol == "/yonetim/denetim":
                 return self._denetim(con, o, q)
             if yol == "/yonetim/sistem":
@@ -620,7 +620,7 @@ class H(BaseHTTPRequestHandler):
         self._sayfa("Taramalar", "<p class=\"muted\">Raporlar 30 gün sonra kendiliğinden silinir.</p>" +
                     tablo(["Rapor", "Firma", "Yükleyen", "Yüklenme", "Motor", "Bulgular", "Puan", "Maskeli", "Silinme"], satirlar, "Tarama yok."), o)
 
-    def _tarama(self, con, o, rid):
+    def _tarama(self, con, o, rid, q=None):
         if not Path(self.tarama_db).exists():
             return self._sayfa("Bulunamadı", "<p>Rapor yok.</p>", o, 404)
         tc = tdepo.baglan(self.tarama_db)
@@ -638,7 +638,7 @@ class H(BaseHTTPRequestHandler):
             tc.close()
         depo.denetim_ekle(con, o["ad"], "tarama raporu goruntulendi #%d" % rid)
         try:
-            govde, _, _ = trapor.govde(r, "tr", "", eylemler=False, onceki=onceki)
+            govde, _, _ = trapor.govde(r, "tr", "", eylemler=False, onceki=onceki, gorunum=trapor.gorunum_sec(((q or {}).get("gorunum") or [None])[0]))
         except Exception as ex:  # noqa: BLE001 - bozuk rapor silinebilsin diye sayfa yine acilir
             print("UYARI: rapor cizilemedi #%d: %s" % (rid, type(ex).__name__), flush=True)
             govde = "<article class=\"wrap prose report\"><h1>Rapor</h1><p class=\"err\">Bu rapor çizilemedi. Aşağıdaki düğmeyle silebilirsiniz.</p></article>"

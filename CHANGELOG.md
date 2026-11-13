@@ -2,6 +2,11 @@
 
 ## Yayınlanmadı
 
+- Rapor görünümleri: `?gorunum=yonetici` yönetici özeti (genel durum, en önemli 5 risk ve olası iş etkisi, öncelik sıralı
+  öneriler, önceki taramaya göre değişim, kanıt türü: kesin kanıt, istatistik, hipotez), `?gorunum=teknik` (varsayılan)
+  teknik rapor. Özet yalnız kural çıktısından üretilir, dil modeli yok. Kanıtı eksik tarama temiz sayılmaz. Bulgu
+  kartında Kanıt ve Yorum ayrı bloklardır; bulgu varken “Değişiklikten önce ve sonra” bölümü yer alır. Yazdırma düzeni
+  eklendi (sekmeler ve silme düğmesi gizlenir). Müşteri raporunda ve yönetim panelinde aynı. TR ve EN.
 - Sağlık taraması: geçmiş karşılaştırması (`tarama/gecmis.py`). Toplayıcı küme tanımlayıcısının yalnız SHA-256 özetini
   gönderir; aynı firmanın aynı sunucudan (aynı rol) yaptığı önceki tarama, saklama süresi dolmadıysa raporda
   karşılaştırılır: önceki ve yeni puan, kapsam değişimi, her denetim için yeni, kötüleşen, süren, çözülen, bilinmeyen.
