@@ -229,14 +229,16 @@ class DepoTests(unittest.TestCase):
 
     def test_anahtarli_zincir_ve_eski_kayitlar(self):
         c = self.con()
-        depo.denetim_ekle(c, "a", "eski")  # anahtarsiz kayit
+        c.execute("INSERT INTO denetim(seq, zaman_utc, aktor, olay, onceki, ozet, mod) VALUES(1,'2026-01-01T00:00:00Z','a','eski','',?,0)",
+                  (depo.ozet_hesapla(1, "a", "eski", ""),))  # surum oncesi (alansiz, anahtarsiz) kayit
+        c.commit()
         anahtar = "k" * 40
         with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: anahtar}):
             depo.denetim_ekle(c, "a", "yeni")
             depo.denetim_ekle(c, "a", "yeni2")
             self.assertIsNone(depo.denetim_dogrula(c))
             self.assertEqual(depo.denetim_durum(c, anahtar.encode())["anahtarli"], True)
-        self.assertEqual(c.execute("SELECT mod FROM denetim ORDER BY seq").fetchall(), [(0,), (1,), (1,)])
+        self.assertEqual(c.execute("SELECT mod FROM denetim ORDER BY seq").fetchall(), [(0,), (3,), (3,)])
         d = depo.denetim_durum(c)  # anahtar yok: baglanti saglam, HMAC denetlenemedi
         self.assertIsNone(d["bozuk"])
         self.assertEqual(d["dogrulanamayan"], 2)
@@ -269,14 +271,38 @@ class DepoTests(unittest.TestCase):
         self.assertIsNone(depo.denetim_durum(c, None, bas)["bozuk"])
         c.execute("UPDATE denetim SET olay='sahte' WHERE seq=1")
         onceki = ""
-        for seq, aktor, olay in c.execute("SELECT seq, aktor, olay FROM denetim ORDER BY seq").fetchall():
-            oz = depo.ozet_hesapla(seq, aktor, olay, onceki)
+        for seq, aktor, olay, al in c.execute("SELECT seq, aktor, olay, alanlar FROM denetim ORDER BY seq").fetchall():
+            oz = depo.ozet_hesapla(seq, aktor, olay, onceki, None, al)
             c.execute("UPDATE denetim SET onceki=?, ozet=? WHERE seq=?", (onceki, oz, seq))
             onceki = oz
         self.assertIsNone(depo.denetim_durum(c)["bozuk"])  # bas olmadan yakalanamaz
         self.assertEqual(depo.denetim_durum(c, None, bas)["bozuk"], 3)  # bas ile yakalanir
         c.execute("DELETE FROM denetim WHERE seq=3")  # son kayitlarin kesilmesi
         self.assertEqual(depo.denetim_durum(c, None, bas)["bozuk"], 3)
+
+    def test_yapisal_alanlar_ozete_dahil_ve_kisitli(self):
+        c = self.con()
+        depo.denetim_ekle(c, "sistem", "x", {"firma": 3, "sonuc": "reddedildi", "neden": None, "serbest": "yok", "hedef": "h" * 500})
+        al = json.loads(c.execute("SELECT alanlar FROM denetim").fetchone()[0])
+        self.assertEqual(set(al), {"firma", "sonuc", "hedef"})  # izinli anahtarlar, bos deger yok
+        self.assertEqual(len(al["hedef"]), depo.ALAN_UZUNLUK)
+        self.assertIsNone(depo.denetim_dogrula(c))
+        c.execute("UPDATE denetim SET alanlar=? WHERE seq=1", (json.dumps({"firma": 4, "sonuc": "reddedildi", "hedef": al["hedef"]}),))
+        self.assertEqual(depo.denetim_dogrula(c), 1)  # alan degistirilince zincir kirilir
+
+    def test_alansiz_surume_dusurme_yakalanir(self):
+        c = self.con()
+        depo.denetim_ekle(c, "a", "bir", {"sonuc": "basarili"})
+        c.execute("INSERT INTO denetim(seq, zaman_utc, aktor, olay, onceki, ozet, mod) VALUES(2,'2026-01-01T00:00:00Z','a','iki',(SELECT ozet FROM denetim WHERE seq=1),?,0)",
+                  (depo.ozet_hesapla(2, "a", "iki", c.execute("SELECT ozet FROM denetim WHERE seq=1").fetchone()[0]),))
+        self.assertEqual(depo.denetim_dogrula(c), 2)  # yapisal kayittan sonra alansiz kayit gelmez
+
+    def test_ip_ozeti_duz_adres_icermez_ve_anahtarla_degisir(self):
+        a = depo.ip_ozeti("203.0.113.7", None)
+        self.assertNotIn("203", a)
+        self.assertEqual(len(a), 16)
+        self.assertNotEqual(a, depo.ip_ozeti("203.0.113.7", b"k" * 40))
+        self.assertEqual(depo.ip_ozeti("203.0.113.7", b"k" * 40), depo.ip_ozeti("203.0.113.7", b"k" * 40))
 
     def test_kisa_anahtar_reddedilir(self):
         with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: "kisa"}):

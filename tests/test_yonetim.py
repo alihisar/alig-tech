@@ -164,7 +164,7 @@ class PanelTests(Taban):
 
     def test_sayfalar_acilir_ve_kacislidir(self):
         for yol, icerik in (("/yonetim/", "Yeni talep"), ("/yonetim/talepler", "ada@ornek.com"), ("/yonetim/taramalar", "Yüksek 1"),
-                            ("/yonetim/denetim", "Zincir sağlam"), ("/yonetim/denetim?kaynak=yonetim", "giris yapildi"), ("/yonetim/sistem", "Veritabanları"), ("/yonetim/sistem", "Saklama süreleri")):
+                            ("/yonetim/denetim", "Zincir sağlam"), ("/yonetim/denetim?kaynak=yonetim", "giris yapildi"), ("/yonetim/denetim?kaynak=yonetim", "ip_ozeti"), ("/yonetim/sistem", "Veritabanları"), ("/yonetim/sistem", "Saklama süreleri")):
             r, g = self.istek("GET", yol)
             self.assertEqual(r.status, 200, yol)
             self.assertIn(icerik, g, yol)
@@ -330,6 +330,49 @@ class PanelTests(Taban):
         c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
         c.request("POST", "/yonetim/giris", body=b"{}", headers={"Content-Type": "application/json"})
         self.assertEqual(c.getresponse().status, 400)
+
+
+class YeniIpTests(unittest.TestCase):
+    def kur(self):
+        con = depo.baglan(str(Path(tempfile.mkdtemp()) / "y.sqlite"))
+        return con, depo.kullanici_ekle(con, "ali", PAROLA)
+
+    def gir(self, con, gizli, ip, adim, parola=PAROLA):
+        t = time.time() + 30 * adim * 3  # her giris ayri TOTP penceresi (kod tek kullanimlik)
+        return depo.giris(con, "ali", parola, guvenlik.totp_kod(gizli, int(t // 30)), ip, simdi=t)
+
+    def son(self, con):
+        return con.execute("SELECT olay, alanlar FROM denetim ORDER BY seq DESC LIMIT 1").fetchone()
+
+    def test_yeni_ip_uyari_ilk_giris_ve_bilinen_ip_degil(self):
+        con, g = self.kur()
+        self.assertIsNotNone(self.gir(con, g, "198.51.100.1", 1)[0])
+        olay, al = self.son(con)
+        self.assertEqual(olay, "giris yapildi")  # ilk giris uyari degil
+        self.assertEqual(json.loads(al)["yeni_ip"], 0)
+        self.assertIsNotNone(self.gir(con, g, "198.51.100.1", 2)[0])
+        self.assertEqual(self.son(con)[0], "giris yapildi")
+        self.assertIsNotNone(self.gir(con, g, "203.0.113.9", 3)[0])
+        olay, al = self.son(con)
+        self.assertEqual(olay, "yeni IP'den giris yapildi")
+        a = json.loads(al)
+        self.assertEqual((a["yeni_ip"], a["sonuc"], a["kullanici"]), (1, "basarili", "ali"))
+        self.assertNotIn("203.0.113.9", al + olay)  # duz adres denetime yazilmaz
+        self.assertNotIn("203.0.113.9", json.dumps(con.execute("SELECT * FROM giris_ip").fetchall()))
+        self.assertIsNotNone(self.gir(con, g, "203.0.113.9", 4)[0])
+        self.assertEqual(self.son(con)[0], "giris yapildi")  # artik bilinen IP
+        self.assertIsNone(depo.denetim_dogrula(con))
+
+    def test_basarisiz_giris_yapisal_kayit_ve_kullanici_silinince_ip_silinir(self):
+        con, g = self.kur()
+        self.assertIsNone(self.gir(con, g, "198.51.100.1", 1, parola="yanlis-parola-000")[0])
+        a = json.loads(self.son(con)[1])
+        self.assertEqual((a["sonuc"], a["neden"]), ("basarisiz", "hatali"))
+        self.assertNotIn("198.51.100.1", self.son(con)[1])
+        self.gir(con, g, "198.51.100.1", 2)
+        self.assertEqual(con.execute("SELECT count(*) FROM giris_ip").fetchone()[0], 1)
+        depo.kullanici_sil(con, "ali")
+        self.assertEqual(con.execute("SELECT count(*) FROM giris_ip").fetchone()[0], 0)
 
 
 class CliTests(unittest.TestCase):

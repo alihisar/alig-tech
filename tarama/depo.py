@@ -38,6 +38,8 @@ GOCLER = [
     """ALTER TABLE denetim ADD COLUMN mod INTEGER NOT NULL DEFAULT 0""",
     # ayni dosya ikinci hak harcamasin: belgenin ozeti (icerik saklanmaz)
     """ALTER TABLE kullanim ADD COLUMN belge_sha256 TEXT""",
+    # yapisal alanlar (firma, hedef, sonuc...): ozete dahil edilir, bu yuzden degistirilemez
+    """ALTER TABLE denetim ADD COLUMN alanlar TEXT NOT NULL DEFAULT ''""",
 ]
 ISTEK_DAKIKA = 30
 ISTEK_DENEME = 3
@@ -82,19 +84,47 @@ def denetim_anahtari(ortam=None):
     return ham.encode()
 
 
-def ozet_hesapla(seq, aktor, olay, onceki, anahtar=None):
-    """anahtar yoksa eski SHA-256 bicimi; varsa HMAC-SHA-256 (ayri onek: iki bicim birbirine karismaz)."""
+ALAN_ANAHTARLARI = ("firma", "hedef", "motor", "sonuc", "neden", "ip_ozeti", "yeni_ip", "rapor", "talep", "kullanici")
+ALAN_UZUNLUK = 120
+
+
+def alanlari_yaz(alanlar):
+    """Yapisal alanlari kanonik JSON metnine cevirir: yalniz izinli anahtarlar, kisa duz degerler. Bos ise ''."""
+    if not alanlar:
+        return ""
+    temiz = {}
+    for k in ALAN_ANAHTARLARI:
+        if k in alanlar and alanlar[k] is not None:
+            v = alanlar[k]
+            temiz[k] = v if isinstance(v, int) and not isinstance(v, bool) else str(v)[:ALAN_UZUNLUK]
+    return json.dumps(temiz, sort_keys=True, separators=(",", ":"), ensure_ascii=False) if temiz else ""
+
+
+def ip_ozeti(ip, anahtar=None):
+    """IP'nin kisaltilmis ozeti (duz adres denetime yazilmaz). Anahtar varsa HMAC: sozluk saldirisi anahtarsiz yapilamaz."""
+    ham = ("ip|" + str(ip)).encode()
     if anahtar is None:
-        return hashlib.sha256("|".join([str(seq), aktor, olay, onceki]).encode()).hexdigest()
-    return hmac.new(anahtar, "|".join(["k", str(seq), aktor, olay, onceki]).encode(), hashlib.sha256).hexdigest()
+        anahtar = denetim_anahtari()
+    d = hmac.new(anahtar, ham, hashlib.sha256) if anahtar else hashlib.sha256(ham)
+    return d.hexdigest()[:16]
 
 
-def denetim_ekle(con, aktor, olay):
+def ozet_hesapla(seq, aktor, olay, onceki, anahtar=None, alanlar=None):
+    """anahtar yoksa SHA-256, varsa HMAC-SHA-256 (ayri onek). alanlar None ise eski (alansiz) bicim; metin ise ozete dahil edilir."""
+    parcalar = [str(seq), aktor, olay, onceki] + ([] if alanlar is None else [alanlar])
+    if anahtar is None:
+        return hashlib.sha256("|".join(parcalar).encode()).hexdigest()
+    return hmac.new(anahtar, "|".join(["k"] + parcalar).encode(), hashlib.sha256).hexdigest()
+
+
+def denetim_ekle(con, aktor, olay, alanlar=None):
     anahtar = denetim_anahtari()
+    metin = alanlari_yaz(alanlar)
     son = con.execute("SELECT seq, ozet FROM denetim ORDER BY seq DESC LIMIT 1").fetchone()
     seq, onceki = (son[0] + 1, son[1]) if son else (1, "")
-    con.execute("INSERT INTO denetim(seq, zaman_utc, aktor, olay, onceki, ozet, mod) VALUES(?,?,?,?,?,?,?)",
-                (seq, simdi(), aktor, olay, onceki, ozet_hesapla(seq, aktor, olay, onceki, anahtar), 1 if anahtar else 0))
+    # mod: bit0 = HMAC, bit1 = yapisal alanlar ozete dahil
+    con.execute("INSERT INTO denetim(seq, zaman_utc, aktor, olay, onceki, ozet, mod, alanlar) VALUES(?,?,?,?,?,?,?,?)",
+                (seq, simdi(), aktor, olay, onceki, ozet_hesapla(seq, aktor, olay, onceki, anahtar, metin), (1 if anahtar else 0) | 2, metin))
     con.commit()
 
 
@@ -104,27 +134,28 @@ def denetim_durum(con, anahtar=None, bas=None):
       anahtarsiz kayit (surum dusurme), anahtar varken HMAC uyusmazligi ya da disa aktarilmis zincir basinin bulunmamasi.
     dogrulanamayan: anahtar verilmediginden HMAC'i denetlenemeyen anahtarli kayit sayisi.
     bas: {"seq", "ozet"} (daha once disa aktarilmis zincir basi) ya da None."""
-    onceki, anahtarli_goruldu, kayit, dogrulanamayan, bozuk, son = "", False, 0, 0, None, None
+    onceki, anahtarli_goruldu, alanli_goruldu, kayit, dogrulanamayan, bozuk, son = "", False, False, 0, 0, None, None
     gorulen = {}
-    for seq, aktor, olay, on, oz, mod in con.execute("SELECT seq, aktor, olay, onceki, ozet, mod FROM denetim ORDER BY seq"):
+    for seq, aktor, olay, on, oz, mod, alanlar in con.execute("SELECT seq, aktor, olay, onceki, ozet, mod, alanlar FROM denetim ORDER BY seq"):
         kayit += 1
         gorulen[seq] = oz
         son = (seq, oz)
         if bozuk is not None:
             continue
-        if on != onceki:
+        hmac_mi, alanli_mi = bool(mod & 1), bool(mod & 2)
+        if on != onceki or mod not in (0, 1, 2, 3):
             bozuk = seq
-        elif mod == 1:
+        elif not alanli_mi and (alanli_goruldu or alanlar):  # surum dusurme: alansiz kayit, ya da alani olup ozete dahil olmayan
+            bozuk = seq
+        elif hmac_mi:
             anahtarli_goruldu = True
             if anahtar is None:
                 dogrulanamayan += 1
-            elif not hmac.compare_digest(oz, ozet_hesapla(seq, aktor, olay, on, anahtar)):
+            elif not hmac.compare_digest(oz, ozet_hesapla(seq, aktor, olay, on, anahtar, alanlar if alanli_mi else None)):
                 bozuk = seq
-        elif mod == 0:
-            if anahtarli_goruldu or not hmac.compare_digest(oz, ozet_hesapla(seq, aktor, olay, on)):
-                bozuk = seq
-        else:
+        elif anahtarli_goruldu or not hmac.compare_digest(oz, ozet_hesapla(seq, aktor, olay, on, None, alanlar if alanli_mi else None)):
             bozuk = seq
+        alanli_goruldu = alanli_goruldu or alanli_mi
         onceki = oz
     if bozuk is None and bas is not None and gorulen.get(bas["seq"]) != bas["ozet"]:
         bozuk = bas["seq"]

@@ -103,7 +103,7 @@ class H(BaseHTTPRequestHandler):
             r = depo.rapor_getir(con, m.group(1))
             if not r:
                 return self._send(404, b"yok\n")
-            depo.denetim_ekle(con, "musteri", "rapor goruntulendi #%d" % r["id"])
+            depo.denetim_ekle(con, "musteri", "rapor goruntulendi #%d" % r["id"], {"rapor": r["id"], "sonuc": "basarili"})
             self._send(200, rapor.sayfa(r, r["dil"], m.group(1)).encode("utf-8"), "text/html; charset=utf-8")
         finally:
             con.close()
@@ -153,7 +153,7 @@ class H(BaseHTTPRequestHandler):
         try:
             firma = depo.firma_kaydet(con, depo.firma_anahtari(eposta), sirket, eposta, "tarama")
             if firma["durum"] != "aktif":
-                depo.denetim_ekle(con, "sistem", "pasif firma yuklemesi reddedildi, firma #%d" % firma["id"])
+                depo.denetim_ekle(con, "sistem", "pasif firma yuklemesi reddedildi, firma #%d" % firma["id"], {"firma": firma["id"], "sonuc": "reddedildi", "neden": "pasif"})
                 return self._hata(403, "pasif", dil)
             ozet = depo.belge_ozeti(belge)
             with KILIT:
@@ -162,10 +162,11 @@ class H(BaseHTTPRequestHandler):
                 if not asildi and not tekrar:
                     depo.kullanim_ekle(con, anahtar_s, ozet)
             if asildi:
-                depo.denetim_ekle(con, "sistem", "sirket siniri asildi, istek reddedildi")
+                depo.denetim_ekle(con, "sistem", "sirket siniri asildi, istek reddedildi", {"firma": firma["id"], "sonuc": "reddedildi", "neden": "sinir"})
                 return self._hata(429, "sinir", dil, extra=(("Retry-After", str(depo.SINIR_GUN * 86400)),))
             depo.rapor_ekle(con, anahtar, belge["motor"], dil, belge, firma["id"])
-            depo.denetim_ekle(con, "musteri", "toplama dosyasi yuklendi, firma #%d, motor=%s, kontrol=%d%s" % (firma["id"], belge["motor"], len(belge["kontroller"]), ", ayni dosya (hak harcanmadi)" if tekrar else ""))
+            depo.denetim_ekle(con, "musteri", "toplama dosyasi yuklendi, firma #%d, motor=%s, kontrol=%d%s" % (firma["id"], belge["motor"], len(belge["kontroller"]), ", ayni dosya (hak harcanmadi)" if tekrar else ""),
+                                   {"firma": firma["id"], "motor": belge["motor"], "sonuc": "basarili", "neden": "tekrar" if tekrar else None})
         finally:
             con.close()
         self._send(303, extra=(("Location", "/rapor/%s/" % anahtar),))
@@ -204,27 +205,27 @@ class H(BaseHTTPRequestHandler):
         try:
             firma = depo.firma_kaydet(con, depo.firma_anahtari(eposta), sirket, eposta, "tarama")
             if firma["durum"] != "aktif":
-                depo.denetim_ekle(con, "sistem", "pasif firma dogrudan baglanti istegi reddedildi, firma #%d" % firma["id"])
+                depo.denetim_ekle(con, "sistem", "pasif firma dogrudan baglanti istegi reddedildi, firma #%d" % firma["id"], {"firma": firma["id"], "sonuc": "reddedildi", "neden": "pasif"})
                 return self._hata(403, "pasif", dil)
             if not firma["dogrudan_izin"]:
-                depo.denetim_ekle(con, "sistem", "dogrudan baglanti izni yok, firma #%d" % firma["id"])
+                depo.denetim_ekle(con, "sistem", "dogrudan baglanti izni yok, firma #%d" % firma["id"], {"firma": firma["id"], "sonuc": "reddedildi", "neden": "izin"})
                 return self._hata(403, "izin", dil)
             if depo.kullanim_say(con, anahtar_s) >= self.sirket_adet:
                 return self._hata(429, "sinir", dil)
             if depo.istek_say(con, firma["id"]) >= depo.ISTEK_SAATLIK:
-                depo.denetim_ekle(con, "sistem", "dogrudan baglanti istek siniri, firma #%d" % firma["id"])
+                depo.denetim_ekle(con, "sistem", "dogrudan baglanti istek siniri, firma #%d" % firma["id"], {"firma": firma["id"], "sonuc": "reddedildi", "neden": "sinir"})
                 return self._hata(429, "deneme", dil)
             try:
                 if not baglanti.AD.match(veritabani) or not baglanti.AD.match(kullanici):
                     raise hedef.Reddedildi("ad")
                 h = self.hedef_dogrula(f.get("sunucu", ""), f.get("port", ""), yasak_aglar=self.yasak_aglar)
             except hedef.Reddedildi as e:
-                depo.denetim_ekle(con, "sistem", "dogrudan baglanti hedefi reddedildi (%s), firma #%d" % (e.kod, firma["id"]))
+                depo.denetim_ekle(con, "sistem", "dogrudan baglanti hedefi reddedildi (%s), firma #%d" % (e.kod, firma["id"]), {"firma": firma["id"], "sonuc": "reddedildi", "neden": e.kod})
                 return self._hata(422, "hedef", dil)   # neden musteriye soylenmez
             anahtar, kanit = secrets.token_urlsafe(32), secrets.token_hex(16)
             depo.istek_ekle(con, anahtar, firma["id"], kanit, h.ad, h.ip, h.port, veritabani, kullanici,
                             f.get("maskele", "") in ("on", "1"), dil)
-            depo.denetim_ekle(con, "musteri", "dogrudan baglanti istegi acildi, firma #%d, hedef=%s" % (firma["id"], h.ozet()[:16]))
+            depo.denetim_ekle(con, "musteri", "dogrudan baglanti istegi acildi, firma #%d, hedef=%s" % (firma["id"], h.ozet()[:16]), {"firma": firma["id"], "hedef": h.ozet()[:16], "sonuc": "basarili"})
         finally:
             con.close()
         self._send(200, hata.kanit_sayfasi(dil, anahtar, baglanti.kanit_komutu(kullanici, kanit)).encode("utf-8"), "text/html; charset=utf-8")
@@ -245,7 +246,7 @@ class H(BaseHTTPRequestHandler):
                 return self._hata(403, "izin", dil)
             if depo.istek_deneme(con, i["id"]) > depo.ISTEK_DENEME:
                 depo.istek_bitir(con, i["id"], "deneme")
-                depo.denetim_ekle(con, "sistem", "dogrudan baglanti deneme siniri, firma #%d" % firma["id"])
+                depo.denetim_ekle(con, "sistem", "dogrudan baglanti deneme siniri, firma #%d" % firma["id"], {"firma": firma["id"], "sonuc": "reddedildi", "neden": "deneme"})
                 return self._hata(429, "deneme", dil)
             anahtar_s = depo.sirket_anahtari(firma["eposta"])
             if depo.kullanim_say(con, anahtar_s) >= self.sirket_adet:

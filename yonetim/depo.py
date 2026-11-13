@@ -24,6 +24,9 @@ GOCLER = [
     """CREATE TABLE denetim(seq INTEGER PRIMARY KEY, zaman_utc TEXT NOT NULL, aktor TEXT NOT NULL, olay TEXT NOT NULL,
        onceki TEXT NOT NULL, ozet TEXT NOT NULL)""",
     """ALTER TABLE denetim ADD COLUMN mod INTEGER NOT NULL DEFAULT 0""",
+    """ALTER TABLE denetim ADD COLUMN alanlar TEXT NOT NULL DEFAULT ''""",
+    # kullanicinin daha once giris yaptigi IP'ler (duz adres yok, ozet)
+    """CREATE TABLE giris_ip(ad TEXT NOT NULL, ip_ozeti TEXT NOT NULL, ilk_utc TEXT NOT NULL, son_utc TEXT NOT NULL, PRIMARY KEY(ad, ip_ozeti))""",
 ]
 BICIM = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -83,6 +86,7 @@ def kullanici_totp_yenile(con, ad):
 def kullanici_sil(con, ad):
     n = con.execute("DELETE FROM kullanici WHERE ad=?", (ad,)).rowcount
     con.execute("DELETE FROM oturum WHERE ad=?", (ad,))
+    con.execute("DELETE FROM giris_ip WHERE ad=?", (ad,))
     con.commit()
     if n:
         denetim_ekle(con, "cli", "kullanici silindi: %s" % ad)
@@ -103,7 +107,7 @@ def giris(con, ad, parola, kod, ip, simdi=None):
     """Basarili ise (oturum_kodu, None), degilse (None, neden). Neden kullaniciya gosterilmez, denetim icindir."""
     ad = (ad or "").strip()[:64]
     if giris_engelli(con, ad, ip):
-        denetim_ekle(con, "sistem", "giris engellendi (cok fazla deneme): %s" % ad)
+        denetim_ekle(con, "sistem", "giris engellendi (cok fazla deneme): %s" % ad, {"kullanici": ad, "sonuc": "reddedildi", "ip_ozeti": zincir.ip_ozeti(ip), "neden": "engelli"})
         return None, "engelli"
     satir = con.execute("SELECT parola, totp, totp_sayac FROM kullanici WHERE ad=?", (ad,)).fetchone()
     parola_ok = guvenlik.parola_dogrula(parola or "", satir[0] if satir else guvenlik.SAHTE_OZET)
@@ -112,7 +116,7 @@ def giris(con, ad, parola, kod, ip, simdi=None):
         z = _z(_simdi())
         con.executemany("INSERT INTO giris_denemesi(anahtar, zaman_utc) VALUES(?,?)", [("k:" + ad, z), ("ip:" + ip, z)])
         con.commit()
-        denetim_ekle(con, "sistem", "basarisiz giris: %s" % ad)
+        denetim_ekle(con, "sistem", "basarisiz giris: %s" % ad, {"kullanici": ad, "sonuc": "basarisiz", "ip_ozeti": zincir.ip_ozeti(ip), "neden": "hatali"})
         return None, "hatali"
     kod_ = guvenlik.rastgele_kod()
     z = _z(_simdi())
@@ -120,7 +124,17 @@ def giris(con, ad, parola, kod, ip, simdi=None):
     con.execute("INSERT INTO oturum VALUES(?,?,?,?,?)", (guvenlik.ozet(kod_), ad, guvenlik.rastgele_kod(), z, z))
     con.execute("DELETE FROM giris_denemesi WHERE anahtar=?", ("k:" + ad,))
     con.commit()
-    denetim_ekle(con, ad, "giris yapildi")
+    ioz = zincir.ip_ozeti(ip)
+    onceki_ip = con.execute("SELECT count(*) FROM giris_ip WHERE ad=?", (ad,)).fetchone()[0]
+    var = con.execute("SELECT 1 FROM giris_ip WHERE ad=? AND ip_ozeti=?", (ad, ioz)).fetchone()
+    if var:
+        con.execute("UPDATE giris_ip SET son_utc=? WHERE ad=? AND ip_ozeti=?", (z, ad, ioz))
+    else:
+        con.execute("INSERT INTO giris_ip(ad, ip_ozeti, ilk_utc, son_utc) VALUES(?,?,?,?)", (ad, ioz, z, z))
+    con.commit()
+    yeni_ip = bool(onceki_ip and not var)  # ilk giris yeni IP uyarisi sayilmaz
+    denetim_ekle(con, ad, "giris yapildi" if not yeni_ip else "yeni IP'den giris yapildi",
+                 {"kullanici": ad, "sonuc": "basarili", "ip_ozeti": ioz, "yeni_ip": 1 if yeni_ip else 0})
     return kod_, None
 
 

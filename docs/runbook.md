@@ -72,6 +72,8 @@ Yedek, sunucuyla aynı diskte durur: sunucu kaybına karşı koruma sağlamaz. Y
 
 ### Denetim zinciri: anahtar ve zincir başı
 
+Kayıtların `alanlar` sütunu (firma, hedef, sonuç, neden, IP özeti) özete dahildir; değiştirilirse zincir kırılır. Yönetici yeni bir IP'den girince denetime "yeni IP'den giriş yapıldı" yazılır (kullanıcının ilk girişi uyarı sayılmaz). IP'ler düz yazılmaz: 16 karakterlik özet olarak tutulur, denetim anahtarı varsa HMAC ile.
+
 Yeni denetim kayıtları `ALIG_DENETIM_ANAHTARI` ile HMAC-SHA-256 olarak yazılır; anahtar yoksa eski SHA-256 biçimi kullanılır. Eski kayıtlar bozulmaz. Anahtarlı kayıtlardan sonra anahtarsız kayıt gelirse zincir kırık sayılır. Anahtar en az 32 karakter olmalı, kısa anahtarla servisler başlamaz.
 
 Doğrulama anahtarı ortamdan okur: `sudo bash -c 'set -a; . /etc/alig/env; python3 /srv/alig/current/tarama/depo.py dogrula /var/lib/alig/tarama.sqlite'`. Anahtar olmadan çalıştırılırsa bağlantı denetlenir, HMAC denetlenemez ve komut 1 döner.

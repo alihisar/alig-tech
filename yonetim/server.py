@@ -565,18 +565,18 @@ class H(BaseHTTPRequestHandler):
                 zd = tdepo.denetim_durum(c, tdepo.denetim_anahtari())
                 bozuk = zd["bozuk"]
                 toplam = c.execute("SELECT count(*) FROM denetim").fetchone()[0]
-                for seq, z, ak, ol, oz in c.execute("SELECT seq, zaman_utc, aktor, olay, ozet FROM denetim ORDER BY seq DESC LIMIT 50 OFFSET ?", ((sayfa - 1) * 50,)):
-                    satirlar.append([e(seq), e(ist(z)), e(ak), e(ol), "<code>%s</code>" % e(oz[:16])])
+                for seq, z, ak, ol, oz, al in c.execute("SELECT seq, zaman_utc, aktor, olay, ozet, alanlar FROM denetim ORDER BY seq DESC LIMIT 50 OFFSET ?", ((sayfa - 1) * 50,)):
+                    satirlar.append([e(seq), e(ist(z)), e(ak), e(ol), "<code class=\"muted\">%s</code>" % e(al) if al else "", "<code>%s</code>" % e(oz[:16])])
             finally:
                 if c is not con:
                     c.close()
-        durum = "<p class=\"%s\" role=\"status\">Zincir %s (%d kayıt).</p>" % ("ok" if bozuk is None else "err", "sağlam" if bozuk is None else "KIRIK: kayıt #%d" % bozuk, toplam)
+        durum = "<p class=\"%s\" role=\"status\">Zincir %s (%d kayıt).</p>" % ("ok" if bozuk is None and not zd["dogrulanamayan"] else "err", "sağlam" if bozuk is None and not zd["dogrulanamayan"] and not zd["anahtarli"] else tdepo.denetim_metni(zd), toplam)
         sekme = "<p class=\"filters\">Kaynak: <a href=\"/yonetim/denetim?kaynak=tarama\"%s>Sağlık taraması</a> <a href=\"/yonetim/denetim?kaynak=yonetim\"%s>Yönetim paneli</a></p>" % (
             " aria-current=\"page\"" if kaynak == "tarama" else "", " aria-current=\"page\"" if kaynak == "yonetim" else "")
         gez = "<p class=\"filters\">%s %s</p>" % (
             "<a href=\"/yonetim/denetim?kaynak=%s&amp;sayfa=%d\">Daha yeni</a>" % (kaynak, sayfa - 1) if sayfa > 1 else "",
             "<a href=\"/yonetim/denetim?kaynak=%s&amp;sayfa=%d\">Daha eski</a>" % (kaynak, sayfa + 1) if sayfa * 50 < toplam else "")
-        self._sayfa("Denetim kaydı", sekme + durum + tablo(["#", "Zaman", "Aktör", "Olay", "Özet"], satirlar) + gez, o)
+        self._sayfa("Denetim kaydı", sekme + durum + tablo(["#", "Zaman", "Aktör", "Olay", "Alanlar", "Özet"], satirlar) + gez, o)
 
     def _sistem(self, con, o):
         surum = (KOK / "VERSION").read_text().strip() if (KOK / "VERSION").exists() else "geliştirme (paketlenmemiş)"
