@@ -378,6 +378,14 @@ class PanelTests(Taban):
         self.assertIn("KIRIK: kayıt #1", self.istek("GET", "/yonetim/")[1])
         self.assertIn("KIRIK: kayıt #1", self.istek("GET", "/yonetim/denetim")[1])
 
+    def test_panel_kendi_csp_basligini_gonderir(self):
+        r, g = self.istek("GET", "/yonetim/")
+        csp = r.getheader("Content-Security-Policy") or ""
+        for parca in ("default-src 'none'", "script-src 'none'", "style-src 'self'", "form-action 'self'", "frame-ancestors 'none'"):
+            self.assertIn(parca, csp)
+        self.assertNotIn("<script", g)
+        self.assertNotIn(" style=", g)   # satir ici stil yok: CSP'yi gevsetmeye gerek kalmaz
+
     def test_statik_dosya_yalniz_assets_ve_bilinen_tur(self):
         self.assertIn(self.istek("GET", "/assets/yonetim.css", cerez=False)[0].status, (200, 404))  # paket disinda 404 olabilir
         for yol in ("/assets/../../yonetim/depo.py", "/assets/%2e%2e/%2e%2e/form/server.py", "/assets/alig-toplayici.py", "/assets/../VERSION",

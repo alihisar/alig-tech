@@ -23,7 +23,7 @@ M = {
                 "Dosyayı tarama sayfasındaki formu kullanarak yükleyin."),
         "pasif": ("Hesabınız şu an etkin değil", "Şirketinizin kaydı geçici olarak kapatılmış, yeni tarama yüklenemiyor. Mevcut raporlarınız etkilenmez.",
                   "Kaydınızın yeniden açılması için bizimle iletişime geçin."),
-        "sinir": ("Ücretsiz tarama hakkınız doldu", "Şirket başına 30 günde 2 ücretsiz tarama yapılır ve bu dönemdeki hakkınız kullanıldı. Bu yükleme kaydedilmedi.",
+        "sinir": ("Ücretsiz tarama hakkınız doldu", "Şirket başına {gun} günde {adet} ücretsiz tarama yapılır ve bu dönemdeki hakkınız kullanıldı. Bu yükleme kaydedilmedi.",
                   "Daha erken bir tarama ya da kapsamlı bir denetim için bizimle iletişime geçin."),
         "hiz": ("Çok fazla deneme", "Bu adresten kısa sürede çok sayıda yükleme yapıldı.",
                 "Bir saat sonra yeniden deneyin."),
@@ -69,7 +69,7 @@ M = {
                 "Upload the file using the form on the health check page."),
         "pasif": ("Your account is not active right now", "Your company's registration is temporarily closed, so new scans cannot be uploaded. Your existing reports are not affected.",
                   "Contact us to have your registration reopened."),
-        "sinir": ("Your free scans are used up", "Each company gets 2 free scans per 30 days and yours are used for this period. This upload was not saved.",
+        "sinir": ("Your free scans are used up", "Each company gets {adet} free scans per {gun} days and yours are used for this period. This upload was not saved.",
                   "Contact us for an earlier scan or a full audit."),
         "hiz": ("Too many attempts", "Many uploads were made from this address in a short time.",
                 "Try again in an hour."),
@@ -199,6 +199,8 @@ def sayfa(tur, dil, ayrinti=None):
     d = dil if dil in M else "tr"
     m = M[d]
     baslik, ne_oldu, ne_yapmali = m[tur]
+    from tarama import depo   # sinir metni sabitten: SINIR_ADET ya da SINIR_GUN degisirse sayfa da degisir
+    ne_oldu = ne_oldu.replace("{adet}", str(depo.SINIR_ADET)).replace("{gun}", str(depo.SINIR_GUN))
     kok = "/en/" if d == "en" else "/"
     if tur in DOGRUDAN:
         baglar = ['<a class="btn" href="/api/tarama/baglan?dil=%s">%s</a>' % (d, escape(F[d]["baslik"]))]

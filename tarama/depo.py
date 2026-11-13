@@ -55,6 +55,22 @@ GOCLER = [
     """CREATE INDEX posta_alici ON posta(alici, olusturma_utc)""",
     # iletisim taleplerinden firma esitlemesinin nerede kaldigi (yalniz yeni talepler islensin)
     """CREATE TABLE esitleme(ad TEXT PRIMARY KEY, deger TEXT NOT NULL)""",
+    # firma ve rapor kimligi silmeden sonra yeniden kullanilmasin (AUTOINCREMENT): denetimdeki "#N" hep ayni kaydi gosterir.
+    # SQLite'ta yeniden kurma gerekir; adimlar goc_uygula'nin tek islemi icinde, yarida kalirsa hicbiri uygulanmaz.
+    """CREATE TABLE firma_yeni(id INTEGER PRIMARY KEY AUTOINCREMENT, anahtar TEXT NOT NULL UNIQUE, ad TEXT NOT NULL, eposta TEXT NOT NULL,
+       durum TEXT NOT NULL DEFAULT 'aktif', kaynak TEXT NOT NULL, aciklama TEXT NOT NULL DEFAULT '', kayit_utc TEXT NOT NULL,
+       son_utc TEXT NOT NULL, dogrudan_izin INTEGER NOT NULL DEFAULT 0, eposta_dogrulama_utc TEXT)""",
+    """INSERT INTO firma_yeni(id, anahtar, ad, eposta, durum, kaynak, aciklama, kayit_utc, son_utc, dogrudan_izin, eposta_dogrulama_utc)
+       SELECT id, anahtar, ad, eposta, durum, kaynak, aciklama, kayit_utc, son_utc, dogrudan_izin, eposta_dogrulama_utc FROM firma""",
+    """DROP TABLE firma""",
+    """ALTER TABLE firma_yeni RENAME TO firma""",
+    """CREATE TABLE rapor_yeni(id INTEGER PRIMARY KEY AUTOINCREMENT, token_sha256 TEXT NOT NULL UNIQUE, olusturma_utc TEXT NOT NULL,
+       bitis_utc TEXT NOT NULL, motor TEXT NOT NULL, dil TEXT NOT NULL, belge_json TEXT NOT NULL, firma_id INTEGER,
+       eposta TEXT NOT NULL DEFAULT '', dogrulandi INTEGER NOT NULL DEFAULT 1)""",
+    """INSERT INTO rapor_yeni(id, token_sha256, olusturma_utc, bitis_utc, motor, dil, belge_json, firma_id, eposta, dogrulandi)
+       SELECT id, token_sha256, olusturma_utc, bitis_utc, motor, dil, belge_json, firma_id, eposta, dogrulandi FROM rapor""",
+    """DROP TABLE rapor""",
+    """ALTER TABLE rapor_yeni RENAME TO rapor""",
 ]
 ISTEK_DAKIKA = 30
 BEKLEME_SAAT = 24      # e-postayla dogrulanmamis rapor bu sure sonunda silinir

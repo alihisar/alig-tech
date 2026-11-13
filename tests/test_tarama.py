@@ -2,6 +2,7 @@ import http.client
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -380,6 +381,30 @@ class ToplayiciVeritabaniTests(unittest.TestCase):
         self.assertIn("TLS", self.r.stderr)
 
 
+class MetinTests(unittest.TestCase):
+    def test_sinir_metinleri_sabitlerle_uyumlu(self):
+        """Sinir degisirse statik sayfalardaki metin de degismeli: bu test unutulani yakalar."""
+        import json as _j
+        tr = _j.loads((ROOT / "site" / "i18n" / "tr.json").read_text(encoding="utf-8"))
+        en = _j.loads((ROOT / "site" / "i18n" / "en.json").read_text(encoding="utf-8"))
+        adet, gun = depo.SINIR_ADET, depo.SINIR_GUN
+        for k in ("tarama_f_mail_note", "hz_need_6d", "hz_a4"):
+            self.assertIn("%d günde %d" % (gun, adet), tr[k], k)
+            self.assertRegex(en[k], r"\b%d (free )?scans\b.*\b%d days\b" % (adet, gun), k)
+        from tarama import saklama
+        r = saklama.SINIFLAR["rapor"][0]
+        for k in ("tarama_n5", "hz_sec_5"):
+            self.assertIn("%d gün" % r, tr[k], k)
+            self.assertIn("%d days" % r, en[k], k)
+
+    def test_hata_sayfasi_siniri_sabitten_yazar(self):
+        from tarama import hata
+        from unittest import mock
+        with mock.patch.object(depo, "SINIR_ADET", 5), mock.patch.object(depo, "SINIR_GUN", 7):
+            self.assertIn("7 günde 5", hata.sayfa("sinir", "tr"))
+            self.assertIn("5 free scans per 7 days", hata.sayfa("sinir", "en"))
+
+
 class KatalogTests(unittest.TestCase):
     def test_katalog_yalniz_select_ve_yasakli_sozcuk_yok(self):
         yasakli = [w.strip() for w in katalog.YASAKLI]
@@ -655,6 +680,38 @@ class DepoTests(unittest.TestCase):
         depo.denetim_ekle(c, "a", "islem icinde")
         self.assertFalse(c.in_transaction)
         self.assertEqual(c.execute("SELECT count(*) FROM kullanim").fetchone()[0], 1)
+
+    def test_silinen_firma_ve_rapor_kimligi_yeniden_kullanilmaz(self):
+        c = self.con()
+        a = depo.firma_kaydet(c, "a.com", "A", "x@a.com", "tarama")
+        b = depo.firma_kaydet(c, "b.com", "B", "x@b.com", "tarama")
+        depo.firma_sil(c, b["id"])
+        yeni = depo.firma_kaydet(c, "c.com", "C", "x@c.com", "tarama")
+        self.assertGreater(yeni["id"], b["id"])   # denetimdeki "firma #N" hep ayni firmayi gosterir
+        depo.rapor_ekle(c, "t1", "postgresql", "tr", {"a": 1}, a["id"])
+        depo.rapor_ekle(c, "t2", "postgresql", "tr", {"a": 1}, a["id"])
+        eski = max(r["id"] for r in depo.rapor_listele(c))
+        depo.rapor_sil(c, "t2")
+        depo.rapor_ekle(c, "t3", "postgresql", "tr", {"a": 1}, a["id"])
+        self.assertGreater(max(r["id"] for r in depo.rapor_listele(c)), eski)
+
+    def test_eski_firma_ve_rapor_tablosu_kimlikleri_korunarak_tasinir(self):
+        yol = str(Path(tempfile.mkdtemp()) / "t.sqlite")
+        c = sqlite3.connect(yol)
+        surum = depo.GOCLER.index(next(g for g in depo.GOCLER if "firma_yeni" in g))
+        for g in depo.GOCLER[:surum]:
+            c.execute(g)
+        c.execute("PRAGMA user_version=%d" % surum)
+        c.execute("INSERT INTO firma(id, anahtar, ad, eposta, kaynak, kayit_utc, son_utc, dogrudan_izin) VALUES(7,'a.com','A','x@a.com','tarama','t','t',1)")
+        c.execute("INSERT INTO rapor(id, token_sha256, olusturma_utc, bitis_utc, motor, dil, belge_json, firma_id, eposta) VALUES(9,'h','t','2999','postgresql','tr','{}',7,'x@a.com')")
+        c.commit()
+        c.close()
+        c = depo.baglan(yol)
+        f = depo.firma_getir(c, 7)
+        self.assertEqual((f["anahtar"], f["dogrudan_izin"]), ("a.com", 1))
+        self.assertEqual(depo.rapor_getir_id(c, 9)["firma_id"], 7)
+        self.assertIn("AUTOINCREMENT", c.execute("SELECT sql FROM sqlite_master WHERE name='firma'").fetchone()[0])
+        self.assertGreater(depo.firma_kaydet(c, "b.com", "B", "x@b.com", "tarama")["id"], 7)
 
     def test_kisa_anahtar_reddedilir(self):
         with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: "kisa"}):

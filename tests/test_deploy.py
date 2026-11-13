@@ -218,8 +218,12 @@ class GeriYuklemeTests(unittest.TestCase):
         hedef = self.veri / "tarama.sqlite"
         once = bakim._ozet(hedef)
         bozuk = self.yedek / "tarama-20261113T000000Z.sqlite"
+        c = sqlite3.connect(self.yd)   # veri tasiyan bir sayfayi boz (bos sayfa bozulmasi butunluk denetiminde gorunmez)
+        kok = c.execute("SELECT rootpage FROM sqlite_master WHERE name='denetim'").fetchone()[0]
+        boyut = c.execute("PRAGMA page_size").fetchone()[0]
+        c.close()
         veri = bytearray(self.yd.read_bytes())
-        veri[4096:4196] = b"\xff" * 100
+        veri[(kok - 1) * boyut + 8:(kok - 1) * boyut + 108] = b"\xff" * 100
         bozuk.write_bytes(bytes(veri))
         self.assertEqual(bakim.geri_yukle(bozuk, self.veri, evet=True, cikti=self.cikti()), 1)
         metin = bozuk.parent / "tarama-20261114T000000Z.sqlite"

@@ -117,6 +117,9 @@ class H(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Robots-Tag", "noindex, nofollow")
+        # SSH tuneliyle (nginx'siz) acildiginda da ayni koruma: panelde betik ve satir ici stil yok.
+        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; "
+                                                    "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
         for k, v in extra:
             self.send_header(k, v)
         self.end_headers()
