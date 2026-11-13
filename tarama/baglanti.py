@@ -59,8 +59,10 @@ def baglanti_dizgisi(hedef, veritabani, kullanici, sslmode="require"):
         raise BaglantiHatasi("bicim")
     if sslmode not in ("require", "verify-ca", "verify-full", "prefer"):
         raise BaglantiHatasi("bicim")
-    return "host=%s hostaddr=%s port=%d dbname=%s user=%s sslmode=%s connect_timeout=10 gssencmode=disable" % (
-        hedef.ad, hedef.ip, hedef.port, veritabani, kullanici, sslmode)
+    # channel_binding=require: sunucu SCRAM-SHA-256-PLUS ile TLS kanalina bagli kimlik dogrulamak zorunda. Boylece parola
+    # duz metin ya da MD5 ile gonderilmez ve sertifikasi dogrulanamayan sunucuya karsi aktarma (MITM) saldirisi isleme girmez.
+    return ("host=%s hostaddr=%s port=%d dbname=%s user=%s sslmode=%s channel_binding=require connect_timeout=10 gssencmode=disable"
+            % (hedef.ad, hedef.ip, hedef.port, veritabani, kullanici, sslmode))
 
 
 def _ortam(parola):

@@ -133,6 +133,24 @@ class BozukDegerTests(unittest.TestCase):
             yukleme.dogrula(b)
         self.assertEqual(ctx.exception.kod, "kolon")
 
+    def test_cok_sayida_yapi_hizla_reddedilir(self):
+        import time as _t
+        ham = b'{"a":[' + b"[]," * 1_500_000 + b"[]]}"   # gecerli JSON: ayristirilsa 1,5 milyon liste kurulurdu
+        bas = _t.monotonic()
+        with self.assertRaises(yukleme.Gecersiz) as ctx:
+            yukleme.coz(ham)
+        self.assertEqual(ctx.exception.kod, "derin")
+        self.assertLess(_t.monotonic() - bas, 0.2)
+        for ham in (b"[" + b'"",' * 1_700_000 + b"1]", b'["' + b"\\\\" * 2_000_000 + b'"]'):   # cok tirnak, cok kacis
+            bas = _t.monotonic()
+            with self.assertRaises(yukleme.Gecersiz):
+                yukleme.coz(ham)
+            self.assertLess(_t.monotonic() - bas, 0.2)
+        metinde = b'{"a":"' + b"[" * 50 + b'"}'   # metin icindeki parantez derinlige sayilmaz
+        with self.assertRaises(yukleme.Gecersiz) as ctx:
+            yukleme.coz(metinde)
+        self.assertNotEqual(ctx.exception.kod, "derin")
+
     def test_sonsuz_sayi_reddedilir(self):
         b = json.dumps(temiz_belge()).replace('"ust": 100', '"ust": 1e999').encode()
         with self.assertRaises(yukleme.Gecersiz):
@@ -873,6 +891,24 @@ class SunucuTests(_SunucuTaban):
         con = depo.baglan(self.db)
         depo.firma_sil(con, depo.firma_listele(con)[0]["id"])
         self.assertEqual(self.get(l1)[0].status, 404)
+
+    def test_denetim_yazilamazsa_yukleme_ve_silme_geri_alinir(self):
+        from unittest import mock
+        with mock.patch.object(tserver.depo, "denetim_ekle", side_effect=RuntimeError("denetim yazilamadi")):
+            try:
+                self.yukle(farkli_belge(1))
+            except Exception:  # noqa: BLE001
+                pass
+        con = depo.baglan(self.db)
+        self.assertEqual(con.execute("SELECT count(*) FROM rapor").fetchone()[0], 0)
+        self.assertEqual(con.execute("SELECT count(*) FROM kullanim").fetchone()[0], 0)
+        yol = self.yukle(farkli_belge(2)).getheader("Location")
+        with mock.patch.object(tserver.depo, "denetim_ekle", side_effect=RuntimeError("denetim yazilamadi")):
+            try:
+                self.post(yol + "sil")
+            except Exception:  # noqa: BLE001
+                pass
+        self.assertEqual(self.get(yol)[0].status, 200)   # silme geri alindi
 
     def test_gecersiz_dosya_hak_harcamaz(self):
         for _ in range(3):

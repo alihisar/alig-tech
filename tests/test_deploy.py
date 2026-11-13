@@ -122,6 +122,14 @@ class SaklamaTests(unittest.TestCase):
         self.assertEqual(con.execute("SELECT count(*) FROM firma").fetchone()[0], 0)
         self.assertIsNotNone(depo.firma_kaydet(con, "eski.com", "E", "a@eski.com", "tarama"))  # yeni etkinlik yeni kayit acar
 
+    def test_saklama_silmesi_denetimsiz_kalmaz(self):
+        veri, con = self.kur()
+        depo.firma_kaydet(con, "eski.com", "E", "a@eski.com", "yukleme", zaman="2020-01-01T00:00:00Z")
+        with mock.patch.object(depo, "denetim_ekle", side_effect=RuntimeError("denetim yazilamadi")):
+            with self.assertRaises(RuntimeError):
+                depo.saklama_uygula(con)
+        self.assertEqual(con.execute("SELECT count(*) FROM firma").fetchone()[0], 1)
+
     def test_firma_suresiz_ise_dokunulmaz(self):
         veri, con = self.kur()
         depo.firma_kaydet(con, "eski.com", "E", "a@eski.com", "yukleme", zaman="2020-01-01T00:00:00Z")

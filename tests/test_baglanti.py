@@ -112,6 +112,7 @@ class TaraTests(Temel):
             self.assertIn("hostaddr=93.184.216.34", dizgi)
             self.assertIn("host=db.ornek.com", dizgi)
             self.assertIn("sslmode=require", dizgi)
+            self.assertIn("channel_binding=require", dizgi)   # parola duz ya da MD5 ile gonderilmez, SCRAM aktarmasi onlenir
             self.assertIn("-w", g["argv"])   # parola asla sorulmaz
 
     def test_parola_argumanlarda_yok_ortam_temiz(self):

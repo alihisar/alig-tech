@@ -31,7 +31,6 @@ RateLimiter = _form.RateLimiter
 TOKEN = re.compile(r"^/rapor/([A-Za-z0-9_\-]{43})/(sil|dogrula)?$")
 ISTEK = re.compile(r"^/api/tarama/baglan/([A-Za-z0-9_\-]{43})$")
 TARAMA_YUVASI = threading.BoundedSemaphore(2)   # ayni anda en cok iki dogrudan tarama
-KILIT = threading.Lock()  # sinir sayimi ve ekleme birlikte yapilsin
 GOVDE_SINIRI = yukleme.MAX_BAYT + 64 * 1024
 
 
@@ -289,9 +288,10 @@ class H(BaseHTTPRequestHandler):
                 depo.denetim_ekle(con, "sistem", "dogrudan baglanti hedefi reddedildi (%s), firma #%d" % (e.kod, firma["id"]), {"firma": firma["id"], "sonuc": "reddedildi", "neden": e.kod})
                 return self._hata(422, "hedef", dil)   # neden musteriye soylenmez
             anahtar, kanit = secrets.token_urlsafe(32), secrets.token_hex(16)
-            depo.istek_ekle(con, anahtar, firma["id"], kanit, h.ad, h.ip, h.port, veritabani, kullanici,
-                            f.get("maskele", "") in ("on", "1"), dil)
-            depo.denetim_ekle(con, "musteri", "dogrudan baglanti istegi acildi, firma #%d, hedef=%s" % (firma["id"], h.ozet()[:16]), {"firma": firma["id"], "hedef": h.ozet()[:16], "sonuc": "basarili"})
+            with depo.islem(con) as c:   # istek ve denetim kaydi birlikte
+                depo.istek_ekle(c, anahtar, firma["id"], kanit, h.ad, h.ip, h.port, veritabani, kullanici,
+                                f.get("maskele", "") in ("on", "1"), dil)
+                depo.denetim_ekle(c, "musteri", "dogrudan baglanti istegi acildi, firma #%d, hedef=%s" % (firma["id"], h.ozet()[:16]), {"firma": firma["id"], "hedef": h.ozet()[:16], "sonuc": "basarili"})
         finally:
             con.close()
         self._send(200, hata.kanit_sayfasi(dil, anahtar, baglanti.kanit_komutu(kullanici, kanit)).encode("utf-8"), "text/html; charset=utf-8")
@@ -311,8 +311,9 @@ class H(BaseHTTPRequestHandler):
                 depo.istek_bitir(con, i["id"], "iptal")
                 return self._hata(403, "izin", dil)
             if depo.istek_deneme(con, i["id"]) > depo.ISTEK_DENEME:
-                depo.istek_bitir(con, i["id"], "deneme")
-                depo.denetim_ekle(con, "sistem", "dogrudan baglanti deneme siniri, firma #%d" % firma["id"], {"firma": firma["id"], "sonuc": "reddedildi", "neden": "deneme"})
+                with depo.islem(con) as c:
+                    depo.istek_bitir(c, i["id"], "deneme")
+                    depo.denetim_ekle(c, "sistem", "dogrudan baglanti deneme siniri, firma #%d" % firma["id"], {"firma": firma["id"], "sonuc": "reddedildi", "neden": "deneme"})
                 return self._hata(429, "deneme", dil)
             anahtar_s = depo.sirket_anahtari(firma["eposta"])
             if depo.kullanim_say(con, anahtar_s) >= self.sirket_adet:
@@ -334,16 +335,16 @@ class H(BaseHTTPRequestHandler):
                 return self._hata({"zaman": 504, "mesgul": 503}.get(tur, 422), tur, dil)
             finally:
                 TARAMA_YUVASI.release()
-            with KILIT:
-                asildi = depo.kullanim_say(con, anahtar_s) >= self.sirket_adet
+            anahtar = secrets.token_urlsafe(32)
+            with depo.islem(con) as c:   # sinir sayimi, rapor, istek kapanisi ve denetim kaydi birlikte; tarama bu islemin disinda kostu
+                asildi = depo.kullanim_say(c, anahtar_s) >= self.sirket_adet
                 if not asildi:
-                    depo.kullanim_ekle(con, anahtar_s)
+                    depo.kullanim_ekle(c, anahtar_s)
+                    depo.rapor_ekle(c, anahtar, belge["motor"], dil, belge, firma["id"], firma["eposta"])
+                    depo.istek_bitir(c, i["id"], "tamam")
+                    depo.denetim_ekle(c, "musteri", "dogrudan tarama tamamlandi, firma #%d, hedef=%s, kontrol=%d" % (firma["id"], h.ozet()[:16], len(belge["kontroller"])))
             if asildi:
                 return self._hata(429, "sinir", dil)
-            anahtar = secrets.token_urlsafe(32)
-            depo.rapor_ekle(con, anahtar, belge["motor"], dil, belge, firma["id"], firma["eposta"])
-            depo.istek_bitir(con, i["id"], "tamam")
-            depo.denetim_ekle(con, "musteri", "dogrudan tarama tamamlandi, firma #%d, hedef=%s, kontrol=%d" % (firma["id"], h.ozet()[:16], len(belge["kontroller"])))
         finally:
             con.close()
         self._send(303, extra=(("Location", "/rapor/%s/" % anahtar),))
@@ -351,13 +352,14 @@ class H(BaseHTTPRequestHandler):
     def _sil(self, token):
         con = depo.baglan(self.db_yolu)
         try:
-            n = depo.rapor_sil(con, token)
-            if n:  # olmayan rapor icin denetim kaydi yazilmaz: kimliksiz istekle silinmeyen zincir sisirilemesin
-                depo.denetim_ekle(con, "musteri", "rapor silindi", {"sonuc": "basarili"})
-            else:
-                print("rapor silme istegi: rapor yok", flush=True)
+            with depo.islem(con) as c:   # silme ve denetim kaydi birlikte
+                n = depo.rapor_sil(c, token)
+                if n:  # olmayan rapor icin denetim kaydi yazilmaz: kimliksiz istekle silinmeyen zincir sisirilemesin
+                    depo.denetim_ekle(c, "musteri", "rapor silindi", {"sonuc": "basarili"})
         finally:
             con.close()
+        if not n:
+            print("rapor silme istegi: rapor yok", flush=True)
         self._send(303 if n else 404, extra=(("Location", "/"),) if n else ())
 
     def log_message(self, fmt, *a):  # yol token icerir: yazma

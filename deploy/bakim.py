@@ -253,9 +253,9 @@ def talepleri_sil(veri, simdi=None):
     if idler and yon.exists():
         y = ydepo.baglan(str(yon))
         try:
-            y.executemany("DELETE FROM talep_durum WHERE talep_id=?", [(i,) for i in idler])
-            y.commit()
-            ydepo.denetim_ekle(y, "sistem", "saklama suresi doldu, %d talep silindi" % len(idler))
+            with depo.islem(y) as c:   # durum notlari ve denetim kaydi birlikte (form.sqlite ayri dosya: once o silinir)
+                c.executemany("DELETE FROM talep_durum WHERE talep_id=?", [(i,) for i in idler])
+                ydepo.denetim_ekle(c, "sistem", "saklama suresi doldu, %d talep silindi" % len(idler))
         finally:
             y.close()
     return len(idler)

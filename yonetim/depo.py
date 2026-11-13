@@ -51,41 +51,43 @@ denetim_dogrula = zincir.denetim_dogrula
 denetim_durum = zincir.denetim_durum
 
 
-# --- kullanicilar ---
+# --- kullanicilar --- (her eylem ve denetim kaydi tek islemde: denetim yazilamazsa eylem de geri alinir)
 def kullanici_ekle(con, ad, parola):
     gizli = guvenlik.totp_gizli()
-    con.execute("INSERT INTO kullanici(ad, parola, totp, olusturma_utc) VALUES(?,?,?,?)", (ad, guvenlik.parola_ozetle(parola), gizli, _z(_simdi())))
-    con.commit()
-    denetim_ekle(con, "cli", "kullanici eklendi: %s" % ad)
+    ozet = guvenlik.parola_ozetle(parola)   # yavas (scrypt): kilit disinda
+    with zincir.islem(con) as c:
+        c.execute("INSERT INTO kullanici(ad, parola, totp, olusturma_utc) VALUES(?,?,?,?)", (ad, ozet, gizli, _z(_simdi())))
+        denetim_ekle(c, "cli", "kullanici eklendi: %s" % ad)
     return gizli
 
 
 def kullanici_parola(con, ad, parola):
-    n = con.execute("UPDATE kullanici SET parola=? WHERE ad=?", (guvenlik.parola_ozetle(parola), ad)).rowcount
-    con.execute("DELETE FROM oturum WHERE ad=?", (ad,))
-    con.commit()
-    if n:
-        denetim_ekle(con, "cli", "parola degisti, oturumlar kapatildi: %s" % ad)
+    ozet = guvenlik.parola_ozetle(parola)
+    with zincir.islem(con) as c:
+        n = c.execute("UPDATE kullanici SET parola=? WHERE ad=?", (ozet, ad)).rowcount
+        c.execute("DELETE FROM oturum WHERE ad=?", (ad,))
+        if n:
+            denetim_ekle(c, "cli", "parola degisti, oturumlar kapatildi: %s" % ad)
     return n
 
 
 def kullanici_totp_yenile(con, ad):
     gizli = guvenlik.totp_gizli()
-    n = con.execute("UPDATE kullanici SET totp=?, totp_sayac=0 WHERE ad=?", (gizli, ad)).rowcount
-    con.execute("DELETE FROM oturum WHERE ad=?", (ad,))
-    con.commit()
-    if n:
-        denetim_ekle(con, "cli", "dogrulama kodu anahtari yenilendi: %s" % ad)
+    with zincir.islem(con) as c:
+        n = c.execute("UPDATE kullanici SET totp=?, totp_sayac=0 WHERE ad=?", (gizli, ad)).rowcount
+        c.execute("DELETE FROM oturum WHERE ad=?", (ad,))
+        if n:
+            denetim_ekle(c, "cli", "dogrulama kodu anahtari yenilendi: %s" % ad)
     return gizli if n else None
 
 
 def kullanici_sil(con, ad):
-    n = con.execute("DELETE FROM kullanici WHERE ad=?", (ad,)).rowcount
-    con.execute("DELETE FROM oturum WHERE ad=?", (ad,))
-    con.execute("DELETE FROM giris_ip WHERE ad=?", (ad,))
-    con.commit()
-    if n:
-        denetim_ekle(con, "cli", "kullanici silindi: %s" % ad)
+    with zincir.islem(con) as c:
+        n = c.execute("DELETE FROM kullanici WHERE ad=?", (ad,)).rowcount
+        c.execute("DELETE FROM oturum WHERE ad=?", (ad,))
+        c.execute("DELETE FROM giris_ip WHERE ad=?", (ad,))
+        if n:
+            denetim_ekle(c, "cli", "kullanici silindi: %s" % ad)
     return n
 
 
@@ -99,38 +101,43 @@ def giris_engelli(con, ad, ip):
     return _deneme_sayisi(con, "k:" + ad) >= DENEME_KULLANICI or _deneme_sayisi(con, "ip:" + ip) >= DENEME_IP
 
 
+def _basarisiz(c, ad, ip):
+    z = _z(_simdi())
+    c.executemany("INSERT INTO giris_denemesi(anahtar, zaman_utc) VALUES(?,?)", [("k:" + ad, z), ("ip:" + ip, z)])
+    denetim_ekle(c, "sistem", "basarisiz giris: %s" % ad, {"kullanici": ad, "sonuc": "basarisiz", "ip_ozeti": zincir.ip_ozeti(ip), "neden": "hatali"})
+
+
 def giris(con, ad, parola, kod, ip, simdi=None):
-    """Basarili ise (oturum_kodu, None), degilse (None, neden). Neden kullaniciya gosterilmez, denetim icindir."""
+    """Basarili ise (oturum_kodu, None), degilse (None, neden). Neden kullaniciya gosterilmez, denetim icindir.
+    Parola (yavas) kilit disinda denetlenir; dogrulama kodu ve sayac, ayni kodun es zamanli iki giriste
+    iki kez kabul edilmemesi icin yazma kilidi altinda okunur ve guncellenir."""
     ad = (ad or "").strip()[:64]
     if giris_engelli(con, ad, ip):
         denetim_ekle(con, "sistem", "giris engellendi (cok fazla deneme): %s" % ad, {"kullanici": ad, "sonuc": "reddedildi", "ip_ozeti": zincir.ip_ozeti(ip), "neden": "engelli"})
         return None, "engelli"
-    satir = con.execute("SELECT parola, totp, totp_sayac FROM kullanici WHERE ad=?", (ad,)).fetchone()
+    satir = con.execute("SELECT parola, totp FROM kullanici WHERE ad=?", (ad,)).fetchone()
     parola_ok = guvenlik.parola_dogrula(parola or "", satir[0] if satir else guvenlik.SAHTE_OZET)
-    sayac = guvenlik.totp_dogrula(satir[1], kod, satir[2], simdi) if satir else None
-    if not (satir and parola_ok and sayac):
-        z = _z(_simdi())
-        con.executemany("INSERT INTO giris_denemesi(anahtar, zaman_utc) VALUES(?,?)", [("k:" + ad, z), ("ip:" + ip, z)])
-        con.commit()
-        denetim_ekle(con, "sistem", "basarisiz giris: %s" % ad, {"kullanici": ad, "sonuc": "basarisiz", "ip_ozeti": zincir.ip_ozeti(ip), "neden": "hatali"})
-        return None, "hatali"
     kod_ = guvenlik.rastgele_kod()
-    z = _z(_simdi())
-    con.execute("UPDATE kullanici SET totp_sayac=? WHERE ad=?", (sayac, ad))
-    con.execute("INSERT INTO oturum VALUES(?,?,?,?,?)", (guvenlik.ozet(kod_), ad, guvenlik.rastgele_kod(), z, z))
-    con.execute("DELETE FROM giris_denemesi WHERE anahtar=?", ("k:" + ad,))
-    con.commit()
-    ioz = zincir.ip_ozeti(ip)
-    onceki_ip = con.execute("SELECT count(*) FROM giris_ip WHERE ad=?", (ad,)).fetchone()[0]
-    var = con.execute("SELECT 1 FROM giris_ip WHERE ad=? AND ip_ozeti=?", (ad, ioz)).fetchone()
-    if var:
-        con.execute("UPDATE giris_ip SET son_utc=? WHERE ad=? AND ip_ozeti=?", (z, ad, ioz))
-    else:
-        con.execute("INSERT INTO giris_ip(ad, ip_ozeti, ilk_utc, son_utc) VALUES(?,?,?,?)", (ad, ioz, z, z))
-    con.commit()
-    yeni_ip = bool(onceki_ip and not var)  # ilk giris yeni IP uyarisi sayilmaz
-    denetim_ekle(con, ad, "giris yapildi" if not yeni_ip else "yeni IP'den giris yapildi",
-                 {"kullanici": ad, "sonuc": "basarili", "ip_ozeti": ioz, "yeni_ip": 1 if yeni_ip else 0})
+    with zincir.islem(con) as c:
+        guncel = c.execute("SELECT totp, totp_sayac FROM kullanici WHERE ad=?", (ad,)).fetchone() if satir and parola_ok else None
+        sayac = guvenlik.totp_dogrula(guncel[0], kod, guncel[1], simdi) if guncel else None
+        if not sayac:
+            _basarisiz(c, ad, ip)
+            return None, "hatali"
+        z = _z(_simdi())
+        c.execute("UPDATE kullanici SET totp_sayac=? WHERE ad=?", (sayac, ad))
+        c.execute("INSERT INTO oturum VALUES(?,?,?,?,?)", (guvenlik.ozet(kod_), ad, guvenlik.rastgele_kod(), z, z))
+        c.execute("DELETE FROM giris_denemesi WHERE anahtar=?", ("k:" + ad,))
+        ioz = zincir.ip_ozeti(ip)
+        onceki_ip = c.execute("SELECT count(*) FROM giris_ip WHERE ad=?", (ad,)).fetchone()[0]
+        var = c.execute("SELECT 1 FROM giris_ip WHERE ad=? AND ip_ozeti=?", (ad, ioz)).fetchone()
+        if var:
+            c.execute("UPDATE giris_ip SET son_utc=? WHERE ad=? AND ip_ozeti=?", (z, ad, ioz))
+        else:
+            c.execute("INSERT INTO giris_ip(ad, ip_ozeti, ilk_utc, son_utc) VALUES(?,?,?,?)", (ad, ioz, z, z))
+        yeni_ip = bool(onceki_ip and not var)  # ilk giris yeni IP uyarisi sayilmaz
+        denetim_ekle(c, ad, "giris yapildi" if not yeni_ip else "yeni IP'den giris yapildi",
+                     {"kullanici": ad, "sonuc": "basarili", "ip_ozeti": ioz, "yeni_ip": 1 if yeni_ip else 0})
     return kod_, None
 
 
@@ -174,8 +181,8 @@ def talep_durumlari(con):
 def talep_durum_yaz(con, talep_id, durum, aciklama, kim):
     if durum not in DURUMLAR:
         raise ValueError("durum")
-    con.execute("INSERT INTO talep_durum VALUES(?,?,?,?,?) ON CONFLICT(talep_id) DO UPDATE SET durum=excluded.durum, "
-                "aciklama=excluded.aciklama, guncelleme_utc=excluded.guncelleme_utc, guncelleyen=excluded.guncelleyen",
-                (talep_id, durum, aciklama[:500], _z(_simdi()), kim))
-    con.commit()
-    denetim_ekle(con, kim, "talep #%d durumu: %s" % (talep_id, durum))
+    with zincir.islem(con) as c:
+        c.execute("INSERT INTO talep_durum VALUES(?,?,?,?,?) ON CONFLICT(talep_id) DO UPDATE SET durum=excluded.durum, "
+                  "aciklama=excluded.aciklama, guncelleme_utc=excluded.guncelleme_utc, guncelleyen=excluded.guncelleyen",
+                  (talep_id, durum, aciklama[:500], _z(_simdi()), kim))
+        denetim_ekle(c, kim, "talep #%d durumu: %s" % (talep_id, durum))

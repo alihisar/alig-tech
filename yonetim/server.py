@@ -32,6 +32,7 @@ except Exception:  # tzdata yoksa sabit UTC+3
     TR = timezone(timedelta(hours=3))
 
 GOVDE_SINIRI = 8192
+TALEP_SAYFA = 100
 ONEM_AD = {"kritik": "Kritik", "yuksek": "Yüksek", "orta": "Orta", "dusuk": "Düşük", "bilgi": "Bilgi"}
 DURUM_AD = {"yeni": "Yeni", "gorusuluyor": "Görüşülüyor", "kapandi": "Kapandı"}
 DB_AD = {"pg": "PostgreSQL", "ms": "SQL Server", "my": "MySQL", "multi": "Birden çok", "unsure": "Emin değil"}
@@ -234,8 +235,9 @@ class H(BaseHTTPRequestHandler):
                 depo.denetim_ekle(con, o["ad"], "CSRF kodu uyusmadi: %s" % yol[:60])
                 return self._send(403, b"gecersiz form kodu\n", "text/plain; charset=utf-8")
             if yol == "/yonetim/cikis":
-                depo.cikis(con, self._cerez())
-                depo.denetim_ekle(con, o["ad"], "cikis yapildi")
+                with depo.zincir.islem(con) as c:
+                    depo.cikis(c, self._cerez())
+                    depo.denetim_ekle(c, o["ad"], "cikis yapildi")
                 return self._yonlendir("/yonetim/giris", (self._cerez_yaz("", sil=True),))
             m = re.match(r"^/yonetim/talepler/(\d{1,9})/durum$", yol)
             if m:
@@ -250,8 +252,9 @@ class H(BaseHTTPRequestHandler):
             if m:
                 tcon = tdepo.baglan(self.tarama_db)
                 try:
-                    n = tdepo.rapor_sil_id(tcon, int(m.group(1)))
-                    tdepo.denetim_ekle(tcon, "yonetici:" + o["ad"], "rapor silindi #%s" % m.group(1) if n else "silme: rapor yok #%s" % m.group(1))
+                    with tdepo.islem(tcon) as t:
+                        n = tdepo.rapor_sil_id(t, int(m.group(1)))
+                        tdepo.denetim_ekle(t, "yonetici:" + o["ad"], "rapor silindi #%s" % m.group(1) if n else "silme: rapor yok #%s" % m.group(1))
                 finally:
                     tcon.close()
                 depo.denetim_ekle(con, o["ad"], ("tarama raporu silindi #%s" if n else "silme: tarama raporu yok #%s") % m.group(1))
@@ -278,14 +281,27 @@ class H(BaseHTTPRequestHandler):
                     "<div class=\"field field-wide\"><label for=\"g-k\">Doğrulama kodu (6 hane)</label><input id=\"g-k\" name=\"kod\" type=\"text\" inputmode=\"numeric\" pattern=\"[0-9 ]{6,7}\" required maxlength=\"7\" autocomplete=\"one-time-code\"></div>"
                     "<p><button class=\"btn\" type=\"submit\">Giriş yap</button></p></form>", None, kod)
 
-    def _talep_satirlari(self):
+    def _talep_satirlari(self, limit=None, offset=0):
+        """Iletisim talepleri, yeniden eskiye. limit verilmezse hepsi (CSV ve firma sayimlari icin)."""
         c = ro(self.form_db)
         if not c:
             return []
         try:
-            return c.execute("SELECT id, created_utc, name, company, email, db, message FROM contact ORDER BY id DESC LIMIT 500").fetchall()
+            q = "SELECT id, created_utc, name, company, email, db, message FROM contact ORDER BY id DESC"
+            return c.execute(q + (" LIMIT ? OFFSET ?" if limit else ""), (limit, offset) if limit else ()).fetchall()
         except sqlite3.Error:
             return []
+        finally:
+            c.close()
+
+    def _talep_sayisi(self):
+        c = ro(self.form_db)
+        if not c:
+            return 0
+        try:
+            return c.execute("SELECT count(*) FROM contact").fetchone()[0]
+        except sqlite3.Error:
+            return 0
         finally:
             c.close()
 
@@ -347,11 +363,42 @@ class H(BaseHTTPRequestHandler):
 
     # ---- firmalar ----
     def _firma_esitle(self, tc):
-        """Iletisim formundan gelen sirketleri firma kaydina ekler (var olani degistirmez)."""
-        for tid, zaman, ad, sirket, eposta, _db, _msg in self._talep_satirlari():
-            anahtar = tdepo.firma_anahtari(eposta or "")
-            if anahtar:  # silinmis firmanin eski talebi kaydi geri getirmez (tdepo.firma_kaydet None doner)
-                tdepo.firma_kaydet(tc, anahtar, sirket, eposta, "talep", zaman=zaman, guncelle=False)
+        """Iletisim formundan gelen sirketleri firma kaydina ekler (var olani degistirmez). Yalniz son esitlemeden
+        sonraki talepler, tek islemde; son saniyedeki talepler yeniden bakilir (islem tekrar edilebilir)."""
+        son = tdepo.esitleme_oku(tc, "talep")
+        c = ro(self.form_db)
+        if not c:
+            return
+        try:
+            satirlar = c.execute("SELECT created_utc, company, email FROM contact WHERE created_utc >= ? ORDER BY created_utc", (son,)).fetchall()
+        except sqlite3.Error:
+            return
+        finally:
+            c.close()
+        if not satirlar:
+            return
+        with tdepo.islem(tc) as t:
+            for zaman, sirket, eposta in satirlar:
+                anahtar = tdepo.firma_anahtari(eposta or "")
+                if anahtar:  # silinmis firmanin eski talebi kaydi geri getirmez (tdepo.firma_kaydet None doner)
+                    tdepo.firma_kaydet(t, anahtar, sirket, eposta, "talep", zaman=zaman, guncelle=False)
+            tdepo.esitleme_yaz(t, "talep", satirlar[-1][0])
+
+    def _talepleri_sil(self, con, o, firma):
+        """Firmanin iletisim taleplerini (form.sqlite) ve durum notlarini siler; denetime adres yazilmaz. Silinen sayi."""
+        if not Path(self.form_db).exists():
+            return 0
+        fc = sqlite3.connect(self.form_db, timeout=10)
+        try:
+            idler = [i for i, e_ in fc.execute("SELECT id, email FROM contact") if tdepo.firma_anahtari(e_ or "") == firma["anahtar"]]
+            fc.executemany("DELETE FROM contact WHERE id=?", [(i,) for i in idler])
+            fc.commit()
+        finally:
+            fc.close()
+        with depo.zincir.islem(con) as c:
+            c.executemany("DELETE FROM talep_durum WHERE talep_id=?", [(i,) for i in idler])
+            depo.denetim_ekle(c, o["ad"], "firma #%d icin %d iletisim talebi silindi" % (firma["id"], len(idler)))
+        return len(idler)
 
     def _talep_sayilari(self):
         say = {}
@@ -475,7 +522,8 @@ class H(BaseHTTPRequestHandler):
                e(DURUM_AD[durumlar.get(t_[0], {}).get("durum", "yeni")])] for t_ in self._talep_sayilari().get(f["anahtar"], [])]
         ic += "<h2>İletişim talepleri</h2>" + tablo(["Zaman", "Kişi", "E-posta", "Mesaj", "Durum"], ts, "Bu firmadan talep yok.")
         ic += ("<h2>Firmayı sil</h2><form method=\"post\" action=\"/yonetim/firmalar/%d/sil\" class=\"inline danger\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
-               "<label for=\"f-emin\"><input id=\"f-emin\" type=\"checkbox\" name=\"emin\" value=\"evet\" required> Firma kaydını, %d tarama raporunu ve tarama sayımını kalıcı olarak sil. İletişim talepleri silinmez.</label>"
+               "<label for=\"f-emin\"><input id=\"f-emin\" type=\"checkbox\" name=\"emin\" value=\"evet\" required> Firma kaydını, %d tarama raporunu ve tarama sayımını kalıcı olarak sil.</label>"
+               "<label for=\"f-talep\"><input id=\"f-talep\" type=\"checkbox\" name=\"talepler\" value=\"evet\"> İletişim taleplerini de sil (KVKK silme talebi için). İşaretlenmezse talepler kalır, firma onlardan yeniden oluşmaz.</label>"
                "<button class=\"btn btn-sm btn-ghost\" type=\"submit\">Kalıcı olarak sil</button></form>") % (fid, csrf, len(raporlar))
         self._sayfa(f["ad"] or "(adsız firma)", ic, o)
 
@@ -485,26 +533,30 @@ class H(BaseHTTPRequestHandler):
             firma = tdepo.firma_getir(tc, fid)
             if not firma:
                 return self._send(404, b"yok\n", "text/plain; charset=utf-8")
-            if islem == "durum":
-                if f.get("durum") not in tdepo.FIRMA_DURUMLARI:
-                    return self._send(422, b"gecersiz durum\n", "text/plain; charset=utf-8")
-                tdepo.firma_durum_yaz(tc, fid, f["durum"])
-                olay = "firma #%d durumu: %s" % (fid, f["durum"])
-            elif islem == "not":
-                tdepo.firma_not_yaz(tc, fid, f.get("aciklama", ""))
-                olay = "firma #%d notu guncellendi" % fid
-            elif islem == "izin":
-                if f.get("izin") not in ("0", "1"):
-                    return self._send(422, b"gecersiz izin\n", "text/plain; charset=utf-8")
-                tdepo.firma_izin_yaz(tc, fid, f["izin"] == "1")
-                olay = "firma #%d dogrudan baglanti izni: %s" % (fid, "verildi" if f["izin"] == "1" else "kaldirildi")
-            elif islem == "sinir":
-                olay = "firma #%d tarama hakki sifirlandi (%d kayit)" % (fid, tdepo.firma_sinir_sifirla(tc, fid))
-            else:
-                if f.get("emin") != "evet":
-                    return self._send(422, b"onay kutusu isaretlenmeli\n", "text/plain; charset=utf-8")
-                olay = "firma #%d silindi (%d rapor)" % (fid, tdepo.firma_sil(tc, fid))
-            tdepo.denetim_ekle(tc, "yonetici:" + o["ad"], olay)
+            if islem == "durum" and f.get("durum") not in tdepo.FIRMA_DURUMLARI:
+                return self._send(422, b"gecersiz durum\n", "text/plain; charset=utf-8")
+            if islem == "izin" and f.get("izin") not in ("0", "1"):
+                return self._send(422, b"gecersiz izin\n", "text/plain; charset=utf-8")
+            if islem == "sil" and f.get("emin") != "evet":
+                return self._send(422, b"onay kutusu isaretlenmeli\n", "text/plain; charset=utf-8")
+            ek = ""
+            if islem == "sil" and f.get("talepler") == "evet":   # once talepler: firma silme yarida kalirsa yeniden denenebilir
+                ek = ", %d talep" % self._talepleri_sil(con, o, firma)
+            with tdepo.islem(tc) as t:   # eylem ve tarama zincirindeki denetim kaydi birlikte
+                if islem == "durum":
+                    tdepo.firma_durum_yaz(t, fid, f["durum"])
+                    olay = "firma #%d durumu: %s" % (fid, f["durum"])
+                elif islem == "not":
+                    tdepo.firma_not_yaz(t, fid, f.get("aciklama", ""))
+                    olay = "firma #%d notu guncellendi" % fid
+                elif islem == "izin":
+                    tdepo.firma_izin_yaz(t, fid, f["izin"] == "1")
+                    olay = "firma #%d dogrudan baglanti izni: %s" % (fid, "verildi" if f["izin"] == "1" else "kaldirildi")
+                elif islem == "sinir":
+                    olay = "firma #%d tarama hakki sifirlandi (%d kayit)" % (fid, tdepo.firma_sinir_sifirla(t, fid))
+                else:
+                    olay = "firma #%d silindi (%d rapor%s)" % (fid, tdepo.firma_sil(t, fid), ek)
+                tdepo.denetim_ekle(t, "yonetici:" + o["ad"], olay)
         finally:
             tc.close()
         depo.denetim_ekle(con, o["ad"], olay)
@@ -513,11 +565,15 @@ class H(BaseHTTPRequestHandler):
     def _talepler(self, con, o, q):
         durumlar = depo.talep_durumlari(con)
         suz = (q.get("durum") or [""])[0]
+        try:
+            sayfa = max(1, min(int((q.get("sayfa") or ["1"])[0]), 100000))
+        except ValueError:
+            sayfa = 1
+        secili = [t for t in self._talep_satirlari()
+                  if not (suz in depo.DURUMLAR and durumlar.get(t[0], {"durum": "yeni"})["durum"] != suz)]
         satirlar = []
-        for t in self._talep_satirlari():
+        for t in secili[(sayfa - 1) * TALEP_SAYFA:sayfa * TALEP_SAYFA]:
             d = durumlar.get(t[0], {"durum": "yeni", "aciklama": ""})
-            if suz in depo.DURUMLAR and d["durum"] != suz:
-                continue
             sec = "".join("<option value=\"%s\"%s>%s</option>" % (k, " selected" if k == d["durum"] else "", e(DURUM_AD[k])) for k in depo.DURUMLAR)
             form = ("<form method=\"post\" action=\"/yonetim/talepler/%d/durum\" class=\"inline\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
                     "<label class=\"vh\" for=\"d-%d\">Durum</label><select id=\"d-%d\" name=\"durum\">%s</select>"
@@ -527,8 +583,12 @@ class H(BaseHTTPRequestHandler):
                              e(DB_AD.get(t[5], t[5])), "<span class=\"msg\">%s</span>" % e(t[6]), form])
         suzgec = "<p class=\"filters\">Süz: <a href=\"/yonetim/talepler\">Tümü</a> " + " ".join("<a href=\"/yonetim/talepler?durum=%s\">%s</a>" % (k, e(v)) for k, v in DURUM_AD.items()) + "</p>"
         suzgec += "<p><a class=\"textlink\" href=\"/yonetim/talepler.csv?%s\">Bu listeyi CSV olarak indir</a></p>" % e(urlencode({"durum": suz if suz in depo.DURUMLAR else ""}))
+        ek = "&amp;durum=%s" % e(suz) if suz in depo.DURUMLAR else ""
+        gez = "<p class=\"filters\">%d talep. %s %s</p>" % (len(secili),
+            "<a href=\"/yonetim/talepler?sayfa=%d%s\">Daha yeni</a>" % (sayfa - 1, ek) if sayfa > 1 else "",
+            "<a href=\"/yonetim/talepler?sayfa=%d%s\">Daha eski</a>" % (sayfa + 1, ek) if sayfa * TALEP_SAYFA < len(secili) else "")
         depo.denetim_ekle(con, o["ad"], "talepler goruntulendi")
-        self._sayfa("Talepler", suzgec + tablo(["Zaman", "Kişi", "E-posta", "Veritabanı", "Mesaj", "Durum"], satirlar, "Talep yok."), o)
+        self._sayfa("Talepler", suzgec + tablo(["Zaman", "Kişi", "E-posta", "Veritabanı", "Mesaj", "Durum"], satirlar, "Talep yok.") + gez, o)
 
     def _taramalar(self, con, o):
         satirlar = []

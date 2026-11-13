@@ -59,10 +59,19 @@ TURLER = {
 MAX_DERINLIK = 8   # belge > kontroller > kontrol > satirlar > satir: 5 duzey; pay birakildi
 
 
+MAX_YAPI = 100_000     # nesne ve dizi sayisi: en buyuk gecerli dosya (50 veritabani x 5000 satir) bunun altinda kalir
+MAX_TIRNAK = 1_500_000
+MAX_KACIS = 100_000
+_YAPI_DISI = bytes(b for b in range(256) if b not in b'"\\[]{}')
+
+
 def _derinlik_denetle(veri):
-    """Ayristirmadan once ic ice yapi derinligini sinirlar (metin icindeki parantezler sayilmaz)."""
+    """Ayristirmadan once yapi sayisini ve ic ice derinligi sinirlar (metin icindeki parantezler derinlige sayilmaz).
+    Sayimlar ve suzme C hizinda; Python dongusu yalniz tirnak, ters bolu ve parantez baytlari uzerinde doner."""
+    if veri.count(b"[") + veri.count(b"{") > MAX_YAPI or veri.count(b'"') > MAX_TIRNAK or veri.count(b"\\") > MAX_KACIS:
+        raise Gecersiz("yapi sayisi cok fazla", "derin")
     derinlik, metinde, kacis = 0, False, False
-    for b in veri:
+    for b in veri.translate(None, _YAPI_DISI):
         if metinde:
             if kacis:
                 kacis = False

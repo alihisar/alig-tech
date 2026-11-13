@@ -53,6 +53,8 @@ GOCLER = [
        olusturma_utc TEXT NOT NULL, deneme INTEGER NOT NULL DEFAULT 0, durum TEXT NOT NULL DEFAULT 'bekliyor',
        son_hata TEXT NOT NULL DEFAULT '', gonderim_utc TEXT)""",
     """CREATE INDEX posta_alici ON posta(alici, olusturma_utc)""",
+    # iletisim taleplerinden firma esitlemesinin nerede kaldigi (yalniz yeni talepler islensin)
+    """CREATE TABLE esitleme(ad TEXT PRIMARY KEY, deger TEXT NOT NULL)""",
 ]
 ISTEK_DAKIKA = 30
 BEKLEME_SAAT = 24      # e-postayla dogrulanmamis rapor bu sure sonunda silinir
@@ -322,6 +324,16 @@ def firma_eposta_dogrula(con, fid, eposta):
     con.commit()
 
 
+def esitleme_oku(con, ad):
+    r = con.execute("SELECT deger FROM esitleme WHERE ad=?", (ad,)).fetchone()
+    return r[0] if r else ""
+
+
+def esitleme_yaz(con, ad, deger):
+    con.execute("INSERT INTO esitleme(ad, deger) VALUES(?,?) ON CONFLICT(ad) DO UPDATE SET deger=excluded.deger", (ad, deger))
+    con.commit()
+
+
 def firma_getir(con, fid):
     return _firma(con.execute("SELECT %s FROM firma WHERE id=?" % _FIRMA_KOLON, (fid,)).fetchone())
 
@@ -544,8 +556,9 @@ def saklama_uygula(con, simdi_=None):
     adaylar = con.execute("SELECT id FROM firma WHERE son_utc <= ? AND NOT EXISTS (SELECT 1 FROM rapor WHERE rapor.firma_id=firma.id AND rapor.bitis_utc > ?)",
                           (esik, simdi())).fetchall()
     for (fid,) in adaylar:
-        firma_sil(con, fid)
-        denetim_ekle(con, "sistem", "saklama suresi doldu, firma #%d silindi" % fid)
+        with islem(con) as c:   # silme ve denetim kaydi birlikte
+            firma_sil(c, fid)
+            denetim_ekle(c, "sistem", "saklama suresi doldu, firma #%d silindi" % fid)
     tg = saklama.gun("talep")
     if tg is not None:  # bu tarihten eski talep kalmadigi icin iz de gerekmez
         con.execute("DELETE FROM firma_silinen WHERE silinme_utc <= ?",

@@ -270,6 +270,21 @@ class PanelTests(Taban):
         self.assertIn("mehmet@firma.com.tr", g)
         self.assertIn("doğrulama bekliyor", g)
 
+    def test_talepler_sayfali_csv_eksiksiz(self):
+        f = sqlite3.connect(self.fdb)
+        f.executemany("INSERT INTO contact VALUES(?,?,?,?,?,?,?,?)",
+                      [(100 + i, "2026-11-11T10:%02d:%02dZ" % (i // 60, i % 60), "Kisi %d" % i, "Sirket", "k%d@cok.com" % i, "pg", "m", "h") for i in range(150)])
+        f.commit()
+        f.close()
+        g = self.istek("GET", "/yonetim/talepler")[1]
+        self.assertIn("151 talep.", g)
+        self.assertEqual(g.count("action=\"/yonetim/talepler/"), 100)
+        self.assertIn("/yonetim/talepler?sayfa=2", g)
+        g2 = self.istek("GET", "/yonetim/talepler?sayfa=2")[1]
+        self.assertEqual(g2.count("action=\"/yonetim/talepler/"), 51)
+        csv_ = self.istek("GET", "/yonetim/talepler.csv")[1]
+        self.assertEqual(len([x for x in csv_.splitlines() if x.strip()]), 152)   # baslik + 151 satir, sessiz kesme yok
+
     def test_zehirli_rapor_paneli_dusurmez(self):
         t = tdepo.baglan(self.tdb)
         b = temiz_belge()
@@ -419,6 +434,93 @@ class YeniIpTests(unittest.TestCase):
         self.assertEqual(con.execute("SELECT count(*) FROM giris_ip").fetchone()[0], 1)
         depo.kullanici_sil(con, "ali")
         self.assertEqual(con.execute("SELECT count(*) FROM giris_ip").fetchone()[0], 0)
+
+
+class IslemTests(Taban):
+    """Is eylemi ve denetim kaydi birlikte: denetim yazilamazsa eylem de geri alinir."""
+
+    def setUp(self):
+        super().setUp()
+        self.assertEqual(self.giris().status, 303)
+
+    def bozuk_denetim(self, modul):
+        from unittest import mock
+        return mock.patch.object(modul, "denetim_ekle", side_effect=RuntimeError("denetim yazilamadi"))
+
+    def test_firma_silme_denetimsiz_kalmaz(self):
+        fid = self.firma["id"]
+        csrf = self.csrf()
+        with self.bozuk_denetim(tdepo):
+            try:
+                self.istek("POST", "/yonetim/firmalar/%d/sil" % fid, {"emin": "evet", "csrf": csrf})
+            except Exception:  # noqa: BLE001 - sunucu istegi yarida keser
+                pass
+        self.assertIsNotNone(tdepo.firma_getir(tdepo.baglan(self.tdb), fid))
+
+    def test_talep_durumu_denetimsiz_kalmaz(self):
+        con = depo.baglan(self.ydb)
+        with self.bozuk_denetim(depo):
+            with self.assertRaises(RuntimeError):
+                depo.talep_durum_yaz(con, 1, "kapandi", "", "ali")
+        self.assertEqual(depo.talep_durumlari(con), {})
+
+    def test_kullanici_ekleme_denetimsiz_kalmaz(self):
+        con = depo.baglan(self.ydb)
+        with self.bozuk_denetim(depo):
+            with self.assertRaises(RuntimeError):
+                depo.kullanici_ekle(con, "veli", PAROLA)
+        self.assertIsNone(con.execute("SELECT 1 FROM kullanici WHERE ad='veli'").fetchone())
+
+    def test_ayni_dogrulama_kodu_es_zamanli_iki_giriste_bir_kez_gecer(self):
+        import threading as th
+        kod = self.kod(1)   # setUp girisi su anki kodu kullandi; bir sonraki pencerenin kodu
+        b, sonuc = th.Barrier(2), []
+
+        def gir():
+            c = depo.baglan(self.ydb)
+            b.wait()
+            sonuc.append(depo.giris(c, "ali", PAROLA, kod, "198.51.100.%d" % len(sonuc))[0] is not None)
+            c.close()
+        ts = [th.Thread(target=gir) for _ in range(2)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+        self.assertEqual(sorted(sonuc), [False, True])
+
+    def test_firma_esitleme_yalniz_yeni_talepleri_isler(self):
+        from unittest import mock
+        self.istek("GET", "/yonetim/firmalar")
+        gercek = tdepo.firma_kaydet
+        with mock.patch.object(server.tdepo, "firma_kaydet", side_effect=gercek) as say:
+            self.istek("GET", "/yonetim/firmalar")
+            self.assertLessEqual(say.call_count, 1)   # yalniz son saniyedeki talep yeniden bakilir
+        f = sqlite3.connect(self.fdb)
+        f.execute("INSERT INTO contact VALUES(7,'2999-01-01T00:00:00Z','Yeni','Yeni AS','x@yeni.com','pg','m','h')")
+        f.commit()
+        f.close()
+        self.istek("GET", "/yonetim/firmalar")
+        self.assertIn("yeni.com", [x["anahtar"] for x in tdepo.firma_listele(tdepo.baglan(self.tdb))])
+
+    def test_firma_silinirken_talepleri_de_silinebilir(self):
+        self.istek("GET", "/yonetim/firmalar")
+        t = tdepo.baglan(self.tdb)
+        f = next(x for x in tdepo.firma_listele(t) if x["anahtar"] == "ornek.com")
+        con = depo.baglan(self.ydb)
+        depo.talep_durum_yaz(con, 1, "gorusuluyor", "not", "ali")
+        self.assertIn("İletişim taleplerini de sil", self.istek("GET", "/yonetim/firmalar/%d" % f["id"])[1])
+        r, _ = self.istek("POST", "/yonetim/firmalar/%d/sil" % f["id"], {"emin": "evet", "talepler": "evet", "csrf": self.csrf()})
+        self.assertEqual(r.status, 303)
+        self.assertEqual(sqlite3.connect(self.fdb).execute("SELECT count(*) FROM contact WHERE email='ada@ornek.com'").fetchone()[0], 0)
+        self.assertEqual(depo.talep_durumlari(depo.baglan(self.ydb)), {})
+        olaylar = [x[0] for x in depo.baglan(self.ydb).execute("SELECT olay FROM denetim")]
+        self.assertTrue(any("1 iletisim talebi silindi" in o for o in olaylar))
+        self.assertFalse(any("ada@ornek.com" in o for o in olaylar))
+
+    def test_talepleri_silmeden_firma_silme_talebe_dokunmaz(self):
+        self.istek("GET", "/yonetim/firmalar")
+        t = tdepo.baglan(self.tdb)
+        f = next(x for x in tdepo.firma_listele(t) if x["anahtar"] == "ornek.com")
+        self.istek("POST", "/yonetim/firmalar/%d/sil" % f["id"], {"emin": "evet", "csrf": self.csrf()})
+        self.assertEqual(sqlite3.connect(self.fdb).execute("SELECT count(*) FROM contact").fetchone()[0], 1)
 
 
 class CliTests(unittest.TestCase):
