@@ -11,6 +11,7 @@ import hashlib
 import os
 import re
 import sqlite3
+import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -57,18 +58,27 @@ def validate(form):
 
 
 class RateLimiter:
+    """IP basina kayan pencere. Is parcacigi guvenli; suresi gecmis anahtarlar pencere basina bir kez atilir
+    (yoksa her yeni adres, ozellikle IPv6, bellekte sonsuza dek kalir)."""
+
     def __init__(self, per_window=5, window=3600, clock=time.monotonic):
         self.n, self.w, self.clock, self.hits = per_window, window, clock, {}
+        self._kilit = threading.Lock()
+        self._temizlik = clock()
 
     def allow(self, key):
-        now = self.clock()
-        recent = [t for t in self.hits.get(key, []) if now - t < self.w]
-        if len(recent) >= self.n:
+        with self._kilit:
+            now = self.clock()
+            if now - self._temizlik >= self.w:
+                self.hits = {k: v for k, v in self.hits.items() if v and now - v[-1] < self.w}
+                self._temizlik = now
+            recent = [t for t in self.hits.get(key, []) if now - t < self.w]
+            if len(recent) >= self.n:
+                self.hits[key] = recent
+                return False
+            recent.append(now)
             self.hits[key] = recent
-            return False
-        recent.append(now)
-        self.hits[key] = recent
-        return True
+            return True
 
 
 def make_handler(db_path, limiter, salt, thanks="/tesekkurler/"):

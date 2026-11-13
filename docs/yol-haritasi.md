@@ -33,15 +33,27 @@ Sıra `docs/master-prompt-v2.md` belgesindeki önceliklere göredir (P0 önce). 
 | 21 | P1 | İş kuyruğu: yalnızca doğrudan bağlantı için, SQLite tabanlı, ayrı işçi | Durum geçişleri idempotent, yeniden başlatmada toparlanır | bekliyor |
 | 22 | P2 | SQL Server: yetenek tablosu ve gerçek sunucu çıktısına göre düzeltme | Ali'nin gönderdiği `ok` / `ATLANDI` listesi | Ali'yi bekliyor |
 | 23 | P2 | LLM rapor özeti: varsayılan kapalı, kanıt üretemez, puanı değiştiremez | Sağlayıcı yokken rapor aynen çalışır | bekliyor |
-| 24 | P3 | Kip B kalanları: istek listesi panelde, sunucu sertifikası doğrulaması, yanıt süresini sabitleme, kılavuz bölümü | Ayrı kabul kapısı | bekliyor |
+| 24 | P3 | Kip B kalanları: istek listesi panelde, sunucu sertifikası doğrulaması, `channel_binding=require`, yanıt süresini sabitleme, kılavuz bölümü | Ayrı kabul kapısı | bekliyor |
+
+Kod incelemesinden (`docs/kod-inceleme.md`) gelen açık maddeler:
+
+| # | Öncelik | Madde | Bitti sayılır | Durum |
+| --- | --- | --- | --- | --- |
+| 25 | P1 | Toplayıcı bağlanabildiği tüm veritabanlarını dolaşsın; tablo, indeks ve sequence bulguları veritabanı adıyla (Y4) | Gerçek kümede iki veritabanı, ikisindeki bulgu da raporda | bekliyor |
+| 26 | P1 | Firma silmede iletişim taleplerini de silme seçeneği; KVKK silme talebi tek işlemde (O7) | Test, denetim kaydı | bekliyor |
+| 27 | P1 | Maskeli taramada eşleme dosyası yalnız müşteri tarafında yazılsın, yüklenmesin (O8) | Toplayıcı testi | bekliyor |
+| 28 | P2 | İş eylemi ve denetim kaydı aynı işlemde; firma eşitleme tek işlemde ve yalnız yeni talepler için (O10, O11) | Test | bekliyor |
+| 29 | P2 | Toplayıcı: bağlantı dizgisinde kaçış, şifresiz bağlantıda uyarı (D5, D6) | Test | bekliyor |
+| 30 | P2 | Küçükler: talep listesi sayfalama, firma kimliği yeniden kullanılmasın, tünel kipinde CSP, sınır metni sabitten, TOTP girişinde kilit (D7–D11) | Test | bekliyor |
 
 ## Varsayılanla ilerleyenler (onay bekliyor, engellemiyor)
 
 | Konu | Varsayılan | Nerede değişir |
 | --- | --- | --- |
 | Ücretsiz tarama sınırı | Şirket başına 30 günde 2 | `tarama/depo.py` `SINIR_ADET`, `SINIR_GUN` |
-| Rapor saklama | 30 gün | `tarama/depo.py` `SAKLAMA_GUN` |
-| Firma kaydı saklama | Son etkinlikten 12 ay sonra silinir (madde 2 ile gelir) | `tarama/depo.py` `FIRMA_SAKLAMA_GUN` |
+| Rapor saklama | 30 gün | `ALIG_SAKLAMA_RAPOR_GUN` (`tarama/saklama.py`) |
+| Firma kaydı saklama | Son etkinlikten 365 gün sonra, etkin raporu yoksa silinir | `ALIG_SAKLAMA_FIRMA_GUN` (`tarama/saklama.py`) |
+| İletişim talebi saklama | Oluşturulmadan 365 gün sonra silinir | `ALIG_SAKLAMA_TALEP_GUN` (`tarama/saklama.py`) |
 | Kip B parola | Saklanmaz, her taramada sorulur | tasarım kararı |
 | Kip B sınırları | İstek 30 dk, 3 deneme, saatte 5 istek, aynı anda 2 tarama | `tarama/depo.py` `ISTEK_*`, `tarama/calistirici.py` |
 | Kip B kimlik | E-posta doğrulaması yerine yönetici izni | panel, firma ayrıntısı |

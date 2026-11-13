@@ -1,5 +1,6 @@
 """Yuklenen toplama dosyasi guvenilmeyen girdidir: katı sema, bilinmeyen alan reddi, boyut ve tur sinirlari."""
 import json
+import math
 import re
 
 from tarama import katalog
@@ -22,6 +23,36 @@ class Gecersiz(ValueError):
         self.kod = kod
         self.ek = ek
 
+
+# Kolon turleri (PostgreSQL). None her kolonda kabul edilir (SQL NULL); eksik kolon None sayilir.
+# Kural motoru bu turlere guvenir; tur disi deger yuklemede reddedilir. SQL Server kurallari degerleri kendisi denetler.
+TUR_DENETIMI = {
+    "tamsayi": lambda v: isinstance(v, int) and not isinstance(v, bool),
+    "sayi": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v),
+    "metin": lambda v: isinstance(v, str),
+    "mantik": lambda v: isinstance(v, bool),
+}
+_M, _T, _S, _B = "metin", "tamsayi", "sayi", "mantik"
+TURLER = {
+    "pg_surum": {"surum_num": _T},
+    "pg_kapsam": {"veritabani": _M, "veritabani_sayisi": _T},
+    "pg_xid_yasi": {"datname": _M, "yas": _T, "mxid_yas": _T, "freeze_max_age": _T},
+    "pg_bosta_islem": {"usename": _M, "durum": _M, "sure_sn": _T},
+    "pg_baglanti": {"kullanilan": _T, "ust": _T},
+    "pg_olu_satir": {"schemaname": _M, "relname": _M, "canli": _T, "olu": _T, "son_autovacuum": _M},
+    "pg_gecersiz_indeks": {"schemaname": _M, "indexrelname": _M},
+    "pg_kullanilmayan_indeks": {"schemaname": _M, "indexrelname": _M, "bayt": _T},
+    "pg_sequence": {"schemaname": _M, "sequencename": _M, "oran": _S},
+    "pg_sequence_gorunurluk": {"toplam": _T, "okunamayan": _T},
+    "pg_slot": {"slot_name": _M, "active": _B, "wal_status": _M, "geri_bayt": _T},
+    "pg_arsiv": {"archive_mode": _M, "basarili": _T, "hatali": _T, "son_basari_utc": _M, "son_hata_utc": _M},
+    "pg_tls_parola": {"ssl": _M, "password_encryption": _M, "ssl_min_protocol_version": _M},
+    "pg_md5_roller": {"sayi": _T},
+    "pg_super_roller": {"rolname": _M, "rolcanlogin": _B},
+    "pg_public_create": {"public_create": _B},
+    "pg_log_ayarlari": {"name": _M, "setting": _M},
+    "pg_eklentiler": {"extname": _M, "extversion": _M},
+}
 
 MAX_DERINLIK = 8   # belge > kontroller > kontrol > satirlar > satir: 5 duzey; pay birakildi
 
@@ -70,8 +101,10 @@ def coz(veri, motorlar=("postgresql",)):
 
 
 def _skaler(v):
-    if v is None or isinstance(v, (bool, int, float)):
+    if v is None or isinstance(v, (bool, int)):
         return True
+    if isinstance(v, float):
+        return math.isfinite(v)   # 1e999 JSON'da sonsuz olarak cozulur
     return isinstance(v, str) and len(v) <= MAX_METIN
 
 
@@ -105,9 +138,15 @@ def dogrula(b, motorlar=("postgresql",)):
         if set(e) != {"durum", "satirlar"} or not isinstance(e["satirlar"], list) or len(e["satirlar"]) > MAX_SATIR:
             raise Gecersiz(cid + ": satirlar gecersiz", "satirlar", cid)
         izin = set(c["kolonlar"])
+        turler = TURLER.get(cid, {}) if b["motor"] == "postgresql" else {}
         for s in e["satirlar"]:
             if not isinstance(s, dict) or set(s) - izin:
                 raise Gecersiz(cid + ": bilinmeyen kolon", "kolon", cid)
+            if turler and set(s) != izin:   # PostgreSQL toplayicisi (json_agg) her kolonu yazar; eksik kolon elle degistirilmis dosyadir
+                raise Gecersiz(cid + ": eksik kolon", "kolon", cid)
             if not all(_skaler(v) for v in s.values()):
                 raise Gecersiz(cid + ": deger turu ya da uzunlugu gecersiz", "deger", cid)
+            for kolon, v in s.items():
+                if v is not None and kolon in turler and not TUR_DENETIMI[turler[kolon]](v):
+                    raise Gecersiz("%s.%s: beklenen tur %s" % (cid, kolon, turler[kolon]), "deger", cid)
     return b

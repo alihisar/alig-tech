@@ -6,15 +6,13 @@ import stat
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
-from tarama import depo, katalog, kurallar, kurallar_mssql, rapor, server as tserver, uret_toplayici, yukleme  # noqa: E402
+from tarama import katalog, kurallar, kurallar_mssql, rapor, uret_toplayici, yukleme  # noqa: E402
 import test_tarama  # noqa: E402
 
 pg_temiz_belge = test_tarama.temiz_belge
@@ -107,6 +105,16 @@ class KatalogTests(unittest.TestCase):
     def test_pg_katalog_ozeti_degismedi(self):
         self.assertEqual(uret_toplayici.katalog_ozeti(), uret_toplayici.katalog_ozeti("postgresql"))
         self.assertNotEqual(uret_toplayici.katalog_ozeti(), uret_toplayici.katalog_ozeti("mssql"))
+
+
+class SonsuzSayiTests(unittest.TestCase):
+    def test_tur_tablosu_olmayan_motorda_da_sonsuz_sayi_reddedilir(self):
+        """SQL Server kolonlarinin tur tablosu yok; sonsuz sayiyi yalniz skaler denetimi yakalar."""
+        b = temiz_mssql()
+        b["kontroller"]["ms_tempdb"]["satirlar"] = [{"veri_dosyasi": 8, "cpu": 16}]
+        ham = json.dumps(b).replace('"cpu": 16', '"cpu": 1e999').encode()
+        with self.assertRaises(yukleme.Gecersiz):
+            yukleme.coz(ham, ("mssql",))
 
 
 class GirisSqlTests(unittest.TestCase):

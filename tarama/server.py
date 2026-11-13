@@ -14,7 +14,6 @@ import re
 import secrets
 import sys
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -286,7 +285,10 @@ class H(BaseHTTPRequestHandler):
         con = depo.baglan(self.db_yolu)
         try:
             n = depo.rapor_sil(con, token)
-            depo.denetim_ekle(con, "musteri", "rapor silindi" if n else "silme istegi: rapor yok")
+            if n:  # olmayan rapor icin denetim kaydi yazilmaz: kimliksiz istekle silinmeyen zincir sisirilemesin
+                depo.denetim_ekle(con, "musteri", "rapor silindi", {"sonuc": "basarili"})
+            else:
+                print("rapor silme istegi: rapor yok", flush=True)
         finally:
             con.close()
         self._send(303 if n else 404, extra=(("Location", "/"),) if n else ())

@@ -10,7 +10,7 @@ Bu repoda hiçbir şey gerçek bir sunucuda çalıştırılmadı. Gerçek dağı
 | --- | --- | --- |
 | `yayin.yml` ve `geri-al.yml` söz dizimi | DONE | `python3 deploy/hazirlik.py yerel` |
 | `site.yml` söz dizimi | NOT_TESTED | Bu ortamda `community.general` koleksiyonu yok (`ansible-galaxy collection install -r deploy/ansible/requirements.yml` sonrası `hazirlik.py yerel` ile denenir) |
-| 6 systemd birimi `systemd-analyze verify` (Kip B birimi dahil) | DONE | `python3 deploy/hazirlik.py yerel` (hedefte olmayan yol ve kullanıcı uyarıları dışarıda bırakılır) |
+| 6 systemd birimi `systemd-analyze verify` (Kip B birimi dahil) | DONE | `python3 deploy/hazirlik.py yerel`: şablonlar Ansible'ın kendisiyle işlenir; hedefte olmayan yol ve kullanıcı uyarıları dışarıda bırakılır; bozuk ayarlı birimin FAIL verdiği denendi |
 | Birimlerde sertleştirme ayarları, yalnız loopback dinleme | DONE | `tests/test_deploy.py` `YapilandirmaTests` |
 | Sırların depoda olmadığı | DONE | `tests/test_deploy.py` `test_sirlar_depoda_degil` |
 | nginx yapılandırması (`nginx -t`, TLS, yönlendirme, başlıklar, vekil, yükleme sınırı) | DONE | Önceki oturumda gerçek nginx 1.24 ile elle denendi; repoda otomatik test yok |

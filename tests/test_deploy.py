@@ -114,6 +114,14 @@ class SaklamaTests(unittest.TestCase):
         self.assertFalse(any("Eski A.S." in o or "eski.com" in o for o in olaylar))  # kisisel veri denetime yazilmaz
         self.assertIsNone(depo.denetim_dogrula(con))
 
+    def test_saklamayla_silinen_firma_eski_talepten_geri_gelmez(self):
+        veri, con = self.kur()
+        depo.firma_kaydet(con, "eski.com", "E", "a@eski.com", "talep", zaman="2020-01-01T00:00:00Z", guncelle=False)
+        self.assertEqual(depo.saklama_uygula(con), 1)
+        self.assertIsNone(depo.firma_kaydet(con, "eski.com", "E", "a@eski.com", "talep", zaman="2020-01-01T00:00:00Z", guncelle=False))
+        self.assertEqual(con.execute("SELECT count(*) FROM firma").fetchone()[0], 0)
+        self.assertIsNotNone(depo.firma_kaydet(con, "eski.com", "E", "a@eski.com", "tarama"))  # yeni etkinlik yeni kayit acar
+
     def test_firma_suresiz_ise_dokunulmaz(self):
         veri, con = self.kur()
         depo.firma_kaydet(con, "eski.com", "E", "a@eski.com", "yukleme", zaman="2020-01-01T00:00:00Z")
@@ -259,6 +267,30 @@ class GeriYuklemeTests(unittest.TestCase):
             tutan.execute("ROLLBACK")
             tutan.close()
 
+    def test_bosta_baglanti_tutan_surec_varken_durur(self):
+        """Calisan servis istekler arasinda bosta olsa bile dosyayi acik tutabilir; kilit denetimi bunu goremez."""
+        import multiprocessing as mp
+        self.kur()
+        ctx = mp.get_context("fork")
+        hazir, bitir = ctx.Event(), ctx.Event()
+
+        def tut(yol):
+            c = sqlite3.connect(yol)
+            c.execute("SELECT count(*) FROM denetim").fetchone()  # okuma yapildi, islem acik degil
+            hazir.set()
+            bitir.wait(30)
+            c.close()
+        p = ctx.Process(target=tut, args=(str(self.veri / "tarama.sqlite"),))
+        p.start()
+        try:
+            self.assertTrue(hazir.wait(10))
+            self.assertEqual(bakim.geri_yukle(self.yd, self.veri, evet=True, cikti=self.cikti()), 1)
+            self.assertTrue(any("kullanimda" in x for x in self.satirlar), self.satirlar)
+        finally:
+            bitir.set()
+            p.join(10)
+        self.assertEqual(bakim.geri_yukle(self.yd, self.veri, evet=True, cikti=self.cikti()), 0)
+
     def test_yeni_sema_surumlu_yedek_reddedilir(self):
         self.kur()
         k = self.yedek / "tarama-20261116T000000Z.sqlite"
@@ -386,6 +418,13 @@ class BakimDiskTests(unittest.TestCase):
             self.assertEqual(bakim.main(["--veri", str(veri), "--yedek", str(yedek)]), 1)
         self.assertEqual(list(yedek.iterdir()), [])
         self.assertEqual(depo.baglan(str(veri / "tarama.sqlite")).execute("SELECT count(*) FROM rapor").fetchone()[0], 1)
+
+    def test_buyuk_diskte_oran_dusuk_ama_yer_yeterliyse_yedek_alinir(self):
+        veri, yedek = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        D = type("D", (), {"total": 2000 << 30, "free": 40 << 30})  # %2 bos ama 40 GB yer var
+        yeterli, mesaj = bakim.disk_yeterli(veri, yedek, lambda _: D)
+        self.assertTrue(yeterli)
+        self.assertTrue(mesaj.startswith("UYARI"))
 
     def test_yeterli_yer_varsa_gecer(self):
         veri, yedek = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())

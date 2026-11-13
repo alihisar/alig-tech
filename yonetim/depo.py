@@ -41,12 +41,8 @@ def _z(dt):
 
 def baglan(yol):
     con = sqlite3.connect(yol)
-    con.execute("PRAGMA journal_mode=WAL")
-    surum = con.execute("PRAGMA user_version").fetchone()[0]
-    for i in range(surum, len(GOCLER)):
-        con.execute(GOCLER[i])
-        con.execute("PRAGMA user_version=%d" % (i + 1))
-    con.commit()
+    zincir.wal_ac(con)
+    zincir.goc_uygula(con, GOCLER)
     return con
 
 

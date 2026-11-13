@@ -43,14 +43,21 @@ def yedekle(kaynak, hedef_dizin, zaman):
     return hedef
 
 
-def disk_yeterli(veri, yedek, kullanilan=shutil.disk_usage, oran=0.10):
-    """Yedek icin yeterli yer var mi: bos alan, veritabanlarinin toplam boyutunun iki katindan ve disk boyutunun %10'undan az olmamali.
-    (yeterli_mi, aciklama). Yer yoksa yedek alinmaz; veri silinmez."""
+PAY_BAYT = 64 << 20  # yedek yazilirken diskte kalacak en az bos alan
+
+
+def disk_yeterli(veri, yedek, kullanilan=shutil.disk_usage, uyari_orani=0.10):
+    """Yedek icin yer var mi: bos alan, veritabanlarinin toplam boyutunun iki kati ve 64 MB pay kadar olmali.
+    (yeterli_mi, aciklama). Yer yoksa yedek alinmaz; veri silinmez. Disk %10'dan az bossa yedek yine alinir
+    ama aciklama UYARI ile baslar: yer daralirken yedegi durdurmak, yedeksiz kalmak demektir."""
     toplam = sum((Path(veri) / ad).stat().st_size for ad in VERITABANLARI if (Path(veri) / ad).exists())
     d = kullanilan(str(yedek))
-    gereken = max(2 * toplam, int(d.total * oran))
+    gereken = 2 * toplam + PAY_BAYT
     mb = lambda x: x // (1 << 20)  # noqa: E731
-    return d.free >= gereken, f"yedek diskinde bos {mb(d.free)} MB, gereken en az {mb(gereken)} MB"
+    mesaj = f"yedek diskinde bos {mb(d.free)} MB, gereken en az {mb(gereken)} MB"
+    if d.free >= gereken and d.total and d.free / d.total < uyari_orani:
+        mesaj = "UYARI: disk %d%% bos; " % (100 * d.free // d.total) + mesaj
+    return d.free >= gereken, mesaj
 
 
 def _ozet(yol):
@@ -109,6 +116,30 @@ def yedegi_dogrula(dosya, ad, bas=None):
     return hatalar, uyarilar
 
 
+def acik_tutanlar(yollar, proc="/proc"):
+    """Dosyalardan birini acik tutan diger sureclerin pid listesi; /proc yoksa None (bilinmiyor).
+    Yalniz gorebildigimiz surecler taranir: servislerle ayni kullanici (alig-web) ya da root olarak calistirin."""
+    kok = Path(proc)
+    if not kok.is_dir():
+        return None
+    hedefler = {str(Path(y).resolve()) for y in yollar}
+    tutan = set()
+    for d in kok.iterdir():
+        if not d.name.isdigit() or int(d.name) == os.getpid():
+            continue
+        try:
+            for fd in (d / "fd").iterdir():
+                try:
+                    if os.readlink(fd) in hedefler:
+                        tutan.add(int(d.name))
+                        break
+                except OSError:
+                    continue
+        except OSError:  # surec bitti ya da yetkimiz yok
+            continue
+    return sorted(tutan)
+
+
 def geri_yukle(dosya, veri, evet=False, bas=None, cikti=print):
     """Yedegi veri dizinindeki ayni adli veritabaninin yerine koyar. Onceki dosya silinmez, '<ad>.onceki-<zaman>' olarak kalir.
     0 basarili ya da kuru calistirma, 1 dogrulama/yukleme hatasi, 2 kullanim hatasi."""
@@ -134,6 +165,12 @@ def geri_yukle(dosya, veri, evet=False, bas=None, cikti=print):
         cikti("geri yukleme YAPILMADI")
         return 1
     hedef = veri / ad
+    tutanlar = acik_tutanlar([hedef, veri / (ad + "-wal"), veri / (ad + "-shm")])
+    if tutanlar:
+        cikti(f"HATA: hedef veritabani kullanimda (acik tutan surec: {', '.join(map(str, tutanlar))}); once servisleri durdurun")
+        return 1
+    if tutanlar is None:
+        cikti("UYARI: acik dosya denetimi bu sistemde yapilamadi (/proc yok); servislerin durdugundan emin olun")
     if hedef.exists():
         try:
             k = sqlite3.connect(str(hedef), timeout=0)
@@ -252,6 +289,8 @@ def main(argv=None):
     if not yeterli:
         print(f"HATA: disk dolu, yedek alinmadi ({mesaj})", file=sys.stderr)
         return 1
+    if mesaj.startswith("UYARI"):
+        print(mesaj, file=sys.stderr)
     tarama = veri / "tarama.sqlite"
     if tarama.exists():
         con = depo.baglan(str(tarama))

@@ -16,7 +16,12 @@ M = {
            "onem": {"kritik": "Kritik", "yuksek": "Yüksek", "orta": "Orta", "dusuk": "Düşük", "bilgi": "Bilgi"},
            "isb": {"kucuk": "küçük", "orta": "orta", "buyuk": "büyük"},
            "nedenler": {"yetki": "yetki yok", "zaman_asimi": "zaman aşımı", "desteklenmiyor": "bu sürümde desteklenmiyor",
-                        "yedek_sunucu": "yedek sunucuda çalışmaz", "hata": "hata", "calistirilmadi": "çalıştırılmadı"}},
+                        "yedek_sunucu": "yedek sunucuda çalışmaz", "hata": "hata", "calistirilmadi": "çalıştırılmadı",
+                        "gecersiz_veri": "değer biçimi geçersiz",
+                        "kismi_yetki": "kısmen ölçüldü: bazı sequence değerleri tarama hesabının yetkisiyle okunamadı"},
+           "db": "Tablo, indeks ve sequence denetimlerinin çalıştığı veritabanı",
+           "db_d": "%s (sunucuda %d veritabanı)",
+           "db_k": "Bağlanılan veritabanı dışındaki %d veritabanında tablo, indeks ve sequence durumu. Her biri için betiği --dbname ile ayrıca çalıştırın."},
     "en": {"baslik": "Health check report", "ozet": "Summary", "tarama": "Scan time (UTC)", "motor": "Engine",
            "surum": "Masked", "evet": "yes", "hayir": "no", "bulgu": "Findings", "yok": "No findings in this scan.",
            "kanit": "Evidence", "neden": "Why it matters", "oneri": "Proposal", "risk": "Risk of the proposal", "geri": "Rollback",
@@ -29,7 +34,12 @@ M = {
            "onem": {"kritik": "Critical", "yuksek": "High", "orta": "Medium", "dusuk": "Low", "bilgi": "Info"},
            "isb": {"kucuk": "small", "orta": "medium", "buyuk": "large"},
            "nedenler": {"yetki": "no permission", "zaman_asimi": "timeout", "desteklenmiyor": "not supported on this version",
-                        "yedek_sunucu": "does not run on a standby", "hata": "error", "calistirilmadi": "not run"}},
+                        "yedek_sunucu": "does not run on a standby", "hata": "error", "calistirilmadi": "not run",
+                        "gecersiz_veri": "invalid value format",
+                        "kismi_yetki": "partially measured: some sequence values could not be read with the scan account's privileges"},
+           "db": "Database where table, index and sequence checks ran",
+           "db_d": "%s (%d databases on the server)",
+           "db_k": "Table, index and sequence state in the %d databases other than the connected one. Run the script with --dbname for each of them."},
 }
 
 
@@ -40,6 +50,23 @@ def _kanit(kanit):
             v = ", ".join(str(x) for x in v)
         out.append("<li><code>%s</code>: %s</li>" % (escape(str(k)), escape(str(v))))
     return "<ul class=\"ev\">%s</ul>" % "".join(out)
+
+
+def _db(belge):
+    """(bagli veritabani adi, sunucudaki veritabani sayisi) ya da None. Bozuk degerde None (rapor dusmez)."""
+    e = (belge.get("kontroller") or {}).get("pg_kapsam")
+    try:
+        s = e["satirlar"][0]
+        if e["durum"] == "ok" and isinstance(s["veritabani_sayisi"], int) and not isinstance(s["veritabani_sayisi"], bool):
+            return str(s["veritabani"]), s["veritabani_sayisi"]
+    except (TypeError, KeyError, IndexError):
+        pass
+    return None
+
+
+def _kapsam(belge, m):
+    db = _db(belge)
+    return "<dt>%s</dt><dd>%s</dd>" % (escape(m["db"]), escape(m["db_d"] % db)) if db else ""
 
 
 def govde(rapor, dil, token, eylemler=True):
@@ -56,7 +83,7 @@ def govde(rapor, dil, token, eylemler=True):
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["motor"]), escape(katalog.MOTOR_AD.get(motor, motor))),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["surum"]), escape(m["evet"] if belge.get("maskeli") else m["hayir"])),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["bulgu"]), escape(", ".join("%s: %d" % (m["onem"][o], n) for o, n in sayim.items() if n) or m["yok"])),
-         "<dt>%s</dt><dd>%d</dd>" % (escape(m["olcul"]), len(olcul)), "</dl>", "<h2>%s</h2>" % escape(m["bulgu"])]
+         "<dt>%s</dt><dd>%d</dd>" % (escape(m["olcul"]), len(olcul)), _kapsam(belge, m), "</dl>", "<h2>%s</h2>" % escape(m["bulgu"])]
     for b in bulgu:
         p.append("<section class=\"finding-card sev-%s\"><h3>%s: %s</h3>" % (escape(b["onem"]), escape(m["onem"][b["onem"]]), escape(b["baslik"][d])))
         for anahtar, etiket in (("neden", "neden"), ("oneri", "oneri"), ("risk", "risk"), ("geri_alma", "geri")):
@@ -66,7 +93,11 @@ def govde(rapor, dil, token, eylemler=True):
     p.append("<h2>%s</h2><p>%s</p><ul>" % (escape(m["olcul"]), escape(m["olcul_a"])))
     for cid, neden in olcul:
         p.append("<li><code>%s</code>: %s</li>" % (escape(cid), escape(m["nedenler"].get(neden, neden))))
-    p.append("</ul><h2>%s</h2><ul class=\"plain\">%s</ul>" % (escape(m["kapsam"]), "".join("<li>%s</li>" % escape(x) for x in m["kapsam_l"])))
+    kapsam_l = list(m["kapsam_l"])
+    db = _db(belge)
+    if db and db[1] > 1:
+        kapsam_l.insert(0, m["db_k"] % (db[1] - 1))
+    p.append("</ul><h2>%s</h2><ul class=\"plain\">%s</ul>" % (escape(m["kapsam"]), "".join("<li>%s</li>" % escape(x) for x in kapsam_l)))
     p.append("<p>%s: %s</p>" % (escape(m["bitis"]), escape(rapor["bitis_utc"])))
     if not eylemler:
         p.append("</article>")

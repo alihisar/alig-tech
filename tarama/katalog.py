@@ -11,6 +11,9 @@ MOTOR = "postgresql"
 PG = [
     {"id": "pg_surum", "kolonlar": ["surum_num"], "maske": [],
      "sql": "SELECT current_setting('server_version_num')::int AS surum_num"},
+    {"id": "pg_kapsam", "kolonlar": ["veritabani", "veritabani_sayisi"], "maske": ["veritabani"],
+     "sql": "SELECT current_database() AS veritabani, "
+            "(SELECT count(*) FROM pg_database WHERE datallowconn AND NOT datistemplate)::int AS veritabani_sayisi"},
     {"id": "pg_xid_yasi", "kolonlar": ["datname", "yas", "mxid_yas", "freeze_max_age"], "maske": ["datname"],
      "sql": "SELECT datname, age(datfrozenxid) AS yas, mxid_age(datminmxid) AS mxid_yas, "
             "current_setting('autovacuum_freeze_max_age')::bigint AS freeze_max_age "
@@ -41,6 +44,9 @@ PG = [
      "sql": "SELECT schemaname, sequencename, round((last_value::numeric / max_value::numeric), 4)::float8 AS oran "
             "FROM pg_sequences WHERE last_value IS NOT NULL AND last_value::numeric / max_value::numeric > 0.5 "
             "ORDER BY 3 DESC LIMIT 20"},
+    {"id": "pg_sequence_gorunurluk", "kolonlar": ["toplam", "okunamayan"], "maske": [],
+     "sql": "SELECT count(*)::int AS toplam, count(*) FILTER (WHERE NOT has_sequence_privilege(c.oid, 'USAGE,SELECT'))::int AS okunamayan "
+            "FROM pg_class c WHERE c.relkind = 'S'"},
     {"id": "pg_slot", "kolonlar": ["slot_name", "active", "wal_status", "geri_bayt"], "maske": ["slot_name"],
      "sql": "SELECT slot_name, active, wal_status, pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)::bigint AS geri_bayt "
             "FROM pg_replication_slots LIMIT 50"},

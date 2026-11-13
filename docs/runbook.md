@@ -58,7 +58,7 @@ python3 /srv/alig/current/tarama/depo.py dogrula /var/lib/alig/tarama.sqlite   #
 ```
 
 Davranış:
-- Hedef dosya başka süreç tarafından kullanılıyorsa komut durur; önce servisleri durdurun.
+- Hedef dosyayı (ya da `-wal`, `-shm`) açık tutan başka bir süreç varsa komut durur; önce servisleri durdurun. Denetim `/proc` üzerinden yapılır, bu yüzden komutu servislerle aynı kullanıcıyla (`alig-web`) ya da root ile çalıştırın; başka kullanıcıların süreçleri görülemez.
 - Mevcut dosya silinmez, `<ad>.onceki-<zaman>` olarak yanında kalır; sorun çıkarsa geri koyabilirsiniz. Gereksiz olunca elle silin.
 - Komutu `alig-web` kullanıcısıyla çalıştırın; root ile çalışırsa dosya sahibi önceki dosyanınki olarak korunur.
 - Eski `-wal` ve `-shm` dosyaları kaldırılır, yeni dosya 0600 izinli yazılır, yükleme sonrası bütünlük ve içerik özeti yedekle karşılaştırılır; uyuşmazlıkta önceki dosya geri konur.

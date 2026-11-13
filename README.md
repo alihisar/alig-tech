@@ -11,9 +11,9 @@ Bu dosyanın `<!-- oto:... -->` ile işaretli bölümleri `ci/uret_readme.py` ta
 - Ana sayfa: yön C (ajan hizmetini öne çıkarır) varsayılan tema. Logo ve arka plan geçici.
 - Portal demosu (`/demo/`), iletişim formu, sağlık taraması (Kip A, PostgreSQL), yönetim paneli (`/yonetim/`) çalışır durumda.
 - Yönetim panelinde firma yönetimi var: ad ve e-posta düz metin saklanır, aktif/pasif, not, tarama hakkı sıfırlama, silme.
-- Yayın dosyaları (Ansible, nginx, systemd) yazıldı, sözdizimi ve lint denetiminden geçti. Gerçek sunucuda çalıştırılmadı.
+- Yayın dosyaları (Ansible, nginx, systemd) yazıldı. `yayin.yml`, `geri-al.yml` söz dizimi ve 6 systemd birimi doğrulandı; `site.yml` söz dizimi Ansible koleksiyonu ister, bu ortamda denenemedi. Gerçek sunucuda çalıştırılmadı. Katman katman durum: `docs/canli-kontrol-listesi.md`.
 - SQL Server taraması ön sürüm olarak kodlandı, gerçek sunucuda sınanmadı ve varsayılan olarak kapalı.
-- Açık işler: firma e-posta doğrulaması (gönderim yöntemi seçilmedi), firma saklama süresi, SQL Server taramasının gerçek sunucuda sınanması, Kip B (doğrudan bağlantı, önce tehdit modeli), isteğe bağlı dil modeli özeti. Sıra ve durum: `docs/yol-haritasi.md`. Kaynak belge: `docs/master-prompt-v2.md`. Mevcut durum dökümü: `docs/faz0-analiz.md`.
+- Açık işler: firma e-posta doğrulaması (gönderim yöntemi seçilmedi), toplayıcının tüm veritabanlarını dolaşması, SQL Server taramasının gerçek sunucuda sınanması, Kip B'nin açılması (kodlandı, kapalı), isteğe bağlı dil modeli özeti. Sıra ve durum: `docs/yol-haritasi.md`. Kaynak belge: `docs/master-prompt-v2.md`. Mevcut durum dökümü: `docs/faz0-analiz.md`. Son kod incelemesi: `docs/kod-inceleme.md`.
 
 ## Yerelde çalıştırma
 
@@ -63,7 +63,7 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 240 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
+Birim testleri: 262 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
 <!-- oto:bitis testler -->
 
 ## Dizinler

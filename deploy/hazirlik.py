@@ -9,6 +9,7 @@ dagitim kaniti yerel makineden uretilemez; docs/canli-kontrol-listesi.md bunlari
 Sir degerleri asla yazdirilmaz.
 """
 import argparse
+import json
 import os
 import pwd
 import grp
@@ -61,32 +62,42 @@ def yerel():
             continue
         ekle(ad, "PASS" if r.returncode == 0 else "FAIL", "" if r.returncode == 0 else metin.strip()[-300:])
     sa = shutil.which("systemd-analyze")
-    try:
-        import jinja2
-    except ImportError:
-        jinja2 = None
-    if sa and jinja2:
-        degisken = yukle_degiskenler()
-        degisken["dogrudan_baglanti"] = True  # en kapsamli hal: calistirici birimi de uretilsin
-        degisken.setdefault("calistirici_yasak_aglar", [])
-        sablonlar = sorted((ANSIBLE / "roles" / "servisler" / "templates").glob("*.service.j2"))
-        env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(sablonlar[0].parent)), keep_trailing_newline=True)
-        for sb in sablonlar:
-            ad = f"SOZDIZIMI systemd-analyze verify {sb.name[:-3]}"
-            gec = Path(tempfile.mkdtemp())
-            birim = gec / sb.name[:-3]
-            birim.write_text(env.get_template(sb.name).render(**degisken), encoding="utf-8")
-            r = _calistir([sa, "verify", str(birim)])
-            # Hedef makinede olmayan yurutulebilir dosya yolu ve kullanici hatalari bu makinede beklenir.
-            gurultu = re.compile(r"(Command .* is not executable|No such file|Failed to resolve (user|group)|Unknown (user|group)|not found)", re.I)
-            gercek = [x for x in (r.stdout + r.stderr).splitlines() if x.strip() and not gurultu.search(x)]
-            ekle(ad, "FAIL" if gercek else "PASS", " | ".join(gercek)[:300])
+    if sa and ap:
+        for ad, durum, ayrinti in _birimleri_dogrula(ap, sa):
+            ekle(ad, durum, ayrinti)
     else:
-        ekle("SOZDIZIMI systemd-analyze verify", "ATLANDI", "systemd-analyze ya da jinja2 yok")
+        ekle("SOZDIZIMI systemd-analyze verify", "ATLANDI", "systemd-analyze ya da ansible-playbook yok")
     for ad, durum in (("KURU CALISTIRMA ansible-playbook site.yml --check --diff", "NOT_TESTED"),
                       ("GERCEK DAGITIM ansible-playbook site.yml", "NOT_TESTED"),
                       ("GERCEK DAGITIM deploy/hazirlik.py sunucu", "NOT_TESTED")):
         ekle(ad, durum, "gercek sunucu gerekir")
+    return sonuc
+
+
+def _birimleri_dogrula(ap, sa):
+    """Birim sablonlarini Ansible'in kendisiyle (projeye Jinja bagimliligi eklemeden) isler ve systemd-analyze ile denetler.
+    Kip B birimi de uretilsin diye dogrudan_baglanti=true verilir."""
+    sablonlar = sorted((ANSIBLE / "roles" / "servisler" / "templates").glob("*.service.j2"))
+    gec = Path(tempfile.mkdtemp())
+    oyun = gec / "birimler.yml"
+    oyun.write_text(
+        "- hosts: localhost\n  connection: local\n  gather_facts: false\n"
+        "  vars_files: [%s]\n  tasks:\n    - name: Birimleri isle\n      ansible.builtin.template:\n"
+        "        src: \"{{ item }}\"\n        dest: \"%s/{{ item | basename | regex_replace('\\\\.j2$', '') }}\"\n        mode: \"0644\"\n"
+        "      loop: %s\n" % (json.dumps(str(ANSIBLE / "group_vars" / "all.yml")), gec, json.dumps([str(x) for x in sablonlar])),
+        encoding="utf-8")
+    r = _calistir([ap, "-i", "localhost,", str(oyun), "-e", json.dumps({"dogrudan_baglanti": True})],
+                  env=dict(os.environ, ANSIBLE_LOCALHOST_WARNING="False", ANSIBLE_NOCOLOR="1"))
+    if r.returncode != 0:
+        return [("SOZDIZIMI birim sablonlari islenir", "FAIL", (r.stdout + r.stderr).strip()[-300:])]
+    # Hedef makinede olan ama bu makinede olmayan yurutulebilir dosya ve kullanici uyarilari beklenir.
+    gurultu = re.compile(r"(Command .* is not executable|No such file|Failed to resolve (user|group)|Unknown (user|group)|not found)", re.I)
+    sonuc = []
+    for sb in sablonlar:
+        birim = gec / sb.name[:-3]
+        r = _calistir([sa, "verify", str(birim)])
+        gercek = [x for x in (r.stdout + r.stderr).splitlines() if x.strip() and not gurultu.search(x)]
+        sonuc.append((f"SOZDIZIMI systemd-analyze verify {birim.name}", "FAIL" if gercek else "PASS", " | ".join(gercek)[:300]))
     return sonuc
 
 

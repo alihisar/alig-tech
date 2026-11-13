@@ -1,4 +1,3 @@
-import copy
 import http.client
 import json
 import os
@@ -15,6 +14,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from tarama import depo, katalog, kurallar, rapor, server as tserver, uret_toplayici, yukleme  # noqa: E402
+
+
+def _zincire_yaz(yol, ad, n, q):
+    con = depo.baglan(yol)
+    hata = 0
+    for i in range(n):
+        try:
+            depo.denetim_ekle(con, ad, "olay %d" % i)
+        except Exception:  # noqa: BLE001 - sayilir, test hatayi sifir bekler
+            hata += 1
+            con.rollback()
+    q.put(hata)
+
+
+def _goc_ac(yol, bariyer, q):
+    bariyer.wait()
+    try:
+        depo.baglan(yol).close()
+        q.put("ok")
+    except Exception as ex:  # noqa: BLE001
+        q.put(type(ex).__name__ + ": " + str(ex)[:60])
 
 
 def farkli_belge(n):
@@ -63,6 +83,95 @@ class AyristirmaTests(unittest.TestCase):
 
     def test_gecerli_belge_hala_kabul_edilir(self):
         self.assertIsNone(self.kod(json.dumps(temiz_belge(), indent=1).encode()))
+
+
+KOTU_DEGERLER = ("x", "", None, -1, 0, True, 1.5, 10 ** 30)
+
+
+class BozukDegerTests(unittest.TestCase):
+    """Yuklenen dosya guvenilmeyen girdidir: semaya uyan ama turu yanlis deger rapor ya da paneli dusurmemeli."""
+
+    def test_kurallar_hicbir_degerle_cokmez(self):
+        for cid, c in katalog.PG_BY_ID.items():
+            satirlar_listesi = [[{}], [{k: None for k in c["kolonlar"]}]] + [[{k: v for k in c["kolonlar"]}] for v in KOTU_DEGERLER]
+            for satirlar in satirlar_listesi:
+                b = temiz_belge()
+                b["kontroller"][cid] = {"durum": "ok", "satirlar": satirlar}
+                try:
+                    kurallar.degerlendir(b)
+                except Exception as ex:  # noqa: BLE001
+                    self.fail("%s %r -> %s: %s" % (cid, satirlar, type(ex).__name__, ex))
+
+    def test_turu_yanlis_deger_olculemeyen_sayilir(self):
+        b = temiz_belge()
+        b["kontroller"]["pg_surum"] = {"durum": "ok", "satirlar": [{"surum_num": "abc"}]}
+        bulgu, olcul = kurallar.degerlendir(b)
+        self.assertIn(("pg_surum", "gecersiz_veri"), olcul)
+        self.assertFalse(any(x["kontrol"] == "pg_surum" for x in bulgu))
+
+    def test_yukleme_tur_disi_degeri_reddeder(self):
+        for cid, satir in (("pg_surum", {"surum_num": "abc"}), ("pg_surum", {"surum_num": True}), ("pg_surum", {"surum_num": 1.5}),
+                           ("pg_baglanti", {"kullanilan": 10, "ust": "100"}), ("pg_slot", {"slot_name": "a", "active": "false", "wal_status": None, "geri_bayt": 1}),
+                           ("pg_sequence", {"schemaname": "a", "sequencename": "b", "oran": "0.9"})):
+            b = temiz_belge()
+            b["kontroller"][cid] = {"durum": "ok", "satirlar": [satir]}
+            with self.assertRaises(yukleme.Gecersiz, msg="%s %r" % (cid, satir)) as ctx:
+                yukleme.dogrula(b)
+            self.assertEqual(ctx.exception.kod, "deger")
+
+    def test_yukleme_bos_ve_eksik_degeri_kabul_eder(self):
+        b = temiz_belge()
+        b["kontroller"]["pg_slot"] = {"durum": "ok", "satirlar": [{"slot_name": "a", "active": False, "wal_status": None, "geri_bayt": None}]}
+        b["kontroller"]["pg_sequence"] = {"durum": "ok", "satirlar": [{"schemaname": "a", "sequencename": "b", "oran": 1}]}  # float8 1.0 JSON'da 1 yazilabilir
+        yukleme.dogrula(b)
+
+    def test_yukleme_eksik_kolonu_reddeder(self):
+        b = temiz_belge()
+        b["kontroller"]["pg_surum"] = {"durum": "ok", "satirlar": [{}]}
+        with self.assertRaises(yukleme.Gecersiz) as ctx:
+            yukleme.dogrula(b)
+        self.assertEqual(ctx.exception.kod, "kolon")
+
+    def test_sonsuz_sayi_reddedilir(self):
+        b = json.dumps(temiz_belge()).replace('"ust": 100', '"ust": 1e999').encode()
+        with self.assertRaises(yukleme.Gecersiz):
+            yukleme.coz(b)
+
+    def test_tur_tablosu_katalogla_birebir(self):
+        for cid, c in katalog.PG_BY_ID.items():
+            self.assertEqual(set(yukleme.TURLER[cid]), set(c["kolonlar"]), cid)
+            self.assertTrue(set(yukleme.TURLER[cid].values()) <= set(yukleme.TUR_DENETIMI), cid)
+
+    def test_okunamayan_sequence_varsa_temiz_denmez(self):
+        b = temiz_belge()
+        b["kontroller"]["pg_sequence_gorunurluk"] = {"durum": "ok", "satirlar": [{"toplam": 5, "okunamayan": 3}]}
+        _, olcul = kurallar.degerlendir(b)
+        self.assertIn(("pg_sequence", "kismi_yetki"), olcul)
+        b["kontroller"]["pg_sequence_gorunurluk"] = {"durum": "ok", "satirlar": [{"toplam": 5, "okunamayan": 0}]}
+        self.assertNotIn(("pg_sequence", "kismi_yetki"), kurallar.degerlendir(b)[1])
+        html = rapor.sayfa({"belge": b | {"kontroller": dict(b["kontroller"], pg_sequence_gorunurluk={"durum": "ok", "satirlar": [{"toplam": 5, "okunamayan": 3}]})},
+                            "bitis_utc": "2026-12-01T00:00:00Z", "dil": "tr"}, "tr", "t")
+        self.assertIn("kısmen ölçüldü", html)
+
+    def test_rapor_veritabani_kapsamini_soyler(self):
+        b = temiz_belge()
+        b["kontroller"]["pg_kapsam"] = {"durum": "ok", "satirlar": [{"veritabani": "postgres", "veritabani_sayisi": 4}]}
+        html = rapor.sayfa({"belge": b, "bitis_utc": "2026-12-01T00:00:00Z", "dil": "tr"}, "tr", "t")
+        self.assertIn("postgres", html)
+        self.assertIn("4 veritabanı", html)
+        self.assertIn("--dbname", html)
+        en = rapor.sayfa({"belge": b, "bitis_utc": "2026-12-01T00:00:00Z", "dil": "en"}, "en", "t")
+        self.assertIn("4 databases", en)
+        b["kontroller"]["pg_kapsam"]["satirlar"][0]["veritabani_sayisi"] = 1
+        self.assertNotIn("--dbname", rapor.sayfa({"belge": b, "bitis_utc": "2026-12-01T00:00:00Z", "dil": "tr"}, "tr", "t"))
+
+    def test_zehirli_kayitli_rapor_cizilir(self):
+        b = temiz_belge()
+        b["kontroller"]["pg_surum"] = {"durum": "ok", "satirlar": [{}]}
+        b["kontroller"]["pg_arsiv"] = {"durum": "ok", "satirlar": [{"archive_mode": 5}]}
+        html = rapor.sayfa({"belge": b, "bitis_utc": "2026-12-01T00:00:00Z", "dil": "tr"}, "tr", "t")
+        self.assertIn("değer biçimi geçersiz", html)
+        self.assertIn("invalid value", rapor.sayfa({"belge": b, "bitis_utc": "2026-12-01T00:00:00Z", "dil": "en"}, "en", "t"))
 
 
 class KatalogTests(unittest.TestCase):
@@ -304,6 +413,43 @@ class DepoTests(unittest.TestCase):
         self.assertNotEqual(a, depo.ip_ozeti("203.0.113.7", b"k" * 40))
         self.assertEqual(depo.ip_ozeti("203.0.113.7", b"k" * 40), depo.ip_ozeti("203.0.113.7", b"k" * 40))
 
+    def test_eszamanli_surecler_zinciri_bozmaz_kayit_kaybetmez(self):
+        """Tarama sunucusu, yonetim paneli ve bakim ayni tarama.sqlite zincirine yazar."""
+        import multiprocessing as mp
+        yol = str(Path(tempfile.mkdtemp()) / "t.sqlite")
+        depo.baglan(yol).close()
+        q = mp.get_context("fork").Queue()
+        ps = [mp.get_context("fork").Process(target=_zincire_yaz, args=(yol, "p%d" % i, 120, q)) for i in range(3)]
+        [p.start() for p in ps]
+        [p.join(60) for p in ps]
+        hatalar = [q.get(timeout=5) for _ in ps]
+        self.assertEqual(hatalar, [0, 0, 0])
+        c = depo.baglan(yol)
+        self.assertEqual(c.execute("SELECT count(*) FROM denetim").fetchone()[0], 360)
+        self.assertIsNone(depo.denetim_dogrula(c))
+
+    def test_eszamanli_ilk_acilis_ve_goc_cokmez(self):
+        import multiprocessing as mp
+        ctx = mp.get_context("fork")
+        sonuc = []
+        for _ in range(8):
+            yol = str(Path(tempfile.mkdtemp()) / "t.sqlite")
+            b, q = ctx.Barrier(4), ctx.Queue()
+            ps = [ctx.Process(target=_goc_ac, args=(yol, b, q)) for _ in range(4)]
+            [p.start() for p in ps]
+            [p.join(60) for p in ps]
+            sonuc += [q.get(timeout=5) for _ in ps]
+            self.assertEqual(depo.baglan(yol).execute("PRAGMA user_version").fetchone()[0], len(depo.GOCLER))
+        self.assertEqual(set(sonuc), {"ok"})
+
+    def test_acik_islem_icinde_denetim_ekle_calisir(self):
+        c = self.con()
+        c.execute("INSERT INTO kullanim(anahtar_sha256, zaman_utc) VALUES('a','2026-01-01T00:00:00Z')")  # acik islem
+        self.assertTrue(c.in_transaction)
+        depo.denetim_ekle(c, "a", "islem icinde")
+        self.assertFalse(c.in_transaction)
+        self.assertEqual(c.execute("SELECT count(*) FROM kullanim").fetchone()[0], 1)
+
     def test_kisa_anahtar_reddedilir(self):
         with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: "kisa"}):
             with self.assertRaises(depo.AnahtarHatasi):
@@ -497,6 +643,13 @@ class SunucuTests(unittest.TestCase):
         c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
         c.request("POST", yol + "sil")
         self.assertEqual(c.getresponse().status, 404)  # ikinci silme: rapor yok
+        con = depo.baglan(self.db)
+        once = con.execute("SELECT count(*) FROM denetim").fetchone()[0]
+        for _ in range(5):  # kimliksiz istek denetim zincirini sisiremez
+            c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
+            c.request("POST", "/rapor/%s/sil" % ("B" * 43))
+            self.assertEqual(c.getresponse().status, 404)
+        self.assertEqual(con.execute("SELECT count(*) FROM denetim").fetchone()[0], once)
         c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
         c.request("HEAD", yol)
         self.assertNotEqual(c.getresponse().status, 200)  # HEAD desteklenmez; icerik sizmaz

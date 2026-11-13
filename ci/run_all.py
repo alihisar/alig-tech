@@ -51,12 +51,12 @@ def main(argv=None):
 
     def tests():
         r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(ROOT / "tests"), "-q"],
-                           cwd=ROOT, capture_output=True, text=True)
+                           cwd=ROOT, capture_output=True, text=True, timeout=1200)  # asili kalan test CI'yi sonsuza dek bekletmesin
         print(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "")
         return [] if r.returncode == 0 else [r.stderr[-1500:]]
 
     def toplayici():
-        r = subprocess.run([sys.executable, str(ROOT / "tarama" / "uret_toplayici.py"), "--kontrol"], capture_output=True, text=True)
+        r = subprocess.run([sys.executable, str(ROOT / "tarama" / "uret_toplayici.py"), "--kontrol"], capture_output=True, text=True, timeout=120)
         return [] if r.returncode == 0 else [r.stdout.strip() or r.stderr.strip()]
 
     step("toplayici guncel", toplayici)

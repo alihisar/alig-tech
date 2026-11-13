@@ -66,6 +66,15 @@ def ro(yol):
     return sqlite3.connect("file:%s?mode=ro" % yol, uri=True)
 
 
+def degerlendir(belge):
+    """Tek bir raporun degerlendirme hatasi tum paneli dusurmesin: hata olursa rapor 'degerlendirilemedi' sayilir."""
+    try:
+        return kurallar.degerlendir(belge)
+    except Exception as ex:  # noqa: BLE001 - bilerek genis: panel ayakta kalmali, olay gunluge yazilir
+        print("UYARI: rapor degerlendirilemedi: %s" % type(ex).__name__, flush=True)
+        return [], [("*", "hata")]
+
+
 def csv_hucre(v):
     """Hucre tablolama programinda formul olarak calismasin: =, +, -, @ ile baslayan degerin onune tek tirnak konur."""
     m = "" if v is None else str(v)
@@ -238,7 +247,7 @@ class H(BaseHTTPRequestHandler):
                     tdepo.denetim_ekle(tcon, "yonetici:" + o["ad"], "rapor silindi #%s" % m.group(1) if n else "silme: rapor yok #%s" % m.group(1))
                 finally:
                     tcon.close()
-                depo.denetim_ekle(con, o["ad"], "tarama raporu silindi #%s" % m.group(1))
+                depo.denetim_ekle(con, o["ad"], ("tarama raporu silindi #%s" if n else "silme: tarama raporu yok #%s") % m.group(1))
                 return self._yonlendir("/yonetim/taramalar")
             self._send(404, b"yok\n", "text/plain; charset=utf-8")
         finally:
@@ -297,14 +306,13 @@ class H(BaseHTTPRequestHandler):
         raporlar = self._raporlar()
         sayim = {k: 0 for k in kurallar.ONEM}
         for r in raporlar:
-            for b in kurallar.degerlendir(r["belge"])[0]:
+            for b in degerlendir(r["belge"])[0]:
                 sayim[b["onem"]] += 1
         zincir_t, red, kull, firma_n, pasif_n = "veritabanı yok", 0, 0, 0, 0
         if Path(self.tarama_db).exists():
             tc = tdepo.baglan(self.tarama_db)
             try:
                 zd = tdepo.denetim_durum(tc, tdepo.denetim_anahtari())
-                bozuk = zd["bozuk"]
                 zincir_t = tdepo.denetim_metni(zd).replace("sağlam (anahtarsız kayıtlar)", "sağlam")
                 red = tc.execute("SELECT count(*) FROM denetim WHERE olay LIKE 'sirket siniri asildi%'").fetchone()[0]
                 kull = tc.execute("SELECT count(DISTINCT anahtar_sha256) FROM kullanim").fetchone()[0]
@@ -335,7 +343,7 @@ class H(BaseHTTPRequestHandler):
         """Iletisim formundan gelen sirketleri firma kaydina ekler (var olani degistirmez)."""
         for tid, zaman, ad, sirket, eposta, _db, _msg in self._talep_satirlari():
             anahtar = tdepo.firma_anahtari(eposta or "")
-            if anahtar:
+            if anahtar:  # silinmis firmanin eski talebi kaydi geri getirmez (tdepo.firma_kaydet None doner)
                 tdepo.firma_kaydet(tc, anahtar, sirket, eposta, "talep", zaman=zaman, guncelle=False)
 
     def _talep_sayilari(self):
@@ -449,7 +457,7 @@ class H(BaseHTTPRequestHandler):
                "<p><button class=\"btn btn-sm\" type=\"submit\">Notu kaydet</button></p></form>") % (fid, csrf, e(f["aciklama"]))
         rs = []
         for r in raporlar:
-            b, ol = kurallar.degerlendir(r["belge"])
+            b, ol = degerlendir(r["belge"])
             rs.append(["<a href=\"/yonetim/taramalar/%d\">#%d</a>" % (r["id"], r["id"]), e(ist(r["olusturma_utc"])),
                        e(", ".join("%s %d" % (ONEM_AD[k], n) for k, n in ((k, sum(1 for x in b if x["onem"] == k)) for k in kurallar.ONEM) if n) or "bulgu yok"),
                        e(len(ol)), e(ist(r["bitis_utc"]))])
@@ -524,7 +532,7 @@ class H(BaseHTTPRequestHandler):
             finally:
                 tc.close()
         for r in self._raporlar():
-            b, ol = kurallar.degerlendir(r["belge"])
+            b, ol = degerlendir(r["belge"])
             ozet = ", ".join("%s %d" % (ONEM_AD[k], n) for k, n in ((k, sum(1 for x in b if x["onem"] == k)) for k in kurallar.ONEM) if n) or "bulgu yok"
             firma = "<a href=\"/yonetim/firmalar/%d\">%s</a>" % (r["firma_id"], e(adlar[r["firma_id"]])) if r.get("firma_id") in adlar else "<span class=\"muted\">bilinmiyor</span>"
             satirlar.append(["<a href=\"/yonetim/taramalar/%d\">#%d</a>" % (r["id"], r["id"]), firma, e(ist(r["olusturma_utc"])), e(r["motor"]), e(ozet), e(len(ol)),
@@ -544,7 +552,11 @@ class H(BaseHTTPRequestHandler):
         finally:
             tc.close()
         depo.denetim_ekle(con, o["ad"], "tarama raporu goruntulendi #%d" % rid)
-        govde, _, _ = trapor.govde(r, "tr", "", eylemler=False)
+        try:
+            govde, _, _ = trapor.govde(r, "tr", "", eylemler=False)
+        except Exception as ex:  # noqa: BLE001 - bozuk rapor silinebilsin diye sayfa yine acilir
+            print("UYARI: rapor cizilemedi #%d: %s" % (rid, type(ex).__name__), flush=True)
+            govde = "<article class=\"wrap prose report\"><h1>Rapor</h1><p class=\"err\">Bu rapor çizilemedi. Aşağıdaki düğmeyle silebilirsiniz.</p></article>"
         govde = govde.replace("<article class=\"wrap prose report\">", "<article class=\"report adm-report\">").replace("<h1>", "<h2 class=\"vh\">").replace("</h1>", "</h2>", 1)
         sil = ("<form method=\"post\" action=\"/yonetim/taramalar/%d/sil\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
                "<button class=\"btn btn-ghost\" type=\"submit\">Bu raporu kalıcı olarak sil</button></form>") % (rid, e(o["csrf"]))

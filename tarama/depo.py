@@ -7,6 +7,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 try:
@@ -40,6 +41,8 @@ GOCLER = [
     """ALTER TABLE kullanim ADD COLUMN belge_sha256 TEXT""",
     # yapisal alanlar (firma, hedef, sonuc...): ozete dahil edilir, bu yuzden degistirilemez
     """ALTER TABLE denetim ADD COLUMN alanlar TEXT NOT NULL DEFAULT ''""",
+    # silinen firmanin izi: eski bir talepten (iletisim formu) kendiliginden geri olusmasin. Duz anahtar degil ozet tutulur.
+    """CREATE TABLE firma_silinen(anahtar_sha256 TEXT PRIMARY KEY, silinme_utc TEXT NOT NULL)""",
 ]
 ISTEK_DAKIKA = 30
 ISTEK_DENEME = 3
@@ -51,14 +54,39 @@ def simdi():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def goc_uygula(con, gocler):
+    """Yalniz ileri yonlu goc. Birden cok surec ayni anda acabilir (tarama, yonetim, bakim; yeni surum dagitiminda
+    hepsi yeniden baslar): goc tek yazma kilidi altinda yapilir ve surum kilit icinde yeniden okunur."""
+    if con.execute("PRAGMA user_version").fetchone()[0] >= len(gocler):
+        return
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        surum = con.execute("PRAGMA user_version").fetchone()[0]
+        for i in range(surum, len(gocler)):
+            con.execute(gocler[i])
+            con.execute("PRAGMA user_version=%d" % (i + 1))
+        con.commit()
+    except BaseException:
+        con.rollback()
+        raise
+
+
+def wal_ac(con, deneme=50):
+    """WAL kipine gecis ilk acilista kisa sure ozel kilit ister; es zamanli acilista kilit bosalana kadar bekler."""
+    for i in range(deneme):
+        try:
+            con.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError as ex:
+            if "locked" not in str(ex) or i == deneme - 1:
+                raise
+            time.sleep(0.1)
+
+
 def baglan(yol):
     con = sqlite3.connect(yol)
-    con.execute("PRAGMA journal_mode=WAL")
-    surum = con.execute("PRAGMA user_version").fetchone()[0]
-    for i in range(surum, len(GOCLER)):  # yalniz ileri yonlu
-        con.execute(GOCLER[i])
-        con.execute("PRAGMA user_version=%d" % (i + 1))
-    con.commit()
+    wal_ac(con)
+    goc_uygula(con, GOCLER)
     return con
 
 
@@ -120,6 +148,11 @@ def ozet_hesapla(seq, aktor, olay, onceki, anahtar=None, alanlar=None):
 def denetim_ekle(con, aktor, olay, alanlar=None):
     anahtar = denetim_anahtari()
     metin = alanlari_yaz(alanlar)
+    # Son kaydi okuma ile ekleme ayni yazma kilidi altinda olmali: tarama sunucusu, yonetim paneli ve bakim ayni
+    # zincire yazar; kilitsiz okumada iki yazici ayni seq'i alir ve biri IntegrityError ile kaydi kaybeder.
+    # Acik islem varsa baglanti zaten yazma kilidini tutar (islem bir yazmayla baslamistir).
+    if not con.in_transaction:
+        con.execute("BEGIN IMMEDIATE")
     son = con.execute("SELECT seq, ozet FROM denetim ORDER BY seq DESC LIMIT 1").fetchone()
     seq, onceki = (son[0] + 1, son[1]) if son else (1, "")
     # mod: bit0 = HMAC, bit1 = yapisal alanlar ozete dahil
@@ -209,8 +242,18 @@ def _firma(r):
     return dict(zip(("id", "anahtar", "ad", "eposta", "durum", "kaynak", "aciklama", "kayit_utc", "son_utc", "dogrudan_izin"), r)) if r else None
 
 
+def _iz_ozeti(anahtar):
+    return hashlib.sha256(("silinen|" + anahtar).encode()).hexdigest()
+
+
 def firma_kaydet(con, anahtar, ad, eposta, kaynak, zaman=None, guncelle=True):
-    """Firma kaydini olusturur ya da (guncelle=True ise) son etkinligini yeniler. Kaydi doner."""
+    """Firma kaydini olusturur ya da (guncelle=True ise) son etkinligini yeniler. Kaydi doner.
+    zaman verilmisse olay gecmistir (iletisim talebinden esitleme): firma bu olaydan sonra silinmisse kayit
+    yeniden olusturulmaz ve None doner."""
+    if zaman is not None:
+        iz = con.execute("SELECT silinme_utc FROM firma_silinen WHERE anahtar_sha256=?", (_iz_ozeti(anahtar),)).fetchone()
+        if iz and zaman <= iz[0] and not con.execute("SELECT 1 FROM firma WHERE anahtar=?", (anahtar,)).fetchone():
+            return None
     z = zaman or simdi()
     ad, eposta = (ad or "").strip()[:160], (eposta or "").strip().lower()[:200]
     con.execute("INSERT OR IGNORE INTO firma(anahtar, ad, eposta, kaynak, kayit_utc, son_utc) VALUES(?,?,?,?,?,?)", (anahtar, ad, eposta, kaynak, z, z))
@@ -313,6 +356,8 @@ def firma_sil(con, fid):
     con.execute("DELETE FROM kullanim WHERE anahtar_sha256=?", (_firma_ozeti(f),))
     con.execute("DELETE FROM baglanti_istegi WHERE firma_id=?", (fid,))
     con.execute("DELETE FROM firma WHERE id=?", (fid,))
+    con.execute("INSERT INTO firma_silinen(anahtar_sha256, silinme_utc) VALUES(?,?) ON CONFLICT(anahtar_sha256) DO UPDATE SET silinme_utc=excluded.silinme_utc",
+                (_iz_ozeti(f["anahtar"]), simdi()))
     con.commit()
     return n
 
@@ -391,6 +436,11 @@ def saklama_uygula(con, simdi_=None):
     for (fid,) in adaylar:
         firma_sil(con, fid)
         denetim_ekle(con, "sistem", "saklama suresi doldu, firma #%d silindi" % fid)
+    tg = saklama.gun("talep")
+    if tg is not None:  # bu tarihten eski talep kalmadigi icin iz de gerekmez
+        con.execute("DELETE FROM firma_silinen WHERE silinme_utc <= ?",
+                    (((simdi_ or datetime.now(timezone.utc)) - timedelta(days=tg)).strftime("%Y-%m-%dT%H:%M:%SZ"),))
+        con.commit()
     return len(adaylar)
 
 

@@ -241,6 +241,39 @@ class PanelTests(Taban):
             self.assertIn(parca, g)
         self.assertEqual(self.istek("GET", "/yonetim/firmalar/999")[0].status, 404)
 
+    def test_silinen_firma_talepten_geri_gelmez(self):
+        self.istek("GET", "/yonetim/firmalar")  # talepten firma kaydi olusur
+        t = tdepo.baglan(self.tdb)
+        f = next(x for x in tdepo.firma_listele(t) if x["anahtar"] == "ornek.com")
+        r, _ = self.istek("POST", "/yonetim/firmalar/%d/sil" % f["id"], {"emin": "evet", "csrf": self.csrf()})
+        self.assertEqual(r.status, 303)
+        for yol in ("/yonetim/", "/yonetim/firmalar", "/yonetim/firmalar.csv"):
+            self.istek("GET", yol)
+        self.assertNotIn("ornek.com", [x["anahtar"] for x in tdepo.firma_listele(t)])
+        self.assertNotIn("ornek.com", json.dumps(t.execute("SELECT * FROM firma_silinen").fetchall()))  # iz duz adres tutmaz
+        fc = sqlite3.connect(self.fdb)  # silmeden SONRA gelen yeni talep yeni kayit acar
+        fc.execute("INSERT INTO contact VALUES(2,'2999-01-01T00:00:00Z','Ada','Ornek AS','ada@ornek.com','pg','yeniden','h')")
+        fc.commit()
+        fc.close()
+        self.istek("GET", "/yonetim/firmalar")
+        self.assertIn("ornek.com", [x["anahtar"] for x in tdepo.firma_listele(t)])
+
+    def test_zehirli_rapor_paneli_dusurmez(self):
+        t = tdepo.baglan(self.tdb)
+        b = temiz_belge()
+        b["kontroller"]["pg_surum"] = {"durum": "ok", "satirlar": [{"surum_num": "abc"}]}  # yukleme denetimini atlayan bozuk kayit
+        tdepo.rapor_ekle(t, "zehir", "postgresql", "tr", b, self.firma["id"])
+        t.close()
+        for yol in ("/yonetim/", "/yonetim/taramalar", "/yonetim/taramalar/2", "/yonetim/firmalar/%d" % self.firma["id"]):
+            self.assertEqual(self.istek("GET", yol)[0].status, 200, yol)
+
+    def test_beklenmeyen_kural_hatasi_paneli_dusurmez(self):
+        from unittest import mock
+        with mock.patch.object(server.kurallar, "degerlendir", side_effect=RuntimeError("beklenmeyen")):
+            for yol in ("/yonetim/", "/yonetim/taramalar", "/yonetim/firmalar/%d" % self.firma["id"], "/yonetim/taramalar/1"):
+                self.assertEqual(self.istek("GET", yol)[0].status, 200, yol)
+            self.assertIn("Bu raporu kalıcı olarak sil", self.istek("GET", "/yonetim/taramalar/1")[1])
+
     def test_firma_pasif_aktif_dugmeleri(self):
         fid = self.firma["id"]
         t = tdepo.baglan(self.tdb)
@@ -320,7 +353,8 @@ class PanelTests(Taban):
 
     def test_statik_dosya_yalniz_assets_ve_bilinen_tur(self):
         self.assertIn(self.istek("GET", "/assets/yonetim.css", cerez=False)[0].status, (200, 404))  # paket disinda 404 olabilir
-        for yol in ("/assets/../../yonetim/depo.py", "/assets/%2e%2e/%2e%2e/form/server.py", "/assets/alig-toplayici.py", "/assets/../VERSION"):
+        for yol in ("/assets/../../yonetim/depo.py", "/assets/%2e%2e/%2e%2e/form/server.py", "/assets/alig-toplayici.py", "/assets/../VERSION",
+                    "/assets/../themes/c/style.css", "/assets/../../site/themes/b/style.css"):  # izinli uzanti ama assets disi
             self.assertEqual(self.istek("GET", yol, cerez=False)[0].status, 404, yol)
 
     def test_buyuk_govde_ve_tur(self):
