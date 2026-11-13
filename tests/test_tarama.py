@@ -49,7 +49,8 @@ def temiz_belge():
     k = {}
     for c in katalog.PG:
         k[c["id"]] = {"durum": "ok", "satirlar": []}
-    k["pg_surum"]["satirlar"] = [{"surum_num": 180000}]
+    k["pg_surum"]["satirlar"] = [{"surum_num": 160015}]   # gercek sunucuda sinanan surum (katalog.SINANAN)
+    k["pg_hesap"]["satirlar"] = [{"super_kullanici": False, "pg_read_all_stats": True, "pg_read_all_settings": True}]   # pg_monitor uyesi
     k["pg_baglanti"]["satirlar"] = [{"kullanilan": 10, "ust": 100}]
     k["pg_arsiv"]["satirlar"] = [{"archive_mode": "on", "basarili": 5, "hatali": 0, "son_basari_utc": "2026-11-10T10:00:00Z", "son_hata_utc": None}]
     k["pg_tls_parola"]["satirlar"] = [{"ssl": "on", "password_encryption": "scram-sha-256", "ssl_min_protocol_version": "TLSv1.2"}]
@@ -291,9 +292,9 @@ if db.startswith("'"):
     db = re.sub(r"\\(.)", r"\1", db[1:-1])
 sql = a[a.index("-c") + 1]
 with open(d / "gunluk.txt", "a", encoding="utf-8") as f:
-    f.write(json.dumps({"db": db, "ci": ci}) + "\n")
+    f.write(json.dumps({"db": db, "ci": ci, "sql": sql}) + "\n")
 if "is_superuser" in sql:
-    print(json.dumps([{"super": False, "yedek": False, "tls": ayar.get("tls", True)}]))
+    print(json.dumps([{"super": False, "yedek": False, "tls": ayar.get("tls", True), "surum": ayar.get("surum", 160015)}]))
     sys.exit(0)
 if "has_database_privilege" in sql:
     print(json.dumps(ayar["veritabanlari"]))
@@ -310,8 +311,8 @@ sys.exit(1)
 '''
 
 
-class ToplayiciVeritabaniTests(unittest.TestCase):
-    """Musterinin calistirdigi toplayici, sahte psql ile: her veritabanini dolasir, atlananlari yazar."""
+class ToplayiciTaban(unittest.TestCase):
+    """Musterinin calistirdigi toplayici, sahte psql ile (test icermez; tests/test_surum.py de kullanir)."""
 
     def setUp(self):
         import stat as _stat
@@ -338,6 +339,10 @@ class ToplayiciVeritabaniTests(unittest.TestCase):
 
     def gunluk(self):
         return [json.loads(x) for x in (self.d / "gunluk.txt").read_text(encoding="utf-8").splitlines()]
+
+
+class ToplayiciVeritabaniTests(ToplayiciTaban):
+    """Toplayici her veritabanini dolasir, atlananlari yazar."""
 
     def test_her_veritabani_taranir_atlananlar_yazilir(self):
         b, cikti = self.calistir()
@@ -414,17 +419,19 @@ class KatalogTests(unittest.TestCase):
     def test_katalog_yalniz_select_ve_yasakli_sozcuk_yok(self):
         yasakli = [w.strip() for w in katalog.YASAKLI]
         for c in katalog.PG:
-            sql = re.sub(r"'[^']*'", "''", c["sql"]).lower()
-            self.assertTrue(sql.lstrip().startswith("select"), c["id"])
-            self.assertNotIn(";", sql, c["id"])
-            for w in yasakli:
-                kalip = r"\b" + re.escape(w) + (r"" if w.endswith("_") else r"\b")
-                self.assertIsNone(re.search(kalip, sql), "%s: yasakli sozcuk %s" % (c["id"], w))
+            for sorgu in katalog.sorgular(c):   # eski surum bicimleri de
+                sql = re.sub(r"'[^']*'", "''", sorgu).lower()
+                self.assertTrue(sql.lstrip().startswith("select"), c["id"])
+                self.assertNotIn(";", sql, c["id"])
+                for w in yasakli:
+                    kalip = r"\b" + re.escape(w) + (r"" if w.endswith("_") else r"\b")
+                    self.assertIsNone(re.search(kalip, sql), "%s: yasakli sozcuk %s" % (c["id"], w))
 
     def test_katalog_kullanici_tablosu_okumaz(self):
         for c in katalog.PG:
-            for tablo in re.findall(r"\bfrom\s+([a-z_\.]+)", c["sql"].lower()):
-                self.assertTrue(tablo.startswith("pg_") or tablo == "now", "%s: %s" % (c["id"], tablo))
+            for sorgu in katalog.sorgular(c):
+                for tablo in re.findall(r"\bfrom\s+([a-z_\.]+)", sorgu.lower()):
+                    self.assertTrue(tablo.startswith("pg_") or tablo == "now", "%s: %s" % (c["id"], tablo))
 
     def test_uretilen_toplayici_guncel(self):
         self.assertEqual(uret_toplayici.main(["--kontrol"]), 0)

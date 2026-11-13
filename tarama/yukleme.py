@@ -37,6 +37,7 @@ TUR_DENETIMI = {
 _M, _T, _S, _B = "metin", "tamsayi", "sayi", "mantik"
 TURLER = {
     "pg_surum": {"surum_num": _T},
+    "pg_hesap": {"super_kullanici": _B, "pg_read_all_stats": _B, "pg_read_all_settings": _B},
     "pg_kapsam": {"veritabani": _M, "veritabani_sayisi": _T},
     "pg_xid_yasi": {"datname": _M, "yas": _T, "mxid_yas": _T, "freeze_max_age": _T},
     "pg_bosta_islem": {"usename": _M, "durum": _M, "sure_sn": _T},

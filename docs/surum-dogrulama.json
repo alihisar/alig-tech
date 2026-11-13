@@ -1,0 +1,375 @@
+{
+ "surumler": {
+  "16": {
+   "hesaplar": {
+    "pg_monitor": {
+     "kontroller": {
+      "pg_arsiv": {
+       "atlanan": 0,
+       "deger": {
+        "archive_mode": "off",
+        "basarili": 0,
+        "hatali": 0,
+        "son_basari_utc": null,
+        "son_hata_utc": null
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_baglanti": {
+       "atlanan": 0,
+       "deger": {
+        "kullanilan": 2,
+        "ust": 100
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_bosta_islem": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_eklentiler": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_gecersiz_indeks": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_hesap": {
+       "atlanan": 0,
+       "deger": {
+        "pg_read_all_settings": true,
+        "pg_read_all_stats": true,
+        "super_kullanici": false
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_kapsam": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_kullanilmayan_indeks": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_log_ayarlari": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 3
+      },
+      "pg_md5_roller": {
+       "durum": "hata",
+       "neden": "yetki"
+      },
+      "pg_olu_satir": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_public_create": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_sequence": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 0
+      },
+      "pg_sequence_gorunurluk": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_slot": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_super_roller": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_surum": {
+       "atlanan": 0,
+       "deger": {
+        "surum_num": 160015
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_tls_parola": {
+       "atlanan": 0,
+       "deger": {
+        "password_encryption": "scram-sha-256",
+        "ssl": "off",
+        "ssl_min_protocol_version": "TLSv1.2"
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_xid_yasi": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 4
+      }
+     }
+    },
+    "super": {
+     "kontroller": {
+      "pg_arsiv": {
+       "atlanan": 0,
+       "deger": {
+        "archive_mode": "off",
+        "basarili": 0,
+        "hatali": 0,
+        "son_basari_utc": null,
+        "son_hata_utc": null
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_baglanti": {
+       "atlanan": 0,
+       "deger": {
+        "kullanilan": 2,
+        "ust": 100
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_bosta_islem": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_eklentiler": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 3
+      },
+      "pg_gecersiz_indeks": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_hesap": {
+       "atlanan": 0,
+       "deger": {
+        "pg_read_all_settings": true,
+        "pg_read_all_stats": true,
+        "super_kullanici": true
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_kapsam": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 3
+      },
+      "pg_kullanilmayan_indeks": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_log_ayarlari": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 3
+      },
+      "pg_md5_roller": {
+       "atlanan": 0,
+       "deger": {
+        "sayi": 1
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_olu_satir": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_public_create": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 3
+      },
+      "pg_sequence": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_sequence_gorunurluk": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 3
+      },
+      "pg_slot": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_super_roller": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_surum": {
+       "atlanan": 0,
+       "deger": {
+        "surum_num": 160015
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_tls_parola": {
+       "atlanan": 0,
+       "deger": {
+        "password_encryption": "scram-sha-256",
+        "ssl": "off",
+        "ssl_min_protocol_version": "TLSv1.2"
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_xid_yasi": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 4
+      }
+     }
+    },
+    "yetkisiz": {
+     "kontroller": {
+      "pg_arsiv": {
+       "atlanan": 0,
+       "deger": {
+        "archive_mode": "off",
+        "basarili": 0,
+        "hatali": 0,
+        "son_basari_utc": null,
+        "son_hata_utc": null
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_baglanti": {
+       "atlanan": 0,
+       "deger": {
+        "kullanilan": 1,
+        "ust": 100
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_bosta_islem": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 0
+      },
+      "pg_eklentiler": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_gecersiz_indeks": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_hesap": {
+       "atlanan": 0,
+       "deger": {
+        "pg_read_all_settings": false,
+        "pg_read_all_stats": false,
+        "super_kullanici": false
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_kapsam": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_kullanilmayan_indeks": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_log_ayarlari": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 3
+      },
+      "pg_md5_roller": {
+       "durum": "hata",
+       "neden": "yetki"
+      },
+      "pg_olu_satir": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_public_create": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_sequence": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 0
+      },
+      "pg_sequence_gorunurluk": {
+       "atlanan": 1,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_slot": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_super_roller": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_surum": {
+       "atlanan": 0,
+       "deger": {
+        "surum_num": 160015
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_tls_parola": {
+       "durum": "hata",
+       "neden": "yetki"
+      },
+      "pg_xid_yasi": {
+       "atlanan": 0,
+       "durum": "ok",
+       "satir": 4
+      }
+     }
+    }
+   },
+   "katalog_sha256": "7ac46a8ef353cfecc6288958aa32e3dae69dc59ce54e4928c179cec00a5d2b4f",
+   "tam_surum": "PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit",
+   "tarih": "2026-11-13"
+  }
+ }
+}

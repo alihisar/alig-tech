@@ -283,7 +283,7 @@
   "hz_need_4": "Ağ",
   "hz_need_4d": "Betik internete çıkmaz, bu makinenin internet erişimi gerekmez. Dosyayı tarayıcısı olan herhangi bir makineden yüklersiniz.",
   "hz_need_5": "PostgreSQL sürümü",
-  "hz_need_5d": "Sorgular PostgreSQL 13–18 için yazıldı. Betik ve rapor gerçek bir PostgreSQL 16 sunucusunda sınandı. Tarama birincil (yazma yapılan) sunucuda çalıştırılır.",
+  "hz_need_5d": "PostgreSQL 12–18. Betik sunucunun sürümünü okur ve o sürümde olmayan bir özelliği sorgulamaz. Bütün sorgular gerçek bir PostgreSQL 16 sunucusunda sınandı; diğer sürümlerde raporun kanıt güveni en çok orta gösterilir. Tarama birincil (yazma yapılan) sunucuda çalıştırılır.",
   "hz_need_6": "Kayıt bilgisi",
   "hz_need_6d": "Şirket adınız ve kurumsal e-posta adresiniz. Şirket başına 30 günde 2 ücretsiz tarama yapılır.",
   "hz_steps_h": "Adım adım",

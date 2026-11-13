@@ -1,0 +1,287 @@
+{
+ "format": "alig-toplayici/1",
+ "katalog_sha256": "7ac46a8ef353cfecc6288958aa32e3dae69dc59ce54e4928c179cec00a5d2b4f",
+ "kontroller": {
+  "pg_arsiv": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "archive_mode": "off",
+     "basarili": 0,
+     "hatali": 0,
+     "son_basari_utc": null,
+     "son_hata_utc": null
+    }
+   ]
+  },
+  "pg_baglanti": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "kullanilan": 2,
+     "ust": 100
+    }
+   ]
+  },
+  "pg_bosta_islem": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "durum": "idle in transaction",
+     "sure_sn": 3,
+     "usename": "alig_kurulum"
+    }
+   ]
+  },
+  "pg_eklentiler": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "extname": "plpgsql",
+     "extversion": "1.0",
+     "veritabani": "gizli"
+    },
+    {
+     "extname": "plpgsql",
+     "extversion": "1.0",
+     "veritabani": "postgres"
+    },
+    {
+     "extname": "plpgsql",
+     "extversion": "1.0",
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_gecersiz_indeks": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "indexrelname": "cift_x",
+     "schemaname": "public",
+     "veritabani": "postgres"
+    },
+    {
+     "indexrelname": "cift_x",
+     "schemaname": "public",
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_hesap": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "pg_read_all_settings": true,
+     "pg_read_all_stats": true,
+     "super_kullanici": true
+    }
+   ]
+  },
+  "pg_kapsam": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "veritabani": "gizli",
+     "veritabani_sayisi": 3
+    },
+    {
+     "veritabani": "postgres",
+     "veritabani_sayisi": 3
+    },
+    {
+     "veritabani": "satis db",
+     "veritabani_sayisi": 3
+    }
+   ]
+  },
+  "pg_kullanilmayan_indeks": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "bayt": 15745024,
+     "indexrelname": "buyuk_i",
+     "schemaname": "public",
+     "veritabani": "postgres"
+    },
+    {
+     "bayt": 15745024,
+     "indexrelname": "buyuk_i",
+     "schemaname": "public",
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_log_ayarlari": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "name": "log_connections",
+     "setting": "off"
+    },
+    {
+     "name": "log_disconnections",
+     "setting": "off"
+    },
+    {
+     "name": "log_min_duration_statement",
+     "setting": "-1"
+    }
+   ]
+  },
+  "pg_md5_roller": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "sayi": 1
+    }
+   ]
+  },
+  "pg_olu_satir": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "canli": 0,
+     "olu": 30000,
+     "relname": "olu",
+     "schemaname": "public",
+     "son_autovacuum": null,
+     "veritabani": "postgres"
+    },
+    {
+     "canli": 0,
+     "olu": 30000,
+     "relname": "olu",
+     "schemaname": "public",
+     "son_autovacuum": null,
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_public_create": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "public_create": false,
+     "veritabani": "gizli"
+    },
+    {
+     "public_create": false,
+     "veritabani": "postgres"
+    },
+    {
+     "public_create": true,
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_sequence": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "oran": 0.99,
+     "schemaname": "public",
+     "sequencename": "yakin_seq",
+     "veritabani": "postgres"
+    },
+    {
+     "oran": 0.99,
+     "schemaname": "public",
+     "sequencename": "yakin_seq",
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_sequence_gorunurluk": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "okunamayan": 0,
+     "toplam": 0,
+     "veritabani": "gizli"
+    },
+    {
+     "okunamayan": 0,
+     "toplam": 1,
+     "veritabani": "postgres"
+    },
+    {
+     "okunamayan": 0,
+     "toplam": 1,
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_slot": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "active": false,
+     "geri_bayt": 134629816,
+     "slot_name": "bos_slot",
+     "wal_status": "reserved"
+    }
+   ]
+  },
+  "pg_super_roller": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "rolcanlogin": true,
+     "rolname": "alig_kurulum"
+    }
+   ]
+  },
+  "pg_surum": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "surum_num": 160015
+    }
+   ]
+  },
+  "pg_tls_parola": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "password_encryption": "scram-sha-256",
+     "ssl": "off",
+     "ssl_min_protocol_version": "TLSv1.2"
+    }
+   ]
+  },
+  "pg_xid_yasi": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "datname": "postgres",
+     "freeze_max_age": 200000000,
+     "mxid_yas": 0,
+     "yas": 39
+    },
+    {
+     "datname": "satis db",
+     "freeze_max_age": 200000000,
+     "mxid_yas": 0,
+     "yas": 39
+    },
+    {
+     "datname": "template1",
+     "freeze_max_age": 200000000,
+     "mxid_yas": 0,
+     "yas": 39
+    },
+    {
+     "datname": "gizli",
+     "freeze_max_age": 200000000,
+     "mxid_yas": 0,
+     "yas": 39
+    }
+   ]
+  }
+ },
+ "maskeli": false,
+ "motor": "postgresql",
+ "olusturma_utc": "2026-11-13T07:29:42Z",
+ "superuser": true
+}

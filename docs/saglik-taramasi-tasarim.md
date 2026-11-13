@@ -38,6 +38,14 @@ Kural listesi, kategoriler, güven düzeyleri ve geçme koşulları: `docs/kural
 - Güven düzeyi kanıtı olan durumlarda verilir. SQL Server ön sürüm olduğu için raporda en çok MEDIUM gösterilir.
 - Kayıtlar saklanmaz; bulgular gibi okunurken `belge_json` üzerinden yeniden üretilir.
 
+## Sürüm ve yetki matrisi
+
+Toplayıcı ve Kip B sunucunun ana sürümünü okur; her denetimin `en_az`, `en_cok` ve `eski_surum` alanlarına göre o sürümün
+sorgusunu seçer, desteklenmeyen sürümde sorguyu hiç çalıştırmaz (`desteklenmiyor`). Her denetimin `yetki` alanı doğru sonuç
+için gereken rolü yazar; `pg_hesap` denetimi tarama hesabının rollerini okur ve rol eksikse o kaynağı kullanan kural Geçti
+olamaz. Gerçek PostgreSQL 16'da yetkisiz bir hesap başka kullanıcıların oturumlarını göremedi; bu yüzden boşta işlem ve
+bağlantı doluluğu kuralları `pg_read_all_stats` ister. Matris ve doğrulama: `docs/surum-matrisi.md`.
+
 ## Veri modeli (SQLite, WAL, UTC)
 
 - `rapor(id, token_sha256, olusturma_utc, bitis_utc, motor, surum_num, dil, belge_json)`: `belge_json` doğrulanmış toplama dosyasıdır. Bulgular okunurken yeniden üretilir; böylece kural düzeltmeleri eski raporlara da uygulanır.

@@ -12,7 +12,9 @@ from tarama import katalog  # noqa: E402
 
 
 def kontroller(motor="postgresql"):
-    return [{k: c[k] for k in ("id", "sql", "kolonlar", "maske", "kapsam") if k in c} for c in katalog.MOTORLAR[motor]]
+    """Toplayicinin calistirdigi alanlar; katalog ozeti bunlardan hesaplanir (kaynak ve yetki belgeleme icindir, girmez)."""
+    return [{k: c[k] for k in ("id", "sql", "kolonlar", "maske", "kapsam", "en_az", "en_cok", "eski_surum") if k in c}
+            for c in katalog.MOTORLAR[motor]]
 
 
 def katalog_ozeti(motor="postgresql"):
@@ -33,15 +35,23 @@ def uret_mssql():
 
 def uret():
     doc = {"format": katalog.FORMAT, "motor": katalog.MOTOR, "kontroller": kontroller(),
-           "veritabani_listesi": katalog.VT_LISTE_SQL, "en_cok_veritabani": katalog.EN_COK_VERITABANI}
+           "veritabani_listesi": katalog.VT_LISTE_SQL, "en_cok_veritabani": katalog.EN_COK_VERITABANI,
+           "surum_alt": katalog.SURUM_ALT, "surum_ust": katalog.SURUM_UST}
     sablon = (ROOT / "tarama" / "toplayici" / "sablon.py").read_text(encoding="utf-8")
     kod = sablon.replace("__KATALOG_JSON__", json.dumps(doc, ensure_ascii=False, sort_keys=True))
     satirlar = ["alig.tech saglik taramasi: calisan tum sorgular", "Her sorgu SELECT coalesce(json_agg(t),'[]') FROM (<sorgu>) t icinde,",
-                "default_transaction_read_only=on, statement_timeout=15000 ile calisir.", ""]
+                "default_transaction_read_only=on, statement_timeout=15000 ile calisir.",
+                "Sunucunun ana surumune gore sorgu secilir; desteklenmeyen surumde sorgu calismaz (desteklenmiyor).", ""]
     satirlar += ["-- veritabani listesi (dolasilacak veritabanlari)", katalog.VT_LISTE_SQL + ";", ""]
     for c in katalog.PG:
-        satirlar += ["-- " + c["id"] + (" (yetki: " + c["yetki"] + ")" if c.get("yetki") else "")
-                     + (" (her veritabaninda)" if c.get("kapsam") == "veritabani" else ""), c["sql"] + ";", ""]
+        notlar = ["PostgreSQL %d ve ustu" % c["en_az"] if c["en_az"] else "her surum"]
+        if c["yetki"] != "herkes":
+            notlar.append("yetki: " + c["yetki"])
+        if c.get("kapsam") == "veritabani":
+            notlar.append("her veritabaninda")
+        satirlar += ["-- %s (%s)" % (c["id"], ", ".join(notlar)), c["sql"] + ";", ""]
+        for v in c.get("eski_surum", ()):
+            satirlar += ["-- %s, PostgreSQL %d ve oncesi" % (c["id"], v["en_cok"]), v["sql"] + ";", ""]
     return {"alig-toplayici.py": kod, "sorgu-katalogu.txt": "\n".join(satirlar)}
 
 

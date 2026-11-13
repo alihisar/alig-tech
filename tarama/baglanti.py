@@ -22,7 +22,8 @@ AD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 EN_COK_VERITABANI = 20   # sure butcesi (toplam_sure) icinde kalsin diye toplayicidan dusuk
 KANIT_ON_EK = "alig-kanit-"
 ILK_SORGU = ("SELECT current_setting('is_superuser') = 'on' AS super, "
-             "shobj_description((SELECT oid FROM pg_roles WHERE rolname = current_user), 'pg_authid') AS kanit")
+             "shobj_description((SELECT oid FROM pg_roles WHERE rolname = current_user), 'pg_authid') AS kanit, "
+             "current_setting('server_version_num')::int AS surum")
 
 
 class BaglantiHatasi(Exception):
@@ -125,14 +126,14 @@ def _veritabanlari(psql, dizgi, parola, ilk_db, bitis):
     return taranacak, atlanan
 
 
-def _her_veritabani(psql, parola, hedef, kullanici, sslmode, c, taranacak, atlanan, bitis):
+def _her_veritabani(psql, parola, hedef, kullanici, sslmode, c, sql, taranacak, atlanan, bitis):
     satirlar, at, calisti, ilk_neden = [], list(atlanan), False, None
     for db in taranacak:
         kalan = bitis - time.monotonic()
         if kalan <= 1:
             at.append({"veritabani": db, "neden": "zaman_asimi"})
             continue
-        sonuc, _ = _calistir(psql, baglanti_dizgisi(hedef, db, kullanici, sslmode), parola, c["sql"], min(30, kalan))
+        sonuc, _ = _calistir(psql, baglanti_dizgisi(hedef, db, kullanici, sslmode), parola, sql, min(30, kalan))
         if sonuc["durum"] == "ok":
             calisti = True
             for s in _temizle(c, sonuc["satirlar"]):
@@ -164,19 +165,25 @@ def tara(hedef, veritabani, kullanici, parola, kanit, psql="psql", sslmode="requ
         raise BaglantiHatasi("kanit")
     if satir.get("super") is not False:
         raise BaglantiHatasi("super")
+    surum = satir.get("surum")
+    ana = surum // 10000 if isinstance(surum, int) and not isinstance(surum, bool) else None
 
     maske = _Maske() if maskele else None
     taranacak, atlanan = _veritabanlari(psql, dizgi, parola, veritabani, bitis)
     kontroller = {}
     for c in katalog.PG:
+        sql = katalog.sorgu(c, ana)
+        if sql is None:   # bu surumde olmayan ozellik: sorgu calismaz
+            kontroller[c["id"]] = {"durum": "hata", "neden": "desteklenmiyor"}
+            continue
         if c.get("kapsam") == "veritabani":
-            sonuc = _her_veritabani(psql, parola, hedef, kullanici, sslmode, c, taranacak, atlanan, bitis)
+            sonuc = _her_veritabani(psql, parola, hedef, kullanici, sslmode, c, sql, taranacak, atlanan, bitis)
         else:
             kalan = bitis - time.monotonic()
             if kalan <= 1:
                 kontroller[c["id"]] = {"durum": "hata", "neden": "zaman_asimi"}
                 continue
-            sonuc, _ = _calistir(psql, dizgi, parola, c["sql"], min(30, kalan))
+            sonuc, _ = _calistir(psql, dizgi, parola, sql, min(30, kalan))
             if sonuc["durum"] == "ok":
                 sonuc = {"durum": "ok", "satirlar": _temizle(c, sonuc["satirlar"])}
         if sonuc["durum"] == "ok" and maske:

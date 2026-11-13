@@ -283,7 +283,7 @@
   "hz_need_4": "Network",
   "hz_need_4d": "The script does not go out to the internet, so this machine needs no internet access. You upload the file from any machine that has a browser.",
   "hz_need_5": "PostgreSQL version",
-  "hz_need_5d": "The queries are written for PostgreSQL 13–18. The script and report were tested on a real PostgreSQL 16 server. Run the scan on the primary (read-write) server.",
+  "hz_need_5d": "PostgreSQL 12–18. The script reads the server version and does not query features that version lacks. All queries were tested on a real PostgreSQL 16 server; on other versions the report shows evidence confidence as medium at most. Run the scan on the primary (read-write) server.",
   "hz_need_6": "Registration details",
   "hz_need_6d": "Your company name and corporate email address. Each company gets 2 free scans per 30 days.",
   "hz_steps_h": "Step by step",

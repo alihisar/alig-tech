@@ -39,6 +39,18 @@ def hata_sinifi(stderr):
     return "hata"
 
 
+def sorgu_sec(c, ana):
+    """Denetimin bu ana surumde calisacak sorgusu; desteklenmeyen surumde None (tarama/katalog.py sorgu ile ayni)."""
+    if ana is None:
+        return c["sql"]
+    if ana < c.get("en_az", 12) or (c.get("en_cok") is not None and ana > c["en_cok"]):
+        return None
+    for v in c.get("eski_surum", ()):
+        if ana <= v["en_cok"]:
+            return v["sql"]
+    return c["sql"]
+
+
 def _ci(deger):
     """libpq baglanti dizgisi degeri: bosluk, tirnak ya da ters bolu iceriyorsa tirnaklanir ve kacirilir."""
     d = str(deger)
@@ -130,10 +142,16 @@ def main(argv=None):
         return b
 
     ilk = calistir(args.psql, baglanti(args.dbname), "SELECT current_setting('is_superuser') = 'on' AS super, pg_is_in_recovery() AS yedek, "
-                   "(SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) AS tls")
+                   "(SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()) AS tls, current_setting('server_version_num')::int AS surum")
     if ilk["durum"] != "ok":
         raise SystemExit("baglanti kurulamadi (%s). Sunucu, kullanici, parola ve sslmode'u denetleyin." % ilk.get("neden"))
     super_ = bool(ilk["satirlar"][0]["super"])
+    surum = ilk["satirlar"][0].get("surum")
+    ana = surum // 10000 if isinstance(surum, int) and not isinstance(surum, bool) else None
+    if ana is not None:
+        print("PostgreSQL ana surumu: %d" % ana)
+        if not KATALOG.get("surum_alt", 12) <= ana <= KATALOG.get("surum_ust", 18):
+            print("UYARI: PostgreSQL %d icin denetimler sinanmadi; desteklenmeyen denetimler atlanir." % ana, file=sys.stderr)
     if super_:
         print("UYARI: super kullanici ile calisiyorsunuz. Yetkisiz bir rol (pg_monitor uyesi) onerilir.", file=sys.stderr)
     if ilk["satirlar"][0].get("tls") is False and args.host and not args.host.startswith("/"):
@@ -144,10 +162,15 @@ def main(argv=None):
     maske = Maske() if args.maskele else None
     kontroller = {}
     for c in KATALOG["kontroller"]:
+        sql = sorgu_sec(c, ana)
+        if sql is None:   # bu surumde olmayan ozellik: sorgu calismaz
+            kontroller[c["id"]] = {"durum": "hata", "neden": "desteklenmiyor"}
+            print("%-26s ATLANDI (desteklenmiyor: PostgreSQL %d)" % (c["id"], ana))
+            continue
         if c.get("kapsam") == "veritabani":
             satirlar, at, calisti, ilk_neden = [], list(atlanan), False, None
             for db in taranacak:
-                r = calistir(args.psql, baglanti(db), c["sql"])
+                r = calistir(args.psql, baglanti(db), sql)
                 if r["durum"] == "ok":
                     calisti = True
                     for satir in r["satirlar"]:
@@ -163,7 +186,7 @@ def main(argv=None):
             else:
                 sonuc = {"durum": "hata", "neden": ilk_neden or ("yetki" if at else "calistirilmadi")}
         else:
-            sonuc = calistir(args.psql, baglanti(args.dbname), c["sql"])
+            sonuc = calistir(args.psql, baglanti(args.dbname), sql)
         if sonuc["durum"] == "ok" and maske:
             for satir in sonuc["satirlar"]:
                 for kolon in c["maske"]:

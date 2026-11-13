@@ -7,77 +7,113 @@ Kullanici tablolarindan satir verisi okunmaz; yalniz katalog, istatistik ve ayar
 kolonunu ekler. Digerleri sunucu geneli kataloglari okur ve bir kez calisir.
 `kaynak`: sorgunun okudugu gorunum, islev ya da ayar adlari; kanit kaydinda gosterilir (tarama/kanit.py). Toplayiciya
 gitmez, katalog ozetini degistirmez.
+
+Surum matrisi (PostgreSQL): `en_az` denetimin calistigi en eski ana surum, istege bagli `en_cok` en yeni ana surum,
+`eski_surum` eski surumler icin degisik sorgu ([{"en_cok": 12, "sql": ...}]). Toplayici sunucunun ana surumune gore
+sorguyu secer (`sorgu`); desteklenmeyen surumde sorgu hic calismaz, denetim "desteklenmiyor" olarak yazilir.
+`yetki`: dogru sonuc icin tarama hesabinda gereken yetki (YETKILER). pg_read_all_stats ve pg_read_all_settings
+pg_monitor uyeligiyle gelir; hesapta yoksa kanit motoru sonucu kismi sayar (tarama/kanit.py, pg_hesap denetimi).
+Matris ve gercek sunucudaki dogrulama sonuclari: docs/surum-matrisi.md (uretilir).
 """
 
 FORMAT = "alig-toplayici/1"
 MOTOR = "postgresql"
+SURUM_ALT, SURUM_UST = 12, 18   # matrisin kapsadigi ana surumler; daha yenisinde ana sorgu calisir (sinanmadi)
+# Butun sorgularin gercek sunucuda sinandigi ana surumler (tarama/surum_dogrula.py; kanit docs/surum-dogrulama.json,
+# tutarliligini tests/test_surum.py denetler). Disindaki surumde rapordaki kanit guveni en cok MEDIUM.
+SINANAN = (16,)
+YETKILER = ("herkes", "pg_read_all_stats", "pg_read_all_settings", "superuser")
 
 PG = [
-    {"id": "pg_surum", "kaynak": ["server_version_num"], "kolonlar": ["surum_num"], "maske": [],
+    {"id": "pg_surum", "en_az": 0, "yetki": "herkes", "kaynak": ["server_version_num"], "kolonlar": ["surum_num"], "maske": [],
      "sql": "SELECT current_setting('server_version_num')::int AS surum_num"},
-    {"id": "pg_kapsam", "kaynak": ["pg_database"], "kapsam": "veritabani", "kolonlar": ["veritabani", "veritabani_sayisi"], "maske": ["veritabani"],
+    {"id": "pg_hesap", "en_az": 0, "yetki": "herkes", "kaynak": ["pg_roles", "pg_has_role"],
+     "kolonlar": ["super_kullanici", "pg_read_all_stats", "pg_read_all_settings"], "maske": [],
+     "sql": "SELECT rolsuper AS super_kullanici, pg_has_role(current_user, 'pg_read_all_stats', 'USAGE') AS pg_read_all_stats, "
+            "pg_has_role(current_user, 'pg_read_all_settings', 'USAGE') AS pg_read_all_settings "
+            "FROM pg_roles WHERE rolname = current_user"},
+    {"id": "pg_kapsam", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_database"], "kapsam": "veritabani", "kolonlar": ["veritabani", "veritabani_sayisi"], "maske": ["veritabani"],
      "sql": "SELECT current_database() AS veritabani, "
             "(SELECT count(*) FROM pg_database WHERE datallowconn AND NOT datistemplate)::int AS veritabani_sayisi"},
-    {"id": "pg_xid_yasi", "kaynak": ["pg_database", "autovacuum_freeze_max_age"], "kolonlar": ["datname", "yas", "mxid_yas", "freeze_max_age"], "maske": ["datname"],
+    {"id": "pg_xid_yasi", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_database", "autovacuum_freeze_max_age"], "kolonlar": ["datname", "yas", "mxid_yas", "freeze_max_age"], "maske": ["datname"],
      "sql": "SELECT datname, age(datfrozenxid) AS yas, mxid_age(datminmxid) AS mxid_yas, "
             "current_setting('autovacuum_freeze_max_age')::bigint AS freeze_max_age "
             "FROM pg_database WHERE datallowconn"},
-    {"id": "pg_bosta_islem", "kaynak": ["pg_stat_activity"], "kolonlar": ["usename", "durum", "sure_sn"], "maske": ["usename"],
+    {"id": "pg_bosta_islem", "en_az": 12, "yetki": "pg_read_all_stats", "kaynak": ["pg_stat_activity"], "kolonlar": ["usename", "durum", "sure_sn"], "maske": ["usename"],
      "sql": "SELECT usename, state AS durum, extract(epoch FROM now() - xact_start)::int AS sure_sn "
             "FROM pg_stat_activity WHERE state IN ('idle in transaction','idle in transaction (aborted)') "
             "AND backend_type = 'client backend' AND pid <> pg_backend_pid() ORDER BY 3 DESC LIMIT 20"},
-    {"id": "pg_baglanti", "kaynak": ["pg_stat_activity", "max_connections"], "kolonlar": ["kullanilan", "ust"], "maske": [],
+    {"id": "pg_baglanti", "en_az": 12, "yetki": "pg_read_all_stats", "kaynak": ["pg_stat_activity", "max_connections"], "kolonlar": ["kullanilan", "ust"], "maske": [],
      "sql": "SELECT (SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend')::int AS kullanilan, "
             "current_setting('max_connections')::int AS ust"},
-    {"id": "pg_olu_satir", "kaynak": ["pg_stat_user_tables"], "kapsam": "veritabani", "kolonlar": ["veritabani", "schemaname", "relname", "canli", "olu", "son_autovacuum"],
+    {"id": "pg_olu_satir", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_stat_user_tables"], "kapsam": "veritabani", "kolonlar": ["veritabani", "schemaname", "relname", "canli", "olu", "son_autovacuum"],
      "maske": ["veritabani", "schemaname", "relname"],
      "sql": "SELECT schemaname, relname, n_live_tup AS canli, n_dead_tup AS olu, "
             "to_char(last_autovacuum AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS son_autovacuum "
             "FROM pg_stat_user_tables WHERE n_dead_tup > 10000 ORDER BY n_dead_tup DESC LIMIT 20"},
-    {"id": "pg_gecersiz_indeks", "kaynak": ["pg_index"], "kapsam": "veritabani", "kolonlar": ["veritabani", "schemaname", "indexrelname"],
+    {"id": "pg_gecersiz_indeks", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_index"], "kapsam": "veritabani", "kolonlar": ["veritabani", "schemaname", "indexrelname"],
      "maske": ["veritabani", "schemaname", "indexrelname"],
      "sql": "SELECT n.nspname AS schemaname, c.relname AS indexrelname FROM pg_index i "
             "JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_namespace n ON n.oid = c.relnamespace "
             "WHERE NOT i.indisvalid LIMIT 50"},
-    {"id": "pg_kullanilmayan_indeks", "kaynak": ["pg_stat_user_indexes"], "kapsam": "veritabani", "kolonlar": ["veritabani", "schemaname", "indexrelname", "bayt"],
+    {"id": "pg_kullanilmayan_indeks", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_stat_user_indexes"], "kapsam": "veritabani", "kolonlar": ["veritabani", "schemaname", "indexrelname", "bayt"],
      "maske": ["veritabani", "schemaname", "indexrelname"],
      "sql": "SELECT s.schemaname, s.indexrelname, pg_relation_size(s.indexrelid)::bigint AS bayt "
             "FROM pg_stat_user_indexes s JOIN pg_index i ON i.indexrelid = s.indexrelid "
             "WHERE s.idx_scan = 0 AND NOT i.indisunique AND NOT i.indisprimary "
             "AND pg_relation_size(s.indexrelid) > 10485760 ORDER BY 3 DESC LIMIT 20"},
-    {"id": "pg_sequence", "kaynak": ["pg_sequences"], "kapsam": "veritabani", "kolonlar": ["veritabani", "schemaname", "sequencename", "oran"],
+    {"id": "pg_sequence", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_sequences"], "kapsam": "veritabani", "kolonlar": ["veritabani", "schemaname", "sequencename", "oran"],
      "maske": ["veritabani", "schemaname", "sequencename"],
      "sql": "SELECT schemaname, sequencename, round((last_value::numeric / max_value::numeric), 4)::float8 AS oran "
             "FROM pg_sequences WHERE last_value IS NOT NULL AND last_value::numeric / max_value::numeric > 0.5 "
             "ORDER BY 3 DESC LIMIT 20"},
-    {"id": "pg_sequence_gorunurluk", "kaynak": ["has_sequence_privilege"], "kapsam": "veritabani", "kolonlar": ["veritabani", "toplam", "okunamayan"], "maske": ["veritabani"],
+    {"id": "pg_sequence_gorunurluk", "en_az": 12, "yetki": "herkes", "kaynak": ["has_sequence_privilege"], "kapsam": "veritabani", "kolonlar": ["veritabani", "toplam", "okunamayan"], "maske": ["veritabani"],
      "sql": "SELECT count(*)::int AS toplam, count(*) FILTER (WHERE NOT has_sequence_privilege(c.oid, 'USAGE,SELECT'))::int AS okunamayan "
             "FROM pg_class c WHERE c.relkind = 'S'"},
-    {"id": "pg_slot", "kaynak": ["pg_replication_slots"], "kolonlar": ["slot_name", "active", "wal_status", "geri_bayt"], "maske": ["slot_name"],
+    {"id": "pg_slot", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_replication_slots"], "kolonlar": ["slot_name", "active", "wal_status", "geri_bayt"], "maske": ["slot_name"],
      "sql": "SELECT slot_name, active, wal_status, pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)::bigint AS geri_bayt "
-            "FROM pg_replication_slots LIMIT 50"},
-    {"id": "pg_arsiv", "kaynak": ["pg_stat_archiver", "archive_mode"], "kolonlar": ["archive_mode", "basarili", "hatali", "son_basari_utc", "son_hata_utc"], "maske": [],
+            "FROM pg_replication_slots LIMIT 50",
+     "eski_surum": [{"en_cok": 12, "not": "wal_status kolonu PostgreSQL 13'te geldi, 12'de boş döner",
+                     "sql": "SELECT slot_name, active, NULL::text AS wal_status, "
+                            "pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)::bigint AS geri_bayt FROM pg_replication_slots LIMIT 50"}]},
+    {"id": "pg_arsiv", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_stat_archiver", "archive_mode"], "kolonlar": ["archive_mode", "basarili", "hatali", "son_basari_utc", "son_hata_utc"], "maske": [],
      "sql": "SELECT current_setting('archive_mode') AS archive_mode, archived_count AS basarili, failed_count AS hatali, "
             "to_char(last_archived_time AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS son_basari_utc, "
             "to_char(last_failed_time AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS son_hata_utc "
             "FROM pg_stat_archiver"},
-    {"id": "pg_tls_parola", "kaynak": ["ssl", "ssl_min_protocol_version", "password_encryption"], "kolonlar": ["ssl", "password_encryption", "ssl_min_protocol_version"], "maske": [],
+    {"id": "pg_tls_parola", "en_az": 12, "yetki": "pg_read_all_settings", "kaynak": ["ssl", "ssl_min_protocol_version", "password_encryption"], "kolonlar": ["ssl", "password_encryption", "ssl_min_protocol_version"], "maske": [],
      "sql": "SELECT current_setting('ssl') AS ssl, current_setting('password_encryption') AS password_encryption, "
             "current_setting('ssl_min_protocol_version') AS ssl_min_protocol_version"},
-    {"id": "pg_md5_roller", "kaynak": ["pg_authid"], "kolonlar": ["sayi"], "maske": [],
-     "yetki": "superuser",
+    {"id": "pg_md5_roller", "en_az": 12, "yetki": "superuser", "kaynak": ["pg_authid"], "kolonlar": ["sayi"], "maske": [],
      "sql": "SELECT count(*)::int AS sayi FROM pg_authid WHERE rolpassword LIKE 'md5%'"},
-    {"id": "pg_super_roller", "kaynak": ["pg_roles"], "kolonlar": ["rolname", "rolcanlogin"], "maske": ["rolname"],
+    {"id": "pg_super_roller", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_roles"], "kolonlar": ["rolname", "rolcanlogin"], "maske": ["rolname"],
      "sql": "SELECT rolname, rolcanlogin FROM pg_roles WHERE rolsuper AND rolname !~ '^pg_' LIMIT 50"},
-    {"id": "pg_public_create", "kaynak": ["has_schema_privilege"], "kapsam": "veritabani", "kolonlar": ["veritabani", "public_create"], "maske": ["veritabani"],
+    {"id": "pg_public_create", "en_az": 12, "yetki": "herkes", "kaynak": ["has_schema_privilege"], "kapsam": "veritabani", "kolonlar": ["veritabani", "public_create"], "maske": ["veritabani"],
      "sql": "SELECT has_schema_privilege('public', 'public', 'CREATE') AS public_create"},
-    {"id": "pg_log_ayarlari", "kaynak": ["pg_settings"], "kolonlar": ["name", "setting"], "maske": [],
+    {"id": "pg_log_ayarlari", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_settings"], "kolonlar": ["name", "setting"], "maske": [],
      "sql": "SELECT name, setting FROM pg_settings WHERE name IN ('log_connections','log_disconnections','log_min_duration_statement')"},
-    {"id": "pg_eklentiler", "kaynak": ["pg_extension"], "kapsam": "veritabani", "kolonlar": ["veritabani", "extname", "extversion"], "maske": ["veritabani"],
+    {"id": "pg_eklentiler", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_extension"], "kapsam": "veritabani", "kolonlar": ["veritabani", "extname", "extversion"], "maske": ["veritabani"],
      "sql": "SELECT extname, extversion FROM pg_extension"},
 ]
 
 PG_BY_ID = {c["id"]: c for c in PG}
+
+
+def sorgu(c, ana):
+    """Denetimin bu ana surumde calisacak sorgusu; surum desteklenmiyorsa None. Surum bilinmiyorsa ana sorgu."""
+    if ana is None:
+        return c["sql"]
+    if ana < c.get("en_az", SURUM_ALT) or (c.get("en_cok") is not None and ana > c["en_cok"]):
+        return None
+    for v in c.get("eski_surum", ()):
+        if ana <= v["en_cok"]:
+            return v["sql"]
+    return c["sql"]
+
+
+def sorgular(c):
+    """Denetimin butun sorgu bicimleri (ana ve eski surum)."""
+    return [c["sql"]] + [v["sql"] for v in c.get("eski_surum", ())]
 
 # Toplayicinin dolasacagi veritabanlari. CONNECT yetkisi olmayanlara baglanilmaz, "yetki" ile atlanir.
 VT_LISTE_SQL = ("SELECT datname AS veritabani, has_database_privilege(datname, 'CONNECT') AS baglanir "

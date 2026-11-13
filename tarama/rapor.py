@@ -30,7 +30,11 @@ M = {
                         "kismi_veritabani": "kısmen ölçüldü: sunucudaki bazı veritabanları taranmadı", "sinir": "veritabanı sayısı sınırı",
                         "ad": "veritabanı adı desteklenmiyor", "eksik_veri": "veri eksik", "slot_yok": "replikasyon slotu yok",
                         "ag_yok": "Always On kullanılmıyor", "yonetilen_hizmet": "yönetilen hizmet: sürümü Microsoft yönetir",
-                        "tcp_baglanti_yok": "tarama anında TCP bağlantısı yok", "arsiv_kaniti_yok": "başarılı arşivleme kaydı yok"},
+                        "tcp_baglanti_yok": "tarama anında TCP bağlantısı yok", "arsiv_kaniti_yok": "başarılı arşivleme kaydı yok",
+                        "rol_eksik": "kısmen ölçüldü: tarama hesabında gereken rol yok (pg_monitor)",
+                        "rol_bilinmiyor": "kısmen ölçüldü: tarama hesabının yetkileri okunamadı"},
+           "sunucu": "Sunucu sürümü", "sinandi": "bu sürümde sınandı",
+           "sinanmadi": "bu sürüm araçla henüz sınanmadı; kanıt güveni en çok orta gösterilir", "bilinmiyor_s": "bilinmiyor",
            "db": "Tablo, indeks ve sequence denetimleri",
            "db_d": "%d veritabanında çalıştı (sunucuda %d)",
            "db_a": "Atlanan veritabanları",
@@ -61,7 +65,11 @@ M = {
                         "kismi_veritabani": "partially measured: some databases on the server were not scanned", "sinir": "database count limit",
                         "ad": "database name not supported", "eksik_veri": "data incomplete", "slot_yok": "no replication slots",
                         "ag_yok": "Always On is not in use", "yonetilen_hizmet": "managed service: Microsoft manages the version",
-                        "tcp_baglanti_yok": "no TCP connections at scan time", "arsiv_kaniti_yok": "no successful archiving recorded"},
+                        "tcp_baglanti_yok": "no TCP connections at scan time", "arsiv_kaniti_yok": "no successful archiving recorded",
+                        "rol_eksik": "partially measured: the scan account lacks the required role (pg_monitor)",
+                        "rol_bilinmiyor": "partially measured: the scan account's privileges could not be read"},
+           "sunucu": "Server version", "sinandi": "tested on this version",
+           "sinanmadi": "this version has not been tested with the tool yet; evidence confidence is shown as medium at most", "bilinmiyor_s": "unknown",
            "db": "Table, index and sequence checks",
            "db_d": "ran in %d databases (%d on the server)",
            "db_a": "Skipped databases",
@@ -119,6 +127,16 @@ def _not(k, m):
     return ", ".join(parcalar) or "-"
 
 
+def _surum(s, motor, m):
+    """PostgreSQL ana surumu ve sorgularin o surumde gercek sunucuda sinanip sinanmadigi."""
+    if motor != "postgresql":
+        return ""
+    ana = s.baglam.get("ana_surum")
+    metin = ("PostgreSQL %d: %s" % (ana, m["sinandi"] if s.baglam.get("sinanan") else m["sinanmadi"])) if ana else \
+        "%s: %s" % (m["bilinmiyor_s"], m["sinanmadi"])
+    return "<dt>%s</dt><dd>%s</dd>" % (escape(m["sunucu"]), escape(metin))
+
+
 def _durumlar(s, m, d):
     sira = sorted(s.kayitlar, key=lambda k: (kanit.KATEGORILER.index(k["kategori"]), k["kural"]))
     satirlar = []
@@ -149,7 +167,7 @@ def govde(rapor, dil, token, eylemler=True):
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["surum"]), escape(m["evet"] if belge.get("maskeli") else m["hayir"])),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["bulgu"]), escape(", ".join("%s: %d" % (m["onem"][o], n) for o, n in sayim.items() if n) or m["yok"])),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["denetimler"]), escape(", ".join("%s: %d" % (m["durum"][x], n) for x, n in durum_sayim.items() if n))),
-         _kapsam(belge, m), "</dl>", "<h2>%s</h2>" % escape(m["bulgu"])]
+         _surum(sonuc, motor, m), _kapsam(belge, m), "</dl>", "<h2>%s</h2>" % escape(m["bulgu"])]
     for b in bulgu:
         p.append("<section class=\"finding-card sev-%s\"><h3>%s: %s</h3>" % (escape(b["onem"]), escape(m["onem"][b["onem"]]), escape(b["baslik"][d])))
         p.append("<p><strong>%s.</strong> %s (%s). %s: %s. %s: %s.</p>" % (

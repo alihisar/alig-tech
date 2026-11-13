@@ -33,7 +33,7 @@ if os.environ.get("PGPASSWORD") != ayar["parola"]:
     sys.exit(2)
 sql = a[a.index("-c") + 1]
 if "shobj_description" in sql:
-    print(json.dumps([{"super": ayar["super"], "kanit": ayar["kanit"]}]))
+    print(json.dumps([{"super": ayar["super"], "kanit": ayar["kanit"], "surum": ayar.get("surum", 160015)}]))
     sys.exit(0)
 if "has_database_privilege" in sql:
     print(json.dumps(ayar.get("veritabanlari", [{"veritabani": "postgres", "baglanir": True}])))

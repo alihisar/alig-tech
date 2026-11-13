@@ -51,7 +51,7 @@ Veri koşulu: *tek satır* kaynakta tam bir satır beklenir; *en az bir satır* 
 | PG-SEC-006 | public şemasında CREATE yetkisi | Güvenlik | HIGH | `pg_public_create` (her veritabanında, en az bir satır) | `has_schema_privilege` | Hiçbir veritabanında PUBLIC rolü public şemasında nesne oluşturamıyor. |
 | PG-SEC-007 | Bağlantı günlüğü | Güvenlik | HIGH | `pg_log_ayarlari` (en az bir satır) | `pg_settings` | log_connections ve log_disconnections açık. |
 
-Kural kaynağı olmayan bilgi denetimleri: `pg_kapsam`, `pg_eklentiler`.
+Kural kaynağı olmayan bilgi denetimleri: `pg_hesap`, `pg_kapsam`, `pg_eklentiler`.
 
 ## SQL Server, ön sürüm (20 kural)
 

@@ -18,6 +18,8 @@ Her kural her taramada tek bir kayit uretir (KAYIT_ALANLARI):
 
 Durum kurallari:
   - Bulgu varsa FAIL (kritik, yuksek) ya da WARNING (orta, dusuk, bilgi); kapsam kismi olsa bile: bulunan sorun gercektir.
+  - Kaynak denetim tarama hesabinda bir rol gerektiriyorsa (katalogda yetki: pg_read_all_stats, pg_read_all_settings) ve
+    hesapta yoksa ya da hesabin yetkileri okunamadiysa (pg_hesap) sonuc kismidir: baska oturumlar gorunmeyebilir.
   - Birincil kaynak gelmediyse UNAVAILABLE: calistirilmadi, yetki, zaman asimi, surumde yok, yedek sunucu, hata, sinir.
   - Veri geldi ama sonuca yetmiyorsa UNKNOWN: bicim ya da tur gecersiz, zorunlu deger eksik, beklenen satir yok,
     bazi veritabanlari taranmadi, ek kaynak gelmedi.
@@ -27,6 +29,7 @@ Durum kurallari:
 from datetime import datetime, timezone
 from typing import NamedTuple
 
+from tarama import katalog
 from tarama.yukleme import TUR_DENETIMI
 
 DURUMLAR = ("FAIL", "WARNING", "UNKNOWN", "UNAVAILABLE", "NOT_APPLICABLE", "PASS")
@@ -40,8 +43,11 @@ ONEM_SIRASI = ("kritik", "yuksek", "orta", "dusuk", "bilgi")
 BULGU_DURUMU = {"kritik": "FAIL", "yuksek": "FAIL", "orta": "WARNING", "dusuk": "WARNING", "bilgi": "WARNING"}
 # Toplayicinin yazdigi hata nedenleri: veri hic gelmedi.
 ERISILEMEZ = frozenset({"calistirilmadi", "yetki", "zaman_asimi", "desteklenmiyor", "yedek_sunucu", "hata", "sinir", "ad"})
-# SQL Server on surumdur: sorgular gercek sunucuda sinanmadi, kanit guveni en cok MEDIUM.
+# SQL Server on surumdur: sorgular gercek sunucuda sinanmadi, kanit guveni en cok MEDIUM. PostgreSQL'de sorgularin gercek
+# sunucuda sinanmadigi ana surumde de (katalog.SINANAN disi ya da surum bilinmiyor) guven en cok MEDIUM.
 GUVEN_TAVANI = {"mssql": "MEDIUM"}
+SINANMAMIS_SURUM_TAVANI = "MEDIUM"
+ROL_YETKILERI = ("pg_read_all_stats", "pg_read_all_settings")   # hesapta yoksa sorgu calisir ama eksik sonuc dondurur
 TOPLAYICI = "toplayici"   # kaynak olarak belgenin ust alani (superuser): toplayicinin baglandigi hesap
 KAYIT_ALANLARI = ("kural", "motor", "kategori", "durum", "onem", "guven", "kaynak", "kontroller", "toplama_utc",
                   "neden", "gozlem", "bulgular", "ad", "beklenen")
@@ -137,6 +143,30 @@ def _tam_kapsam(kontroller):
     return isinstance(toplam, int) and not isinstance(toplam, bool) and toplam == len({x.get("veritabani") for x in r})
 
 
+def _hesap(kontroller):
+    """Tarama hesabinin yetkileri (pg_hesap): {super_kullanici, pg_read_all_stats, pg_read_all_settings} ya da None."""
+    e = kontroller.get("pg_hesap")
+    if not isinstance(e, dict) or e.get("durum") != "ok":
+        return None
+    r = e.get("satirlar")
+    if not isinstance(r, list) or len(r) != 1 or not isinstance(r[0], dict):
+        return None
+    h = r[0]
+    if not all(isinstance(h.get(k), bool) for k in ("super_kullanici",) + ROL_YETKILERI):
+        return None
+    return h
+
+
+def ana_surum(kontroller):
+    """PostgreSQL ana surumu (pg_surum) ya da None."""
+    e = kontroller.get("pg_surum")
+    try:
+        n = e["satirlar"][0]["surum_num"] if e["durum"] == "ok" and len(e["satirlar"]) == 1 else None
+    except (TypeError, KeyError, IndexError):
+        return None
+    return n // 10000 if isinstance(n, int) and not isinstance(n, bool) and n >= 90000 else None
+
+
 def _satir_sorunu(s, zorunlu, turler):
     for kolon in zorunlu:
         if s.get(kolon) is None:
@@ -148,7 +178,7 @@ def _satir_sorunu(s, zorunlu, turler):
     return None
 
 
-def _oku(belge, kontroller, kaynak, katalog_by_id, turler, tam_kapsam):
+def _oku(belge, kontroller, kaynak, katalog_by_id, turler, tam_kapsam, hesap):
     """(satirlar, durum, neden, kismi_nedenler). satirlar None ise kaynak yok ya da kullanilamaz."""
     if kaynak.kontrol == TOPLAYICI:
         v = belge.get("superuser")
@@ -167,8 +197,14 @@ def _oku(belge, kontroller, kaynak, katalog_by_id, turler, tam_kapsam):
     if not isinstance(satirlar, list) or not all(isinstance(s, dict) for s in satirlar):
         return None, "UNKNOWN", "gecersiz_veri", []
     kismi = []
-    if katalog_by_id.get(kaynak.kontrol, {}).get("kapsam") == "veritabani" and (e.get("atlanan") or not tam_kapsam):
+    c = katalog_by_id.get(kaynak.kontrol, {})
+    if c.get("kapsam") == "veritabani" and (e.get("atlanan") or not tam_kapsam):
         kismi.append("kismi_veritabani")
+    if c.get("yetki") in ROL_YETKILERI:
+        if hesap is None:
+            kismi.append("rol_bilinmiyor")
+        elif not (hesap["super_kullanici"] or hesap[c["yetki"]]):
+            kismi.append("rol_eksik")
     tur = turler.get(kaynak.kontrol, {})
     tam = []
     for s in satirlar:
@@ -184,10 +220,12 @@ def _oku(belge, kontroller, kaynak, katalog_by_id, turler, tam_kapsam):
     return tam, None, None, kismi
 
 
-def _kayit(kural, belge, kontroller, taranan, katalog_by_id, turler, tam_kapsam):
+def _kayit(kural, belge, kontroller, taranan, katalog_by_id, turler, tam_kapsam, hesap, surum_tavani):
     kaynak = list(kural.kaynak) or sorted({ad for k in kural.kaynaklar for ad in katalog_by_id.get(k.kontrol, {}).get("kaynak", ())})
-    tavan = GUVEN_TAVANI.get(kural.motor)
-    guven = max(kural.guven, tavan, key=GUVENLER.index) if tavan else kural.guven   # daha dusuk olani
+    guven = kural.guven
+    for tavan in (GUVEN_TAVANI.get(kural.motor), surum_tavani):
+        if tavan:
+            guven = max(guven, tavan, key=GUVENLER.index)   # daha dusuk olani
     kayit = {"kural": kural.kimlik, "motor": kural.motor, "kategori": kural.kategori, "durum": None, "onem": None, "guven": None,
              "kaynak": kaynak, "kontroller": [k.kontrol for k in kural.kaynaklar], "toplama_utc": belge.get("olusturma_utc"),
              "neden": None, "gozlem": {}, "bulgular": [], "ad": dict(kural.ad), "beklenen": dict(kural.beklenen)}   # kopya: kayit degisse de kural degismez
@@ -199,7 +237,7 @@ def _kayit(kural, belge, kontroller, taranan, katalog_by_id, turler, tam_kapsam)
 
     veri, kismi = {}, []
     for k in kural.kaynaklar:
-        satirlar, durum, neden, k_kismi = _oku(belge, kontroller, k, katalog_by_id, turler, tam_kapsam)
+        satirlar, durum, neden, k_kismi = _oku(belge, kontroller, k, katalog_by_id, turler, tam_kapsam, hesap)
         if satirlar is None:
             if not k.ek:
                 return bitir(durum, neden)
@@ -233,10 +271,12 @@ def _kayit(kural, belge, kontroller, taranan, katalog_by_id, turler, tam_kapsam)
 
 
 class Sonuc:
-    """Bir belgenin degerlendirmesi: kayitlar (kural sirasiyla), bulgular (onem sirasiyla), olculemeyenler."""
+    """Bir belgenin degerlendirmesi: kayitlar (kural sirasiyla), bulgular (onem sirasiyla), olculemeyenler.
+    baglam: ana_surum, sinanan (surum gercek sunucuda sinandi mi; PostgreSQL disinda None), hesap (tarama hesabi yetkileri)."""
 
-    def __init__(self, kayitlar):
+    def __init__(self, kayitlar, baglam=None):
         self.kayitlar = kayitlar
+        self.baglam = baglam or {}
         self.bulgular = sorted((b for k in kayitlar for b in k["bulgular"]), key=lambda b: ONEM_SIRASI.index(b["onem"]))
         self.olculemeyen = [(k["kural"], k["neden"]) for k in kayitlar if k["durum"] in KANITSIZ]
 
@@ -249,5 +289,10 @@ def calistir(belge, kurallar, katalog_by_id, turler):
     belge = belge if isinstance(belge, dict) else {}
     kontroller = belge.get("kontroller") if isinstance(belge.get("kontroller"), dict) else {}
     taranan = _parse_utc(belge.get("olusturma_utc")) or datetime.now(timezone.utc)
-    tam = _tam_kapsam(kontroller)
-    return Sonuc([_kayit(k, belge, kontroller, taranan, katalog_by_id, turler, tam) for k in kurallar])
+    tam, hesap = _tam_kapsam(kontroller), _hesap(kontroller)
+    baglam, surum_tavani = {"hesap": hesap}, None
+    if belge.get("motor", "postgresql") == "postgresql":
+        ana = ana_surum(kontroller)
+        baglam.update(ana_surum=ana, sinanan=ana in katalog.SINANAN)
+        surum_tavani = None if baglam["sinanan"] else SINANMAMIS_SURUM_TAVANI
+    return Sonuc([_kayit(k, belge, kontroller, taranan, katalog_by_id, turler, tam, hesap, surum_tavani) for k in kurallar], baglam)
