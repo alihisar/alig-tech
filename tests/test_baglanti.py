@@ -35,6 +35,9 @@ sql = a[a.index("-c") + 1]
 if "shobj_description" in sql:
     print(json.dumps([{"super": ayar["super"], "kanit": ayar["kanit"]}]))
     sys.exit(0)
+if "has_database_privilege" in sql:
+    print(json.dumps(ayar.get("veritabanlari", [{"veritabani": "postgres", "baglanir": True}])))
+    sys.exit(0)
 for cid, s in ayar["kontroller"].items():
     if s["sql"] in sql:
         if s.get("hata"):
@@ -86,7 +89,21 @@ class TaraTests(Temel):
         self.assertEqual(belge["motor"], "postgresql")
         self.assertEqual(set(belge["kontroller"]), set(katalog.PG_BY_ID))
         self.assertFalse(belge["superuser"])
-        self.assertEqual(len(self.gunluk()), len(katalog.PG) + 1)
+        self.assertEqual(len(self.gunluk()), len(katalog.PG) + 2)   # ilk sorgu + veritabani listesi + her denetim bir kez
+
+    def test_her_veritabani_taranir_uygunsuz_ad_baglantiya_girmez(self):
+        self.ayar["veritabanlari"] = [{"veritabani": "postgres", "baglanir": True}, {"veritabani": "satis", "baglanir": True},
+                                      {"veritabani": "kotu ad host=10.0.0.1", "baglanir": True}, {"veritabani": "gizli", "baglanir": False}]
+        self.yaz()
+        belge = self.tara()
+        dizgiler = [g["argv"][g["argv"].index("-d") + 1] for g in self.gunluk()]
+        self.assertTrue(any("dbname=satis " in d for d in dizgiler))
+        self.assertFalse(any("10.0.0.1" in d or "gizli" in d for d in dizgiler))
+        olu = belge["kontroller"]["pg_kapsam"]
+        self.assertEqual(sorted(olu["atlanan"], key=lambda x: x["veritabani"]),
+                         [{"veritabani": "gizli", "neden": "yetki"}, {"veritabani": "kotu ad host=10.0.0.1", "neden": "ad"}])
+        for d in dizgiler:
+            self.assertIn("hostaddr=93.184.216.34", d)   # her veritabaninda da dogrulanan IP
 
     def test_baglanti_dogrulanan_ipye_sabitlenir_ve_tls_ister(self):
         self.tara()

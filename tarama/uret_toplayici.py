@@ -12,7 +12,7 @@ from tarama import katalog  # noqa: E402
 
 
 def kontroller(motor="postgresql"):
-    return [{k: c[k] for k in ("id", "sql", "kolonlar", "maske")} for c in katalog.MOTORLAR[motor]]
+    return [{k: c[k] for k in ("id", "sql", "kolonlar", "maske", "kapsam") if k in c} for c in katalog.MOTORLAR[motor]]
 
 
 def katalog_ozeti(motor="postgresql"):
@@ -32,13 +32,16 @@ def uret_mssql():
 
 
 def uret():
-    doc = {"format": katalog.FORMAT, "motor": katalog.MOTOR, "kontroller": kontroller()}
+    doc = {"format": katalog.FORMAT, "motor": katalog.MOTOR, "kontroller": kontroller(),
+           "veritabani_listesi": katalog.VT_LISTE_SQL, "en_cok_veritabani": katalog.EN_COK_VERITABANI}
     sablon = (ROOT / "tarama" / "toplayici" / "sablon.py").read_text(encoding="utf-8")
     kod = sablon.replace("__KATALOG_JSON__", json.dumps(doc, ensure_ascii=False, sort_keys=True))
     satirlar = ["alig.tech saglik taramasi: calisan tum sorgular", "Her sorgu SELECT coalesce(json_agg(t),'[]') FROM (<sorgu>) t icinde,",
                 "default_transaction_read_only=on, statement_timeout=15000 ile calisir.", ""]
+    satirlar += ["-- veritabani listesi (dolasilacak veritabanlari)", katalog.VT_LISTE_SQL + ";", ""]
     for c in katalog.PG:
-        satirlar += ["-- " + c["id"] + (" (yetki: " + c["yetki"] + ")" if c.get("yetki") else ""), c["sql"] + ";", ""]
+        satirlar += ["-- " + c["id"] + (" (yetki: " + c["yetki"] + ")" if c.get("yetki") else "")
+                     + (" (her veritabaninda)" if c.get("kapsam") == "veritabani" else ""), c["sql"] + ";", ""]
     return {"alig-toplayici.py": kod, "sorgu-katalogu.txt": "\n".join(satirlar)}
 
 

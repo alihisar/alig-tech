@@ -52,7 +52,8 @@ def temiz_belge():
     k["pg_baglanti"]["satirlar"] = [{"kullanilan": 10, "ust": 100}]
     k["pg_arsiv"]["satirlar"] = [{"archive_mode": "on", "basarili": 5, "hatali": 0, "son_basari_utc": "2026-11-10T10:00:00Z", "son_hata_utc": None}]
     k["pg_tls_parola"]["satirlar"] = [{"ssl": "on", "password_encryption": "scram-sha-256", "ssl_min_protocol_version": "TLSv1.2"}]
-    k["pg_public_create"]["satirlar"] = [{"public_create": False}]
+    k["pg_public_create"]["satirlar"] = [{"veritabani": "postgres", "public_create": False}]
+    k["pg_kapsam"]["satirlar"] = [{"veritabani": "postgres", "veritabani_sayisi": 1}]
     k["pg_log_ayarlari"]["satirlar"] = [{"name": "log_connections", "setting": "on"}, {"name": "log_disconnections", "setting": "on"}]
     k["pg_md5_roller"]["satirlar"] = [{"sayi": 0}]
     return {"format": katalog.FORMAT, "motor": katalog.MOTOR, "katalog_sha256": uret_toplayici.katalog_ozeti(),
@@ -112,7 +113,7 @@ class BozukDegerTests(unittest.TestCase):
     def test_yukleme_tur_disi_degeri_reddeder(self):
         for cid, satir in (("pg_surum", {"surum_num": "abc"}), ("pg_surum", {"surum_num": True}), ("pg_surum", {"surum_num": 1.5}),
                            ("pg_baglanti", {"kullanilan": 10, "ust": "100"}), ("pg_slot", {"slot_name": "a", "active": "false", "wal_status": None, "geri_bayt": 1}),
-                           ("pg_sequence", {"schemaname": "a", "sequencename": "b", "oran": "0.9"})):
+                           ("pg_sequence", {"veritabani": "d", "schemaname": "a", "sequencename": "b", "oran": "0.9"})):
             b = temiz_belge()
             b["kontroller"][cid] = {"durum": "ok", "satirlar": [satir]}
             with self.assertRaises(yukleme.Gecersiz, msg="%s %r" % (cid, satir)) as ctx:
@@ -122,7 +123,7 @@ class BozukDegerTests(unittest.TestCase):
     def test_yukleme_bos_ve_eksik_degeri_kabul_eder(self):
         b = temiz_belge()
         b["kontroller"]["pg_slot"] = {"durum": "ok", "satirlar": [{"slot_name": "a", "active": False, "wal_status": None, "geri_bayt": None}]}
-        b["kontroller"]["pg_sequence"] = {"durum": "ok", "satirlar": [{"schemaname": "a", "sequencename": "b", "oran": 1}]}  # float8 1.0 JSON'da 1 yazilabilir
+        b["kontroller"]["pg_sequence"] = {"durum": "ok", "satirlar": [{"veritabani": "d", "schemaname": "a", "sequencename": "b", "oran": 1}]}  # float8 1.0 JSON'da 1 yazilabilir
         yukleme.dogrula(b)
 
     def test_yukleme_eksik_kolonu_reddeder(self):
@@ -155,15 +156,17 @@ class BozukDegerTests(unittest.TestCase):
 
     def test_rapor_veritabani_kapsamini_soyler(self):
         b = temiz_belge()
-        b["kontroller"]["pg_kapsam"] = {"durum": "ok", "satirlar": [{"veritabani": "postgres", "veritabani_sayisi": 4}]}
+        b["kontroller"]["pg_kapsam"] = {"durum": "ok", "satirlar": [{"veritabani": "satis", "veritabani_sayisi": 4}, {"veritabani": "stok", "veritabani_sayisi": 4}],
+                                        "atlanan": [{"veritabani": "arsiv", "neden": "yetki"}, {"veritabani": "eski", "neden": "sinir"}]}
         html = rapor.sayfa({"belge": b, "bitis_utc": "2026-12-01T00:00:00Z", "dil": "tr"}, "tr", "t")
-        self.assertIn("postgres", html)
-        self.assertIn("4 veritabanı", html)
-        self.assertIn("--dbname", html)
+        self.assertIn("2 veritabanında çalıştı (sunucuda 4)", html)
+        self.assertIn("arsiv (yetki yok)", html)
+        self.assertIn("eski (veritabanı sayısı sınırı)", html)
+        self.assertIn("Atlanan 2 veritabanında", html)
         en = rapor.sayfa({"belge": b, "bitis_utc": "2026-12-01T00:00:00Z", "dil": "en"}, "en", "t")
-        self.assertIn("4 databases", en)
-        b["kontroller"]["pg_kapsam"]["satirlar"][0]["veritabani_sayisi"] = 1
-        self.assertNotIn("--dbname", rapor.sayfa({"belge": b, "bitis_utc": "2026-12-01T00:00:00Z", "dil": "tr"}, "tr", "t"))
+        self.assertIn("ran in 2 databases (4 on the server)", en)
+        b["kontroller"]["pg_kapsam"] = {"durum": "ok", "satirlar": [{"veritabani": "satis", "veritabani_sayisi": 1}]}
+        self.assertNotIn("Atlanan", rapor.sayfa({"belge": b, "bitis_utc": "2026-12-01T00:00:00Z", "dil": "tr"}, "tr", "t"))
 
     def test_zehirli_kayitli_rapor_cizilir(self):
         b = temiz_belge()
@@ -172,6 +175,191 @@ class BozukDegerTests(unittest.TestCase):
         html = rapor.sayfa({"belge": b, "bitis_utc": "2026-12-01T00:00:00Z", "dil": "tr"}, "tr", "t")
         self.assertIn("değer biçimi geçersiz", html)
         self.assertIn("invalid value", rapor.sayfa({"belge": b, "bitis_utc": "2026-12-01T00:00:00Z", "dil": "en"}, "en", "t"))
+
+
+VT_KONTROLLERI = {"pg_kapsam", "pg_olu_satir", "pg_gecersiz_indeks", "pg_kullanilmayan_indeks", "pg_sequence", "pg_sequence_gorunurluk",
+                  "pg_public_create", "pg_eklentiler"}
+
+
+class VeritabaniKapsamTests(unittest.TestCase):
+    """Tablo, indeks ve sequence denetimleri baglanilabilen her veritabaninda calisir."""
+
+    def test_katalogda_veritabani_basina_denetimler_isaretli(self):
+        self.assertEqual({c["id"] for c in katalog.PG if c.get("kapsam") == "veritabani"}, VT_KONTROLLERI)
+        for c in katalog.PG:
+            if c.get("kapsam") == "veritabani":
+                self.assertIn("veritabani", c["kolonlar"], c["id"])
+                self.assertIn("veritabani", c["maske"], c["id"])
+        sql = katalog.VT_LISTE_SQL.lower()
+        self.assertTrue(sql.startswith("select") and "has_database_privilege" in sql and ";" not in sql)
+
+    def satir(self, cid, **deger):
+        return {k: deger.get(k) for k in katalog.PG_BY_ID[cid]["kolonlar"]}
+
+    def test_yukleme_atlanan_kaydini_dogrular(self):
+        b = temiz_belge()
+        b["kontroller"]["pg_olu_satir"] = {"durum": "ok", "satirlar": [], "atlanan": [{"veritabani": "arsiv", "neden": "yetki"}]}
+        yukleme.dogrula(b)
+        for kotu in ([{"veritabani": "a", "neden": "uydurma"}], [{"veritabani": "a"}], [{"veritabani": 5, "neden": "yetki"}], "x",
+                     [{"veritabani": "a", "neden": "yetki", "fazla": 1}]):
+            b["kontroller"]["pg_olu_satir"]["atlanan"] = kotu
+            with self.assertRaises(yukleme.Gecersiz, msg=repr(kotu)):
+                yukleme.dogrula(b)
+        b = temiz_belge()
+        b["kontroller"]["pg_surum"]["atlanan"] = []   # sunucu geneli denetimde atlanan olmaz
+        with self.assertRaises(yukleme.Gecersiz):
+            yukleme.dogrula(b)
+
+    def test_veritabani_basina_denetim_daha_cok_satir_tasir(self):
+        b = temiz_belge()
+        b["kontroller"]["pg_eklentiler"]["satirlar"] = [self.satir("pg_eklentiler", veritabani="v%d" % (i // 5), extname="e%d" % i, extversion="1") for i in range(300)]
+        yukleme.dogrula(b)
+        b = temiz_belge()
+        b["kontroller"]["pg_super_roller"]["satirlar"] = [{"rolname": "r%d" % i, "rolcanlogin": False} for i in range(300)]
+        with self.assertRaises(yukleme.Gecersiz):
+            yukleme.dogrula(b)
+
+    def test_bulgular_veritabani_adini_tasir(self):
+        b = temiz_belge()
+        b["kontroller"]["pg_gecersiz_indeks"]["satirlar"] = [self.satir("pg_gecersiz_indeks", veritabani="satis", schemaname="public", indexrelname="i1")]
+        b["kontroller"]["pg_public_create"]["satirlar"] = [self.satir("pg_public_create", veritabani="satis", public_create=False),
+                                                           self.satir("pg_public_create", veritabani="stok", public_create=True)]
+        bulgu, _ = kurallar.degerlendir(b)
+        k = {x["sablon"]: x["kanit"] for x in bulgu}
+        self.assertEqual(k["pg_gecersiz_indeks"]["nesneler"], ["satis.public.i1"])
+        self.assertEqual(k["pg_public_create"]["veritabanlari"], ["stok"])
+
+    def test_atlanan_veritabani_olculemeyen_sayilir(self):
+        b = temiz_belge()
+        b["kontroller"]["pg_olu_satir"] = {"durum": "ok", "satirlar": [], "atlanan": [{"veritabani": "arsiv", "neden": "yetki"}]}
+        _, olcul = kurallar.degerlendir(b)
+        self.assertIn(("pg_olu_satir", "kismi_veritabani"), olcul)
+
+    def test_ortak_atlanan_veritabani_her_denetimde_tekrarlanmaz(self):
+        b = temiz_belge()
+        at = [{"veritabani": "arsiv", "neden": "yetki"}]
+        b["kontroller"]["pg_kapsam"] = {"durum": "ok", "satirlar": [{"veritabani": "postgres", "veritabani_sayisi": 2}], "atlanan": list(at)}
+        b["kontroller"]["pg_olu_satir"] = {"durum": "ok", "satirlar": [], "atlanan": list(at)}
+        b["kontroller"]["pg_gecersiz_indeks"] = {"durum": "ok", "satirlar": [], "atlanan": at + [{"veritabani": "postgres", "neden": "yetki"}]}
+        _, olcul = kurallar.degerlendir(b)
+        self.assertNotIn(("pg_olu_satir", "kismi_veritabani"), olcul)        # kapsam bolumunde yaziliyor
+        self.assertNotIn(("pg_kapsam", "kismi_veritabani"), olcul)
+        self.assertIn(("pg_gecersiz_indeks", "kismi_veritabani"), olcul)     # bu denetime ozgu atlama
+
+    def test_okunamayan_sequence_veritabanlari_toplanir(self):
+        b = temiz_belge()
+        b["kontroller"]["pg_sequence_gorunurluk"] = {"durum": "ok", "satirlar": [
+            self.satir("pg_sequence_gorunurluk", veritabani="a", toplam=3, okunamayan=0),
+            self.satir("pg_sequence_gorunurluk", veritabani="b", toplam=2, okunamayan=1)]}
+        self.assertIn(("pg_sequence", "kismi_yetki"), kurallar.degerlendir(b)[1])
+
+
+SAHTE_PSQL_TOPLAYICI = r'''#!/usr/bin/env python3
+import json, re, sys
+from pathlib import Path
+d = Path(__file__).resolve().parent
+ayar = json.loads((d / "ayar.json").read_text(encoding="utf-8"))
+a = sys.argv[1:]
+ci = a[a.index("-d") + 1]
+m = re.match(r"dbname=('(?:[^'\\]|\\.)*'|\S+)", ci)
+db = m.group(1)
+if db.startswith("'"):
+    db = re.sub(r"\\(.)", r"\1", db[1:-1])
+sql = a[a.index("-c") + 1]
+with open(d / "gunluk.txt", "a", encoding="utf-8") as f:
+    f.write(json.dumps({"db": db, "ci": ci}) + "\n")
+if "is_superuser" in sql:
+    print(json.dumps([{"super": False, "yedek": False, "tls": ayar.get("tls", True)}]))
+    sys.exit(0)
+if "has_database_privilege" in sql:
+    print(json.dumps(ayar["veritabanlari"]))
+    sys.exit(0)
+for cid, s in ayar["kontroller"].items():
+    if s["sql"] in sql:
+        hata = s.get("hata", {}).get(db)
+        if hata:
+            sys.stderr.write(hata + "\n")
+            sys.exit(1)
+        print(json.dumps(s.get("satirlar", {}).get(db, [])))
+        sys.exit(0)
+sys.exit(1)
+'''
+
+
+class ToplayiciVeritabaniTests(unittest.TestCase):
+    """Musterinin calistirdigi toplayici, sahte psql ile: her veritabanini dolasir, atlananlari yazar."""
+
+    def setUp(self):
+        import stat as _stat
+        self.d = Path(tempfile.mkdtemp())
+        self.psql = self.d / "psql"
+        self.psql.write_text(SAHTE_PSQL_TOPLAYICI, encoding="utf-8")
+        self.psql.chmod(self.psql.stat().st_mode | _stat.S_IEXEC)
+        self.ayar = {"veritabanlari": [{"veritabani": "postgres", "baglanir": True}, {"veritabani": "satis db", "baglanir": True},
+                                       {"veritabani": "arsiv", "baglanir": False}],
+                     "kontroller": {c["id"]: {"sql": c["sql"], "satirlar": {}} for c in katalog.PG}}
+        self.ayar["kontroller"]["pg_surum"]["satirlar"] = {"postgres": [{"surum_num": 180000}]}
+        self.ayar["kontroller"]["pg_kapsam"]["satirlar"] = {db: [{"veritabani": db, "veritabani_sayisi": 3}] for db in ("postgres", "satis db")}
+        self.ayar["kontroller"]["pg_olu_satir"]["satirlar"] = {"satis db": [{"schemaname": "public", "relname": "siparis", "canli": 100, "olu": 900, "son_autovacuum": None}]}
+        self.ayar["kontroller"]["pg_gecersiz_indeks"]["hata"] = {"satis db": "ERROR:  permission denied for schema gizli"}
+
+    def calistir(self, *ek):
+        (self.d / "ayar.json").write_text(json.dumps(self.ayar), encoding="utf-8")
+        cikti = self.d / "t.json"
+        r = subprocess.run([sys.executable, str(ROOT / "site" / "assets" / "alig-toplayici.py"), "--psql", str(self.psql), "--host", "db.ornek.local",
+                            "--user", "alig_hc", "--out", str(cikti)] + list(ek), capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.r = r
+        return json.loads(cikti.read_text()), cikti
+
+    def gunluk(self):
+        return [json.loads(x) for x in (self.d / "gunluk.txt").read_text(encoding="utf-8").splitlines()]
+
+    def test_her_veritabani_taranir_atlananlar_yazilir(self):
+        b, cikti = self.calistir()
+        yukleme.dogrula(b)   # sunucu dogrulamasindan gecer
+        olu = b["kontroller"]["pg_olu_satir"]
+        self.assertEqual([x["veritabani"] for x in olu["satirlar"]], ["satis db"])
+        self.assertEqual(olu["atlanan"], [{"veritabani": "arsiv", "neden": "yetki"}])
+        gi = b["kontroller"]["pg_gecersiz_indeks"]
+        self.assertEqual(sorted(x["veritabani"] for x in gi["atlanan"]), ["arsiv", "satis db"])
+        self.assertEqual([x["veritabani"] for x in b["kontroller"]["pg_kapsam"]["satirlar"]], ["postgres", "satis db"])
+        self.assertNotIn("arsiv", {g["db"] for g in self.gunluk()})   # yetkisiz veritabanina baglanmaya calisilmaz
+        self.assertIn("satis db", {g["db"] for g in self.gunluk()})   # bosluklu ad tirnakla gecer
+        self.assertIn("dbname='satis db'", {g["ci"].split(" sslmode")[0] for g in self.gunluk()})
+        self.assertEqual(oct(cikti.stat().st_mode)[-3:], "600")
+        bulgu, _ = kurallar.degerlendir(b)
+        self.assertIn("satis db.public.siparis", next(x for x in bulgu if x["sablon"] == "pg_olu_satir")["kanit"]["nesneler"])
+
+    def test_sinir_ve_secim(self):
+        b, _ = self.calistir("--en-cok-veritabani", "1")
+        self.assertIn({"veritabani": "satis db", "neden": "sinir"}, b["kontroller"]["pg_olu_satir"]["atlanan"])
+        b, _ = self.calistir("--veritabanlari", "satis db")
+        self.assertEqual([x["veritabani"] for x in b["kontroller"]["pg_kapsam"]["satirlar"]], ["satis db"])
+
+    def test_hic_veritabani_taranamazsa_olculemedi(self):
+        self.ayar["veritabanlari"] = [{"veritabani": "postgres", "baglanir": False}]
+        b, _ = self.calistir()
+        self.assertEqual(b["kontroller"]["pg_olu_satir"]["durum"], "hata")
+        yukleme.dogrula(b)
+
+    def test_maske_eslemesi_yalniz_yerelde(self):
+        b, cikti = self.calistir("--maskele")
+        metin = cikti.read_text()
+        self.assertNotIn("satis db", metin)
+        self.assertNotIn("siparis", metin)
+        esleme = cikti.with_name(cikti.stem + "-maske.json")
+        harita = json.loads(esleme.read_text())
+        self.assertEqual(oct(esleme.stat().st_mode)[-3:], "600")
+        self.assertIn("satis db", harita.values())
+        self.assertIn(b["kontroller"]["pg_olu_satir"]["satirlar"][0]["veritabani"], harita)
+        with self.assertRaises(yukleme.Gecersiz):   # esleme dosyasi yanlislikla yuklenirse reddedilir
+            yukleme.coz(esleme.read_bytes())
+
+    def test_sifresiz_baglantida_uyari(self):
+        self.ayar["tls"] = False
+        self.calistir()
+        self.assertIn("TLS", self.r.stderr)
 
 
 class KatalogTests(unittest.TestCase):

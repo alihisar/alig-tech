@@ -8,10 +8,12 @@ from tarama.uret_toplayici import katalog_ozeti
 
 MAX_BAYT = 5 * 1024 * 1024
 MAX_SATIR = 200
+MAX_SATIR_VT = 5000     # veritabani basina denetimde tum veritabanlarinin toplami
+MAX_ATLANAN = 1000
 MAX_METIN = 200
 ZAMAN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DURUMLAR = {"ok", "hata"}
-NEDENLER = {"yetki", "zaman_asimi", "desteklenmiyor", "yedek_sunucu", "hata", "calistirilmadi"}
+NEDENLER = {"yetki", "zaman_asimi", "desteklenmiyor", "yedek_sunucu", "hata", "calistirilmadi", "sinir", "ad"}
 UST_ALANLAR = {"format", "motor", "katalog_sha256", "olusturma_utc", "maskeli", "superuser", "kontroller"}
 
 
@@ -39,19 +41,19 @@ TURLER = {
     "pg_xid_yasi": {"datname": _M, "yas": _T, "mxid_yas": _T, "freeze_max_age": _T},
     "pg_bosta_islem": {"usename": _M, "durum": _M, "sure_sn": _T},
     "pg_baglanti": {"kullanilan": _T, "ust": _T},
-    "pg_olu_satir": {"schemaname": _M, "relname": _M, "canli": _T, "olu": _T, "son_autovacuum": _M},
-    "pg_gecersiz_indeks": {"schemaname": _M, "indexrelname": _M},
-    "pg_kullanilmayan_indeks": {"schemaname": _M, "indexrelname": _M, "bayt": _T},
-    "pg_sequence": {"schemaname": _M, "sequencename": _M, "oran": _S},
-    "pg_sequence_gorunurluk": {"toplam": _T, "okunamayan": _T},
+    "pg_olu_satir": {"veritabani": _M, "schemaname": _M, "relname": _M, "canli": _T, "olu": _T, "son_autovacuum": _M},
+    "pg_gecersiz_indeks": {"veritabani": _M, "schemaname": _M, "indexrelname": _M},
+    "pg_kullanilmayan_indeks": {"veritabani": _M, "schemaname": _M, "indexrelname": _M, "bayt": _T},
+    "pg_sequence": {"veritabani": _M, "schemaname": _M, "sequencename": _M, "oran": _S},
+    "pg_sequence_gorunurluk": {"veritabani": _M, "toplam": _T, "okunamayan": _T},
     "pg_slot": {"slot_name": _M, "active": _B, "wal_status": _M, "geri_bayt": _T},
     "pg_arsiv": {"archive_mode": _M, "basarili": _T, "hatali": _T, "son_basari_utc": _M, "son_hata_utc": _M},
     "pg_tls_parola": {"ssl": _M, "password_encryption": _M, "ssl_min_protocol_version": _M},
     "pg_md5_roller": {"sayi": _T},
     "pg_super_roller": {"rolname": _M, "rolcanlogin": _B},
-    "pg_public_create": {"public_create": _B},
+    "pg_public_create": {"veritabani": _M, "public_create": _B},
     "pg_log_ayarlari": {"name": _M, "setting": _M},
-    "pg_eklentiler": {"extname": _M, "extversion": _M},
+    "pg_eklentiler": {"veritabani": _M, "extname": _M, "extversion": _M},
 }
 
 MAX_DERINLIK = 8   # belge > kontroller > kontrol > satirlar > satir: 5 duzey; pay birakildi
@@ -135,8 +137,16 @@ def dogrula(b, motorlar=("postgresql",)):
             if set(e) != {"durum", "neden"} or e["neden"] not in NEDENLER:
                 raise Gecersiz(cid + ": hata kaydi gecersiz", "hata_kaydi", cid)
             continue
-        if set(e) != {"durum", "satirlar"} or not isinstance(e["satirlar"], list) or len(e["satirlar"]) > MAX_SATIR:
+        vt = c.get("kapsam") == "veritabani"
+        if not {"durum", "satirlar"} <= set(e) <= ({"durum", "satirlar", "atlanan"} if vt else {"durum", "satirlar"}) \
+                or not isinstance(e["satirlar"], list) or len(e["satirlar"]) > (MAX_SATIR_VT if vt else MAX_SATIR):
             raise Gecersiz(cid + ": satirlar gecersiz", "satirlar", cid)
+        if "atlanan" in e:
+            at = e["atlanan"]
+            if not isinstance(at, list) or len(at) > MAX_ATLANAN or not all(
+                    isinstance(x, dict) and set(x) == {"veritabani", "neden"} and isinstance(x["veritabani"], str)
+                    and len(x["veritabani"]) <= MAX_METIN and x["neden"] in NEDENLER for x in at):
+                raise Gecersiz(cid + ": atlanan veritabani kaydi gecersiz", "satirlar", cid)
         izin = set(c["kolonlar"])
         turler = TURLER.get(cid, {}) if b["motor"] == "postgresql" else {}
         for s in e["satirlar"]:

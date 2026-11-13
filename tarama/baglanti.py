@@ -5,6 +5,8 @@ Guvenlik kurallari (docs/kip-b-tasarim.md):
 - Parola yalnizca alt surecin ortaminda durur; arguman listesine, gunluge, diske yazilmaz.
 - Once sahiplik kaniti okunur. Uyusmazsa ya da hesap super kullaniciysa katalogdan hicbir sorgu calismaz.
 - Sunucudan gelen her deger `yukleme.dogrula` ile (kati sema) dogrulanir.
+- Tablo, indeks ve sequence denetimleri baglanilabilen her veritabaninda calisir; adi `AD` kalibina uymayan
+  veritabani baglanti dizgisine hic girmez, "ad" nedeniyle atlanir.
 """
 import json
 import os
@@ -17,6 +19,7 @@ from tarama import katalog, yukleme
 from tarama.uret_toplayici import katalog_ozeti
 
 AD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+EN_COK_VERITABANI = 20   # sure butcesi (toplam_sure) icinde kalsin diye toplayicidan dusuk
 KANIT_ON_EK = "alig-kanit-"
 ILK_SORGU = ("SELECT current_setting('is_superuser') = 'on' AS super, "
              "shobj_description((SELECT oid FROM pg_roles WHERE rolname = current_user), 'pg_authid') AS kanit")
@@ -94,6 +97,56 @@ class _Maske:
         return self.harita.setdefault(deger, "nesne-%d" % (len(self.harita) + 1))
 
 
+def _temizle(c, satirlar, limit=yukleme.MAX_SATIR):
+    """Sunucudan gelen satirlardan yalniz katalog kolonlari kalir."""
+    return [{k: v for k, v in s.items() if k in c["kolonlar"]} for s in satirlar[:limit] if isinstance(s, dict)]
+
+
+def _veritabanlari(psql, dizgi, parola, ilk_db, bitis):
+    """(taranacak, atlanan). Liste alinamazsa yalniz ilk veritabani."""
+    sonuc, _ = _calistir(psql, dizgi, parola, katalog.VT_LISTE_SQL, max(1, min(30, bitis - time.monotonic())))
+    if sonuc["durum"] != "ok":
+        return [ilk_db], []
+    taranacak, atlanan = [], []
+    for s in sonuc["satirlar"][:yukleme.MAX_ATLANAN]:
+        ad = s.get("veritabani") if isinstance(s, dict) else None
+        if not isinstance(ad, str) or len(ad) > yukleme.MAX_METIN:
+            continue
+        if not AD.match(ad):
+            atlanan.append({"veritabani": ad, "neden": "ad"})
+        elif s.get("baglanir") is not True:
+            atlanan.append({"veritabani": ad, "neden": "yetki"})
+        elif len(taranacak) >= EN_COK_VERITABANI:
+            atlanan.append({"veritabani": ad, "neden": "sinir"})
+        else:
+            taranacak.append(ad)
+    return taranacak, atlanan
+
+
+def _her_veritabani(psql, parola, hedef, kullanici, sslmode, c, taranacak, atlanan, bitis):
+    satirlar, at, calisti, ilk_neden = [], list(atlanan), False, None
+    for db in taranacak:
+        kalan = bitis - time.monotonic()
+        if kalan <= 1:
+            at.append({"veritabani": db, "neden": "zaman_asimi"})
+            continue
+        sonuc, _ = _calistir(psql, baglanti_dizgisi(hedef, db, kullanici, sslmode), parola, c["sql"], min(30, kalan))
+        if sonuc["durum"] == "ok":
+            calisti = True
+            for s in _temizle(c, sonuc["satirlar"]):
+                s["veritabani"] = db
+                satirlar.append(s)
+        else:
+            at.append({"veritabani": db, "neden": sonuc["neden"]})
+            ilk_neden = ilk_neden or sonuc["neden"]
+    if not calisti:
+        return {"durum": "hata", "neden": ilk_neden or ("yetki" if at else "calistirilmadi")}
+    sonuc = {"durum": "ok", "satirlar": satirlar[:yukleme.MAX_SATIR_VT]}
+    if at:
+        sonuc["atlanan"] = at
+    return sonuc
+
+
 def tara(hedef, veritabani, kullanici, parola, kanit, psql="psql", sslmode="require", maskele=False, toplam_sure=90):
     """Dogrulanmis toplama belgesini dondurur ya da BaglantiHatasi firlatir."""
     if not isinstance(parola, str) or not parola or len(parola) > 1024 or "\x00" in parola:
@@ -111,21 +164,26 @@ def tara(hedef, veritabani, kullanici, parola, kanit, psql="psql", sslmode="requ
         raise BaglantiHatasi("super")
 
     maske = _Maske() if maskele else None
+    taranacak, atlanan = _veritabanlari(psql, dizgi, parola, veritabani, bitis)
     kontroller = {}
     for c in katalog.PG:
-        kalan = bitis - time.monotonic()
-        if kalan <= 1:
-            kontroller[c["id"]] = {"durum": "hata", "neden": "zaman_asimi"}
-            continue
-        sonuc, _ = _calistir(psql, dizgi, parola, c["sql"], min(30, kalan))
-        if sonuc["durum"] == "ok":
-            satirlar = [{k: v for k, v in s.items() if k in c["kolonlar"]} for s in sonuc["satirlar"][:yukleme.MAX_SATIR] if isinstance(s, dict)]
-            if maske:
-                for s in satirlar:
-                    for kolon in c["maske"]:
-                        if kolon in s:
-                            s[kolon] = maske.al(s[kolon])
-            sonuc = {"durum": "ok", "satirlar": satirlar}
+        if c.get("kapsam") == "veritabani":
+            sonuc = _her_veritabani(psql, parola, hedef, kullanici, sslmode, c, taranacak, atlanan, bitis)
+        else:
+            kalan = bitis - time.monotonic()
+            if kalan <= 1:
+                kontroller[c["id"]] = {"durum": "hata", "neden": "zaman_asimi"}
+                continue
+            sonuc, _ = _calistir(psql, dizgi, parola, c["sql"], min(30, kalan))
+            if sonuc["durum"] == "ok":
+                sonuc = {"durum": "ok", "satirlar": _temizle(c, sonuc["satirlar"])}
+        if sonuc["durum"] == "ok" and maske:
+            for s in sonuc["satirlar"]:
+                for kolon in c["maske"]:
+                    if kolon in s:
+                        s[kolon] = maske.al(s[kolon])
+            for a in sonuc.get("atlanan", []):
+                a["veritabani"] = maske.al(a["veritabani"])
         kontroller[c["id"]] = sonuc
 
     belge = {"format": katalog.FORMAT, "motor": "postgresql", "katalog_sha256": katalog_ozeti(),

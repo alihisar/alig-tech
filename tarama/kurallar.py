@@ -126,6 +126,11 @@ def _parse_utc(s):
         return None
 
 
+def _nesne(x, *alanlar):
+    """Kanit listesi icin nesne adi; veritabani basina denetimlerde veritabani adi one eklenir."""
+    return ".".join(str(x[a]) for a in (("veritabani",) if x.get("veritabani") is not None else ()) + alanlar)
+
+
 # Kural icinde tur ya da anahtar hatasi: o kontrol "gecersiz_veri" ile olculemeyen sayilir, rapor ve panel dusmez.
 _VERI_HATASI = (TypeError, KeyError, ValueError, ZeroDivisionError, OverflowError, AttributeError, IndexError)
 
@@ -138,6 +143,8 @@ def degerlendir(doc):
     bulgu, olcul = [], []
     k = doc.get("kontroller") or {}
     taranan = _parse_utc(doc.get("olusturma_utc")) or datetime.now(timezone.utc)
+    kapsam = k.get("pg_kapsam") if isinstance(k.get("pg_kapsam"), dict) else {}
+    ortak_atlanan = {a.get("veritabani") for a in kapsam.get("atlanan") or [] if isinstance(a, dict)}
 
     def rows(cid):
         e = k.get(cid)
@@ -151,6 +158,10 @@ def degerlendir(doc):
         if not isinstance(r, list) or not all(isinstance(x, dict) for x in r):
             olcul.append((cid, "gecersiz_veri"))
             return None
+        # Bazi veritabanlarinda calismadi: sonuc o veritabanlari icin "temiz" sayilmaz. Butun denetimlerde ortak
+        # atlanan veritabanlari (yetki, sinir) raporun kapsam bolumunde bir kez yazilir; burada yalniz bu denetime ozgu olanlar.
+        if cid != "pg_kapsam" and any(isinstance(a, dict) and a.get("veritabani") not in ortak_atlanan for a in e.get("atlanan") or []):
+            olcul.append((cid, "kismi_veritabani"))
         return r
 
     def kural(cid):
@@ -218,19 +229,19 @@ def degerlendir(doc):
         if not kotu:
             return []
         return [_f("pg_olu_satir", "pg_olu_satir", "orta",
-                   {"tablo_sayisi": len(kotu), "nesneler": [f'{x["schemaname"]}.{x["relname"]}' for x in kotu[:10]],
+                   {"tablo_sayisi": len(kotu), "nesneler": [_nesne(x, "schemaname", "relname") for x in kotu[:10]],
                     "esik_oran": 0.2, "kaynak": "autovacuum_vacuum_scale_factor varsayilani"})]
 
     @kural("pg_gecersiz_indeks")
     def _(r):
         return [_f("pg_gecersiz_indeks", "pg_gecersiz_indeks", "yuksek",
-                   {"indeks_sayisi": len(r), "nesneler": [f'{x["schemaname"]}.{x["indexrelname"]}' for x in r[:10]]})]
+                   {"indeks_sayisi": len(r), "nesneler": [_nesne(x, "schemaname", "indexrelname") for x in r[:10]]})]
 
     @kural("pg_kullanilmayan_indeks")
     def _(r):
         return [_f("pg_kullanilmayan_indeks", "pg_kullanilmayan_indeks", "dusuk",
                    {"indeks_sayisi": len(r), "toplam_bayt": sum(x["bayt"] or 0 for x in r),
-                    "nesneler": [f'{x["schemaname"]}.{x["indexrelname"]}' for x in r[:10]]})]
+                    "nesneler": [_nesne(x, "schemaname", "indexrelname") for x in r[:10]]})]
 
     @kural("pg_sequence")
     def _(r):
@@ -239,13 +250,13 @@ def degerlendir(doc):
             return []
         return [_f("pg_sequence", "pg_sequence", "kritik" if en > 0.95 else "yuksek",
                    {"sequence_sayisi": len([x for x in r if x["oran"] > 0.8]), "en_yuksek_oran": en,
-                    "nesneler": [f'{x["schemaname"]}.{x["sequencename"]}' for x in r if x["oran"] > 0.8][:10]})]
+                    "nesneler": [_nesne(x, "schemaname", "sequencename") for x in r if x["oran"] > 0.8][:10]})]
 
     @kural("pg_sequence_gorunurluk")
     def _(r):
         # pg_sequences.last_value, USAGE ya da SELECT yetkisi olmayan sequence icin bos doner: o sequence'lar
         # yukaridaki denetimde hic gorunmez. Okunamayan varsa sonuc "temiz" sayilmaz.
-        if r[0]["okunamayan"] and r[0]["okunamayan"] > 0:
+        if sum(x["okunamayan"] or 0 for x in r) > 0:
             olcul.append(("pg_sequence", "kismi_yetki"))
         return []
 
@@ -299,7 +310,11 @@ def degerlendir(doc):
 
     @kural("pg_public_create")
     def _(r):
-        return [_f("pg_public_create", "pg_public_create", "orta", {"public_create": True})] if r[0]["public_create"] is True else []
+        acik = [x for x in r if x["public_create"] is True]
+        if not acik:
+            return []
+        return [_f("pg_public_create", "pg_public_create", "orta",
+                   {"public_create": True, "veritabanlari": [str(x.get("veritabani")) for x in acik[:10]]})]
 
     @kural("pg_log_ayarlari")
     def _(r):

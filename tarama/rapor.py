@@ -18,10 +18,13 @@ M = {
            "nedenler": {"yetki": "yetki yok", "zaman_asimi": "zaman aşımı", "desteklenmiyor": "bu sürümde desteklenmiyor",
                         "yedek_sunucu": "yedek sunucuda çalışmaz", "hata": "hata", "calistirilmadi": "çalıştırılmadı",
                         "gecersiz_veri": "değer biçimi geçersiz",
-                        "kismi_yetki": "kısmen ölçüldü: bazı sequence değerleri tarama hesabının yetkisiyle okunamadı"},
-           "db": "Tablo, indeks ve sequence denetimlerinin çalıştığı veritabanı",
-           "db_d": "%s (sunucuda %d veritabanı)",
-           "db_k": "Bağlanılan veritabanı dışındaki %d veritabanında tablo, indeks ve sequence durumu. Her biri için betiği --dbname ile ayrıca çalıştırın."},
+                        "kismi_yetki": "kısmen ölçüldü: bazı sequence değerleri tarama hesabının yetkisiyle okunamadı",
+                        "kismi_veritabani": "kısmen ölçüldü: bazı veritabanlarında çalışmadı", "sinir": "veritabanı sayısı sınırı",
+                        "ad": "veritabanı adı desteklenmiyor"},
+           "db": "Tablo, indeks ve sequence denetimleri",
+           "db_d": "%d veritabanında çalıştı (sunucuda %d)",
+           "db_a": "Atlanan veritabanları",
+           "db_k": "Atlanan %d veritabanında tablo, indeks ve sequence durumu. Tarama hesabına bağlanma yetkisi verin ya da betiği --veritabanlari ile o veritabanları için çalıştırın."},
     "en": {"baslik": "Health check report", "ozet": "Summary", "tarama": "Scan time (UTC)", "motor": "Engine",
            "surum": "Masked", "evet": "yes", "hayir": "no", "bulgu": "Findings", "yok": "No findings in this scan.",
            "kanit": "Evidence", "neden": "Why it matters", "oneri": "Proposal", "risk": "Risk of the proposal", "geri": "Rollback",
@@ -36,10 +39,13 @@ M = {
            "nedenler": {"yetki": "no permission", "zaman_asimi": "timeout", "desteklenmiyor": "not supported on this version",
                         "yedek_sunucu": "does not run on a standby", "hata": "error", "calistirilmadi": "not run",
                         "gecersiz_veri": "invalid value format",
-                        "kismi_yetki": "partially measured: some sequence values could not be read with the scan account's privileges"},
-           "db": "Database where table, index and sequence checks ran",
-           "db_d": "%s (%d databases on the server)",
-           "db_k": "Table, index and sequence state in the %d databases other than the connected one. Run the script with --dbname for each of them."},
+                        "kismi_yetki": "partially measured: some sequence values could not be read with the scan account's privileges",
+                        "kismi_veritabani": "partially measured: did not run in some databases", "sinir": "database count limit",
+                        "ad": "database name not supported"},
+           "db": "Table, index and sequence checks",
+           "db_d": "ran in %d databases (%d on the server)",
+           "db_a": "Skipped databases",
+           "db_k": "Table, index and sequence state in the %d skipped databases. Grant the scan account permission to connect, or run the script with --veritabanlari for those databases."},
 }
 
 
@@ -53,20 +59,28 @@ def _kanit(kanit):
 
 
 def _db(belge):
-    """(bagli veritabani adi, sunucudaki veritabani sayisi) ya da None. Bozuk degerde None (rapor dusmez)."""
+    """(taranan veritabani sayisi, sunucudaki veritabani sayisi, [(atlanan ad, neden)]) ya da None. Bozuk degerde None."""
     e = (belge.get("kontroller") or {}).get("pg_kapsam")
     try:
-        s = e["satirlar"][0]
-        if e["durum"] == "ok" and isinstance(s["veritabani_sayisi"], int) and not isinstance(s["veritabani_sayisi"], bool):
-            return str(s["veritabani"]), s["veritabani_sayisi"]
+        if e["durum"] != "ok" or not e["satirlar"]:
+            return None
+        toplam = e["satirlar"][0]["veritabani_sayisi"]
+        if not isinstance(toplam, int) or isinstance(toplam, bool):
+            return None
+        atlanan = [(str(x["veritabani"]), str(x["neden"])) for x in e.get("atlanan") or []]
+        return len(e["satirlar"]), toplam, atlanan
     except (TypeError, KeyError, IndexError):
-        pass
-    return None
+        return None
 
 
 def _kapsam(belge, m):
     db = _db(belge)
-    return "<dt>%s</dt><dd>%s</dd>" % (escape(m["db"]), escape(m["db_d"] % db)) if db else ""
+    if not db:
+        return ""
+    out = "<dt>%s</dt><dd>%s</dd>" % (escape(m["db"]), escape(m["db_d"] % (db[0], db[1])))
+    if db[2]:
+        out += "<dt>%s</dt><dd>%s</dd>" % (escape(m["db_a"]), escape(", ".join("%s (%s)" % (ad, m["nedenler"].get(n, n)) for ad, n in db[2][:20])))
+    return out
 
 
 def govde(rapor, dil, token, eylemler=True):
@@ -95,8 +109,8 @@ def govde(rapor, dil, token, eylemler=True):
         p.append("<li><code>%s</code>: %s</li>" % (escape(cid), escape(m["nedenler"].get(neden, neden))))
     kapsam_l = list(m["kapsam_l"])
     db = _db(belge)
-    if db and db[1] > 1:
-        kapsam_l.insert(0, m["db_k"] % (db[1] - 1))
+    if db and db[2]:
+        kapsam_l.insert(0, m["db_k"] % len(db[2]))
     p.append("</ul><h2>%s</h2><ul class=\"plain\">%s</ul>" % (escape(m["kapsam"]), "".join("<li>%s</li>" % escape(x) for x in kapsam_l)))
     p.append("<p>%s: %s</p>" % (escape(m["bitis"]), escape(rapor["bitis_utc"])))
     if not eylemler:
