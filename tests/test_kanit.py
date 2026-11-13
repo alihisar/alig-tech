@@ -93,7 +93,7 @@ class DurumTests(unittest.TestCase):
                 self.assertEqual((k["durum"], k["neden"]), ("UNAVAILABLE", "calistirilmadi"), k["kural"])
 
     def test_temiz_belgede_kurallar_gecer(self):
-        uygulanmaz = {"PG-HA-001": "slot_yok", "MS-HA-002": "ag_yok"}
+        uygulanmaz = {"PG-HA-001": "slot_yok", "PG-HA-002": "replika_yok", "MS-HA-002": "ag_yok"}
         for motor in MOTOR_KURALLARI:
             for k in kurallar.incele(TEMIZ[motor]()).kayitlar:
                 beklenen = ("NOT_APPLICABLE", uygulanmaz[k["kural"]]) if k["kural"] in uygulanmaz else ("PASS", None)
@@ -218,7 +218,7 @@ class DurumTests(unittest.TestCase):
             for kimlik, k in kayitlar(belge).items():
                 if kimlik in vt_kurallari:
                     self.assertEqual(k["durum"], "UNKNOWN", kimlik)
-                elif kimlik != "PG-HA-001":
+                elif kimlik not in ("PG-HA-001", "PG-HA-002"):   # temiz belgede slot ve replika yok: uygulanmaz
                     self.assertEqual(k["durum"], "PASS", kimlik)
 
     def test_gozlem_nesne_adi_tasimaz(self):

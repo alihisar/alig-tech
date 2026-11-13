@@ -209,7 +209,7 @@ class GercekSunucuKanitiTests(unittest.TestCase):
             s = DOGRULAMA["surumler"].get(str(v))
             self.assertIsNotNone(s, "PostgreSQL %d icin kanit yok" % v)
             self.assertEqual(s["katalog_sha256"], katalog_ozeti(), "PostgreSQL %d kaniti eski katalogla: surum_dogrula.py yeniden calistirin" % v)
-            self.assertEqual(set(s["hesaplar"]), {"pg_monitor", "yetkisiz", "super"})
+            self.assertEqual(set(s["hesaplar"]), {"pg_monitor", "yetkisiz", "super", "yedek"})
             for c in katalog.PG:
                 if katalog.sorgu(c, v) is None:
                     continue
@@ -236,10 +236,10 @@ class GercekSunucuKanitiTests(unittest.TestCase):
 
     def test_gercek_belgeler_dogrulanir_ve_kurallar_beklendigi_gibi(self):
         for v in katalog.SINANAN:
-            belge = {a: json.loads((BELGELER / str(v) / ("%s.json" % a)).read_text(encoding="utf-8")) for a in ("pg_monitor", "yetkisiz", "super")}
+            belge = {a: json.loads((BELGELER / str(v) / ("%s.json" % a)).read_text(encoding="utf-8")) for a in ("pg_monitor", "yetkisiz", "super", "yedek")}
             for b in belge.values():
                 yukleme.dogrula(copy.deepcopy(b))
-            mon, duz, sup = (durumlar(belge[a]) for a in ("pg_monitor", "yetkisiz", "super"))
+            mon, duz, sup, yed = (durumlar(belge[a]) for a in ("pg_monitor", "yetkisiz", "super", "yedek"))
             # senaryo: etkin olmayan slot, gecersiz indeks, MD5 rol, bosta acik islem (esik alti), okunamayan sequence
             self.assertEqual(mon["PG-HA-001"][0], "FAIL")
             self.assertEqual(mon["PG-MAINT-004"][0], "FAIL")
@@ -252,6 +252,24 @@ class GercekSunucuKanitiTests(unittest.TestCase):
             self.assertEqual(mon["PG-CAP-002"][0], "UNKNOWN")                # sequence okunamadi ve gizli veritabani taranmadi
             self.assertEqual(sup["PG-CAP-002"][0], "FAIL")
             self.assertTrue(kurallar.incele(belge["pg_monitor"]).baglam["sinanan"])
+            # madde 12: autovacuum, multixact, replikasyon gecikmesi, sorgu istatistikleri, gecici dosya
+            self.assertEqual((mon["PG-MAINT-006"], mon["PG-MAINT-008"]), (("PASS", None), ("PASS", None)))
+            self.assertEqual(mon["PG-MAINT-007"][0], "WARNING")                 # autovacuum'u kapatilmis "olu" tablosu
+            self.assertEqual(mon["PG-HA-002"], ("PASS", None))                  # akista, esik alti gecikme
+            self.assertGreater(kurallar.incele(belge["pg_monitor"]).kayitlar[[k.kimlik for k in kurallar.KURALLAR].index("PG-HA-002")]
+                               ["gozlem"]["en_yuksek_gecikme_bayt"], 0)        # duraklatilmis yeniden oynatma olculdu
+            self.assertEqual(duz["PG-HA-002"], ("UNKNOWN", "rol_eksik"))       # yetkisiz hesap replikayi gorur ama durumunu goremez
+            self.assertEqual(duz["PG-PERF-002"], ("UNAVAILABLE", "yetki"))
+            self.assertIn(mon["PG-PERF-002"][0], ("PASS", "WARNING"))           # pg_stat_statements paketteyse yuklenir
+            self.assertEqual(mon["PG-PERF-003"][0], "WARNING")                  # gecici dosya var, istatistik baslangici bilinmiyor
+            # yedek sunucu: butun sorgular calisir, birincile ozgu kurallar uygulanmaz, slot yedekte de olculur
+            self.assertFalse([c for c, e in belge["yedek"]["kontroller"].items() if e["durum"] != "ok" and c != "pg_md5_roller"])
+            self.assertTrue(kurallar.incele(belge["yedek"]).baglam["yedek"])
+            self.assertFalse(kurallar.incele(belge["pg_monitor"]).baglam["yedek"])
+            for kimlik in ("PG-MAINT-003", "PG-MAINT-005", "PG-BACKUP-001"):
+                self.assertEqual(yed[kimlik], ("NOT_APPLICABLE", "birincil_degil"), kimlik)
+            self.assertEqual(yed["PG-HA-001"][0], "FAIL")                       # yedekteki etkin olmayan slot
+            self.assertEqual(yed["PG-HA-002"], ("NOT_APPLICABLE", "replika_yok"))
 
 
 if __name__ == "__main__":

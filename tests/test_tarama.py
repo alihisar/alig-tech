@@ -50,6 +50,7 @@ def temiz_belge():
     for c in katalog.PG:
         k[c["id"]] = {"durum": "ok", "satirlar": []}
     k["pg_surum"]["satirlar"] = [{"surum_num": 160015}]   # gercek sunucuda sinanan surum (katalog.SINANAN)
+    k["pg_sunucu_rolu"]["satirlar"] = [{"yedek": False}]   # birincil
     k["pg_hesap"]["satirlar"] = [{"super_kullanici": False, "pg_read_all_stats": True, "pg_read_all_settings": True}]   # pg_monitor uyesi
     k["pg_baglanti"]["satirlar"] = [{"kullanilan": 10, "ust": 100}]
     k["pg_arsiv"]["satirlar"] = [{"archive_mode": "on", "basarili": 5, "hatali": 0, "son_basari_utc": "2026-11-10T10:00:00Z", "son_hata_utc": None}]
@@ -59,7 +60,10 @@ def temiz_belge():
     k["pg_log_ayarlari"]["satirlar"] = [{"name": "log_connections", "setting": "on"}, {"name": "log_disconnections", "setting": "on"}]
     k["pg_md5_roller"]["satirlar"] = [{"sayi": 0}]
     # Gercek sunucuda her zaman satir donen sorgular: bos donmeleri "veri yok" demektir, temiz degil (tarama/kanit.py)
-    k["pg_xid_yasi"]["satirlar"] = [{"datname": "postgres", "yas": 1000, "mxid_yas": 1, "freeze_max_age": 200000000}]
+    k["pg_xid_yasi"]["satirlar"] = [{"datname": "postgres", "yas": 1000, "mxid_yas": 1, "freeze_max_age": 200000000, "mxid_freeze_max_age": 400000000}]
+    k["pg_autovacuum"]["satirlar"] = [{"name": "autovacuum", "setting": "on"}, {"name": "track_counts", "setting": "on"}]
+    k["pg_gecici_dosya"]["satirlar"] = [{"datname": "postgres", "dosya": 0, "bayt": 0, "sifirlama_utc": None}]
+    k["pg_sorgu_istatistigi"]["satirlar"] = [{"shared_preload_libraries": "pg_stat_statements", "izleme": "top"}]
     k["pg_sequence_gorunurluk"]["satirlar"] = [{"veritabani": "postgres", "toplam": 0, "okunamayan": 0}]
     return {"format": katalog.FORMAT, "motor": katalog.MOTOR, "katalog_sha256": uret_toplayici.katalog_ozeti(),
             "olusturma_utc": "2026-11-10T12:00:00Z", "maskeli": False, "superuser": False, "kontroller": k}
@@ -201,7 +205,7 @@ class BozukDegerTests(unittest.TestCase):
 
 
 VT_KONTROLLERI = {"pg_kapsam", "pg_olu_satir", "pg_gecersiz_indeks", "pg_kullanilmayan_indeks", "pg_sequence", "pg_sequence_gorunurluk",
-                  "pg_public_create", "pg_eklentiler"}
+                  "pg_public_create", "pg_eklentiler", "pg_tablo_autovacuum"}
 
 
 class VeritabaniKapsamTests(unittest.TestCase):

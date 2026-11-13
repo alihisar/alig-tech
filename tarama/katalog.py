@@ -23,10 +23,14 @@ SURUM_ALT, SURUM_UST = 12, 18   # matrisin kapsadigi ana surumler; daha yenisind
 # tutarliligini tests/test_surum.py denetler). Disindaki surumde rapordaki kanit guveni en cok MEDIUM.
 SINANAN = (16,)
 YETKILER = ("herkes", "pg_read_all_stats", "pg_read_all_settings", "superuser")
+# Yedek sunucuda pg_current_wal_lsn() hata verir: orada son alinan WAL konumu kullanilir (CASE gereken dali calistirir).
+WAL_KONUMU = "CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END"
 
 PG = [
     {"id": "pg_surum", "en_az": 0, "yetki": "herkes", "kaynak": ["server_version_num"], "kolonlar": ["surum_num"], "maske": [],
      "sql": "SELECT current_setting('server_version_num')::int AS surum_num"},
+    {"id": "pg_sunucu_rolu", "en_az": 0, "yetki": "herkes", "kaynak": ["pg_is_in_recovery"], "kolonlar": ["yedek"], "maske": [],
+     "sql": "SELECT pg_is_in_recovery() AS yedek"},
     {"id": "pg_hesap", "en_az": 0, "yetki": "herkes", "kaynak": ["pg_roles", "pg_has_role"],
      "kolonlar": ["super_kullanici", "pg_read_all_stats", "pg_read_all_settings"], "maske": [],
      "sql": "SELECT rolsuper AS super_kullanici, pg_has_role(current_user, 'pg_read_all_stats', 'USAGE') AS pg_read_all_stats, "
@@ -35,9 +39,11 @@ PG = [
     {"id": "pg_kapsam", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_database"], "kapsam": "veritabani", "kolonlar": ["veritabani", "veritabani_sayisi"], "maske": ["veritabani"],
      "sql": "SELECT current_database() AS veritabani, "
             "(SELECT count(*) FROM pg_database WHERE datallowconn AND NOT datistemplate)::int AS veritabani_sayisi"},
-    {"id": "pg_xid_yasi", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_database", "autovacuum_freeze_max_age"], "kolonlar": ["datname", "yas", "mxid_yas", "freeze_max_age"], "maske": ["datname"],
+    {"id": "pg_xid_yasi", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_database", "autovacuum_freeze_max_age", "autovacuum_multixact_freeze_max_age"],
+     "kolonlar": ["datname", "yas", "mxid_yas", "freeze_max_age", "mxid_freeze_max_age"], "maske": ["datname"],
      "sql": "SELECT datname, age(datfrozenxid) AS yas, mxid_age(datminmxid) AS mxid_yas, "
-            "current_setting('autovacuum_freeze_max_age')::bigint AS freeze_max_age "
+            "current_setting('autovacuum_freeze_max_age')::bigint AS freeze_max_age, "
+            "current_setting('autovacuum_multixact_freeze_max_age')::bigint AS mxid_freeze_max_age "
             "FROM pg_database WHERE datallowconn"},
     {"id": "pg_bosta_islem", "en_az": 12, "yetki": "pg_read_all_stats", "kaynak": ["pg_stat_activity"], "kolonlar": ["usename", "durum", "sure_sn"], "maske": ["usename"],
      "sql": "SELECT usename, state AS durum, extract(epoch FROM now() - xact_start)::int AS sure_sn "
@@ -71,11 +77,17 @@ PG = [
      "sql": "SELECT count(*)::int AS toplam, count(*) FILTER (WHERE NOT has_sequence_privilege(c.oid, 'USAGE,SELECT'))::int AS okunamayan "
             "FROM pg_class c WHERE c.relkind = 'S'"},
     {"id": "pg_slot", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_replication_slots"], "kolonlar": ["slot_name", "active", "wal_status", "geri_bayt"], "maske": ["slot_name"],
-     "sql": "SELECT slot_name, active, wal_status, pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)::bigint AS geri_bayt "
-            "FROM pg_replication_slots LIMIT 50",
+     "sql": "SELECT slot_name, active, wal_status, pg_wal_lsn_diff(%s, restart_lsn)::bigint AS geri_bayt "
+            "FROM pg_replication_slots LIMIT 50" % WAL_KONUMU,
      "eski_surum": [{"en_cok": 12, "not": "wal_status kolonu PostgreSQL 13'te geldi, 12'de boş döner",
                      "sql": "SELECT slot_name, active, NULL::text AS wal_status, "
-                            "pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)::bigint AS geri_bayt FROM pg_replication_slots LIMIT 50"}]},
+                            "pg_wal_lsn_diff(%s, restart_lsn)::bigint AS geri_bayt FROM pg_replication_slots LIMIT 50" % WAL_KONUMU}]},
+    {"id": "pg_replikasyon", "en_az": 12, "yetki": "pg_read_all_stats", "kaynak": ["pg_stat_replication"],
+     "kolonlar": ["uygulama", "durum", "senkron", "gecikme_sn", "gecikme_bayt"], "maske": ["uygulama"],
+     "sql": "SELECT application_name AS uygulama, state AS durum, sync_state AS senkron, "
+            "date_part('epoch', replay_lag)::float8 AS gecikme_sn, "
+            "pg_wal_lsn_diff(%s, replay_lsn)::bigint AS gecikme_bayt "
+            "FROM pg_stat_replication ORDER BY 5 DESC NULLS LAST LIMIT 50" % WAL_KONUMU},
     {"id": "pg_arsiv", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_stat_archiver", "archive_mode"], "kolonlar": ["archive_mode", "basarili", "hatali", "son_basari_utc", "son_hata_utc"], "maske": [],
      "sql": "SELECT current_setting('archive_mode') AS archive_mode, archived_count AS basarili, failed_count AS hatali, "
             "to_char(last_archived_time AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS son_basari_utc, "
@@ -92,6 +104,24 @@ PG = [
      "sql": "SELECT has_schema_privilege('public', 'public', 'CREATE') AS public_create"},
     {"id": "pg_log_ayarlari", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_settings"], "kolonlar": ["name", "setting"], "maske": [],
      "sql": "SELECT name, setting FROM pg_settings WHERE name IN ('log_connections','log_disconnections','log_min_duration_statement')"},
+    {"id": "pg_autovacuum", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_settings"], "kolonlar": ["name", "setting"], "maske": [],
+     "sql": "SELECT name, setting FROM pg_settings WHERE name IN ('autovacuum', 'track_counts')"},
+    {"id": "pg_tablo_autovacuum", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_class"], "kapsam": "veritabani",
+     "kolonlar": ["veritabani", "schemaname", "relname"], "maske": ["veritabani", "schemaname", "relname"],
+     # reloptions degeri yazildigi gibi saklanir: PostgreSQL'in kabul ettigi butun "kapali" yazimlari (parse_bool)
+     "sql": "SELECT n.nspname AS schemaname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE c.relkind IN ('r', 'm') AND n.nspname NOT IN ('pg_catalog', 'information_schema') "
+            "AND array_to_string(c.reloptions, ',') ~* '(^|,)autovacuum_enabled=(f|fa|fal|fals|false|n|no|of|off|0)(,|$)' "
+            "ORDER BY 1, 2 LIMIT 50"},
+    {"id": "pg_sorgu_istatistigi", "en_az": 12, "yetki": "pg_read_all_settings", "kaynak": ["shared_preload_libraries", "pg_stat_statements.track"],
+     "kolonlar": ["shared_preload_libraries", "izleme"], "maske": [],
+     "sql": "SELECT current_setting('shared_preload_libraries') AS shared_preload_libraries, "
+            "current_setting('pg_stat_statements.track', true) AS izleme"},
+    {"id": "pg_gecici_dosya", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_stat_database"], "kolonlar": ["datname", "dosya", "bayt", "sifirlama_utc"],
+     "maske": ["datname"],
+     "sql": "SELECT datname, temp_files AS dosya, temp_bytes AS bayt, "
+            "to_char(stats_reset AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS sifirlama_utc "
+            "FROM pg_stat_database WHERE datname IS NOT NULL ORDER BY temp_bytes DESC LIMIT 100"},
     {"id": "pg_eklentiler", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_extension"], "kapsam": "veritabani", "kolonlar": ["veritabani", "extname", "extversion"], "maske": ["veritabani"],
      "sql": "SELECT extname, extversion FROM pg_extension"},
 ]

@@ -23,6 +23,10 @@ MUHENDISLIK = {
     "pg_sequence": "sequence doluluk: >0.8 yuksek, >0.95 kritik",
     "pg_slot": "etkin olmayan slot: yuksek",
     "pg_kullanilmayan_indeks": "10 MB ustu ve idx_scan=0: dusuk (istatistik sifirlanmis olabilir)",
+    "pg_mxid": "multixact yasi: >= 2 x autovacuum_multixact_freeze_max_age orta, >= 1,6 milyar kritik",
+    "pg_tablo_autovacuum": "tablo duzeyinde kapatilmis autovacuum: orta",
+    "pg_replikasyon": "replika gecikmesi: >=60 sn ya da >=1 GB orta, >=600 sn ya da >=16 GB yuksek; akista olmayan replika orta",
+    "pg_gecici_dosya": "gecici dosya: gunluk >=10 GB dusuk, >=100 GB orta; olcum penceresi en az 1 gun sayilir, bilinmiyorsa bilgi",
 }
 
 T = {  # kontrol -> sablon. Her alan {"tr":..., "en":...}
@@ -115,6 +119,53 @@ T = {  # kontrol -> sablon. Her alan {"tr":..., "en":...}
         oneri={"tr": "PUBLIC rolünden public şemasındaki CREATE yetkisini kaldırmayı değerlendirin.", "en": "Consider revoking CREATE on the public schema from PUBLIC."},
         risk={"tr": "Orta. Bu yetkiye güvenen uygulamalar hata verebilir.", "en": "Medium. Applications relying on it may break."},
         geri={"tr": "Yetki geri verilir.", "en": "Grant it back."}, is_="kucuk"),
+    "pg_autovacuum": dict(
+        baslik={"tr": "Autovacuum kapalı ya da çalışamıyor", "en": "Autovacuum is off or cannot work"},
+        neden={"tr": "Autovacuum kapalıyken ölü satırlar temizlenmez ve istatistikler eskir; track_counts kapalıysa autovacuum hangi tabloya bakacağını bilemez. Tablolar şişer, işlem kimliği yaşı yükselir.",
+               "en": "With autovacuum off, dead rows are not cleaned up and statistics go stale; with track_counts off, autovacuum cannot tell which tables need work. Tables bloat and transaction ID age climbs."},
+        oneri={"tr": "autovacuum ve track_counts ayarlarını açın. Bazı tablolar farklı davranış istiyorsa tablo düzeyinde ayar kullanın.",
+               "en": "Turn autovacuum and track_counts on. If some tables need different behaviour, use table-level settings."},
+        risk={"tr": "Düşük. Açıldıktan sonra birikmiş temizlik bir süre yük oluşturabilir.", "en": "Low. After enabling, the cleanup backlog can add load for a while."},
+        geri={"tr": "Ayar geri alınır, yapılandırma yeniden yüklenir.", "en": "Revert the setting and reload."}, is_="kucuk"),
+    "pg_tablo_autovacuum": dict(
+        baslik={"tr": "Autovacuum'u kapatılmış tablolar", "en": "Tables with autovacuum disabled"},
+        neden={"tr": "Bu tablolarda ölü satırlar yalnız elle çalıştırılan VACUUM ile temizlenir; elle bakım aksarsa tablo şişer. Dondurma için zorunlu temizlik yine çalışır ama geç ve ağır olur.",
+               "en": "Dead rows in these tables are only cleaned by manual VACUUM; if manual maintenance lapses the table bloats. Wraparound-prevention vacuums still run, but late and heavy."},
+        oneri={"tr": "Ayarın bilerek kapatıldığını doğrulayın. Gerekmiyorsa ALTER TABLE ... RESET (autovacuum_enabled) ile açın; gerekiyorsa elle VACUUM'u düzenli bir işe bağlayın.",
+               "en": "Confirm the setting was turned off on purpose. If not needed, re-enable it with ALTER TABLE ... RESET (autovacuum_enabled); if needed, schedule manual VACUUM."},
+        risk={"tr": "Düşük.", "en": "Low."}, geri={"tr": "Tablo ayarı yeniden kapatılabilir.", "en": "The table setting can be turned off again."}, is_="kucuk"),
+    "pg_mxid_yasi": dict(
+        baslik={"tr": "Multixact yaşı yüksek", "en": "Multixact ID age is high"},
+        neden={"tr": "Satır kilitleri ve yabancı anahtar denetimleri multixact kimliği tüketir. Yaş sınıra ulaşırsa veritabanı yazmayı durdurur; dondurma işleminin yetişmesi gerekir.",
+               "en": "Row locks and foreign key checks consume multixact IDs. If the age reaches the limit the database stops accepting writes; freezing must keep up."},
+        oneri={"tr": "Dondurmayı engelleyen uzun işlemleri ve hazırlanmış işlemleri inceleyin. Etkilenen veritabanında planlı VACUUM (FREEZE) ve autovacuum_multixact_freeze_max_age ayarını değerlendirin.",
+               "en": "Look for long transactions and prepared transactions that block freezing. Consider a planned VACUUM (FREEZE) on the affected database and review autovacuum_multixact_freeze_max_age."},
+        risk={"tr": "Düşük. VACUUM yük oluşturur, bakım saatinde çalıştırın.", "en": "Low. VACUUM adds load, run it in a quiet period."},
+        geri={"tr": "VACUUM geri alınmaz ama zararsızdır.", "en": "VACUUM cannot be undone but is harmless."}, is_="orta"),
+    "pg_replikasyon": dict(
+        baslik={"tr": "Replika geride kalıyor ya da akışta değil", "en": "A replica is falling behind or not streaming"},
+        neden={"tr": "Geride kalan replika, yük devrinde veri kaybına ya da uzun toparlanmaya yol açar; okuma yükü taşıyorsa eski veri döndürür.",
+               "en": "A lagging replica means data loss or a long recovery on failover, and stale reads if it serves read traffic."},
+        oneri={"tr": "Replika sunucusunda disk ve ağ hızını, yeniden oynatmayı bekleten uzun sorguları (max_standby_streaming_delay, hot_standby_feedback) inceleyin. Akışta olmayan replikanın bağlantısına ve günlüğüne bakın.",
+               "en": "On the replica, check disk and network throughput and long queries that hold up replay (max_standby_streaming_delay, hot_standby_feedback). For a replica that is not streaming, check its connection and log."},
+        risk={"tr": "Düşük. İnceleme salt okunurdur; ayar değişikliği yeniden yükleme ister.", "en": "Low. The investigation is read-only; setting changes need a reload."},
+        geri={"tr": "Ayar geri alınır.", "en": "Revert the setting."}, is_="orta"),
+    "pg_sorgu_istatistigi": dict(
+        baslik={"tr": "Sorgu istatistikleri (pg_stat_statements) toplanmıyor", "en": "Query statistics (pg_stat_statements) are not collected"},
+        neden={"tr": "pg_stat_statements olmadan hangi sorguların zaman ve kaynak tükettiği ölçülemez; performans incelemesinde kanıt eksik kalır.",
+               "en": "Without pg_stat_statements there is no measurement of which queries consume time and resources; performance investigations lack evidence."},
+        oneri={"tr": "shared_preload_libraries ayarına pg_stat_statements ekleyin (yeniden başlatma gerekir), izlenecek veritabanında CREATE EXTENSION pg_stat_statements çalıştırın, pg_stat_statements.track değerini top bırakın.",
+               "en": "Add pg_stat_statements to shared_preload_libraries (needs a restart), run CREATE EXTENSION pg_stat_statements in the database you monitor, and keep pg_stat_statements.track at top."},
+        risk={"tr": "Düşük. Küçük bir ek yük ve bellek kullanımı getirir; yeniden başlatma bakım penceresi ister.", "en": "Low. Small overhead and memory use; the restart needs a maintenance window."},
+        geri={"tr": "Kütüphane listeden çıkarılır, sunucu yeniden başlatılır.", "en": "Remove the library from the list and restart."}, is_="kucuk"),
+    "pg_gecici_dosya": dict(
+        baslik={"tr": "Sorgular geçici dosyaya yazıyor", "en": "Queries spill to temporary files"},
+        neden={"tr": "work_mem'e sığmayan sıralama ve birleştirmeler diske yazar; sorgular yavaşlar, disk G/Ç'si artar. İstatistiklerin başlangıç zamanı bilinmiyorsa yoğunluk ölçülemez, yalnız kullanım görülür.",
+               "en": "Sorts and hashes that do not fit in work_mem write to disk, slowing queries and adding I/O. If the statistics start time is unknown, the rate cannot be measured; only the usage is visible."},
+        oneri={"tr": "log_temp_files ile geçici dosya yazan sorguları belirleyin; o sorguları iyileştirin ya da work_mem'i yalnız gereken oturumlarda artırın. Genel work_mem artışı bellek tüketimini katlar.",
+               "en": "Use log_temp_files to find the queries that write temporary files; tune them, or raise work_mem only for the sessions that need it. Raising work_mem globally multiplies memory use."},
+        risk={"tr": "Düşük. log_temp_files günlük hacmini artırır.", "en": "Low. log_temp_files increases log volume."},
+        geri={"tr": "Ayar geri alınır.", "en": "Revert the setting."}, is_="orta"),
     "pg_log": dict(
         baslik={"tr": "Bağlantı günlüğü kapalı", "en": "Connection logging is off"},
         neden={"tr": "Bağlantı ve bağlantı kesme günlüğü olmadan olay incelemesi eksik kalır.", "en": "Without connection and disconnection logs, incident review is incomplete."},
@@ -150,7 +201,7 @@ KURALLAR = []
 kural = kanit.kayitci(KURALLAR, "postgresql")
 K = kanit.Kaynak
 # Kural kaynagi olmayan, raporda bilgi olarak kullanilan denetimler
-BILGI = ("pg_hesap", "pg_kapsam", "pg_eklentiler")   # pg_hesap: tarama hesabinin yetkileri, sonucun tamligi icin (tarama/kanit.py)
+BILGI = ("pg_sunucu_rolu", "pg_hesap", "pg_kapsam", "pg_eklentiler")   # pg_hesap ve pg_sunucu_rolu sonucun tamligi icin (tarama/kanit.py)
 
 TLS_SURUMLERI = ("TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3")
 _ACIK, _KAPALI = {"on", "true", "yes", "1"}, {"off", "false", "no", "0"}
@@ -222,6 +273,74 @@ def _bosta(r, g):
                {"oturum_sayisi": len(uzun), "en_uzun_sn": en, "esik_orta_sn": 600, "esik_yuksek_sn": 3600})]
 
 
+def _kutuphaneler(deger):
+    """shared_preload_libraries -> kucuk harfli kutuphane adlari: tirnak, $libdir/ yolu ve .so eki atilir."""
+    adlar = []
+    for parca in deger.split(","):
+        ad = parca.strip().strip('"').strip().rsplit("/", 1)[-1].lower()
+        if ad.endswith(".so"):
+            ad = ad[:-3]
+        if ad:
+            adlar.append(ad)
+    return adlar
+
+
+@kural("PG-PERF-002", "performans", "dusuk", "HIGH", [K("pg_sorgu_istatistigi", "tek", ("shared_preload_libraries",))],
+       _t("Sorgu istatistikleri (pg_stat_statements)", "Query statistics (pg_stat_statements)"),
+       _t("pg_stat_statements shared_preload_libraries ile yüklü ve sorgu topluyor (pg_stat_statements.track: top ya da all).",
+          "pg_stat_statements is loaded through shared_preload_libraries and collecting (pg_stat_statements.track: top or all)."))
+def _sorgu_istatistigi(r, g):
+    yuklu = "pg_stat_statements" in _kutuphaneler(r[0]["shared_preload_libraries"])
+    izleme = r[0].get("izleme")
+    g.gozle(yuklu=yuklu, izleme=izleme)
+    if not yuklu:
+        return [_f("pg_sorgu_istatistigi", "pg_sorgu_istatistigi", "dusuk", {"yuklu": False})]
+    if izleme is None:
+        raise kanit.Belirsiz("eksik_veri")
+    if izleme == "none":
+        return [_f("pg_sorgu_istatistigi", "pg_sorgu_istatistigi", "dusuk", {"yuklu": True, "pg_stat_statements.track": "none"})]
+    if izleme not in ("top", "all"):
+        raise kanit.Belirsiz("gecersiz_veri")
+    return []
+
+
+@kural("PG-PERF-003", "performans", "orta", "MEDIUM", [K("pg_gecici_dosya", "en_az_bir", ("dosya", "bayt"))],
+       _t("Geçici dosyalar", "Temporary files"),
+       _t("Geçici dosya yazılmamış ya da istatistik başlangıcı bilinen her veritabanında günde ortalama 10 GB'ın altında; "
+          "başlangıcı bilinmeyen kullanım bilgi olarak gösterilir.",
+          "No temporary files were written, or less than 10 GB per day on average in every database with a known statistics "
+          "start; usage with an unknown start is shown as information."))
+def _gecici_dosya(r, g):
+    if any(x["bayt"] < 0 or x["dosya"] < 0 for x in r):
+        raise kanit.Belirsiz("gecersiz_veri")
+    g.gozle(gecici_bayt=sum(x["bayt"] for x in r), gecici_dosya=sum(x["dosya"] for x in r))
+    olculen, bilinmeyen = [], 0
+    for x in r:
+        if x["bayt"] == 0:
+            continue
+        t = _parse_utc(x.get("sifirlama_utc"))
+        if t is None:
+            if x.get("sifirlama_utc") is not None:
+                raise kanit.Belirsiz("gecersiz_veri")
+            bilinmeyen += 1
+            continue
+        gun = max((g.taranan - t).total_seconds() / 86400, 1.0)   # kisa pencere hizi buyutmesin
+        olculen.append((x["bayt"] / gun, gun, x))
+    en = max(olculen, key=lambda o: o[0]) if olculen else None
+    if en and en[0] >= 100 * GB:
+        on = "orta"
+    elif en and en[0] >= 10 * GB:
+        on = "dusuk"
+    elif bilinmeyen:
+        on = "bilgi"
+    else:
+        return []
+    kanit_ = {"pencere_bilinmeyen_veritabani": bilinmeyen, "esik_dusuk_gunluk": 10 * GB, "esik_orta_gunluk": 100 * GB}
+    if en:
+        kanit_.update(veritabani=en[2]["datname"], gunluk_bayt=int(en[0]), olcum_gunu=round(en[1], 1))
+    return [_f("pg_gecici_dosya", "pg_gecici_dosya", on, kanit_)]
+
+
 @kural("PG-CAP-001", "kapasite", "yuksek", "MEDIUM", [K("pg_baglanti", "tek", ("kullanilan", "ust"))],
        _t("Bağlantı doluluğu", "Connection usage"),
        _t("Tarama anında istemci bağlantıları max_connections değerinin %75'inden az.", "At scan time client connections are below 75% of max_connections."))
@@ -239,7 +358,8 @@ def _baglanti(r, g):
 
 @kural("PG-MAINT-003", "bakim", "orta", "MEDIUM", [K("pg_olu_satir", "herhangi", ("canli", "olu"))],
        _t("Ölü satır oranı", "Dead row ratio"),
-       _t("10 000'den çok ölü satırı olan tablolarda ölü satır oranı %20'yi geçmiyor.", "In tables with more than 10,000 dead rows the dead-row ratio stays below 20%."))
+       _t("10 000'den çok ölü satırı olan tablolarda ölü satır oranı %20'yi geçmiyor.", "In tables with more than 10,000 dead rows the dead-row ratio stays below 20%."),
+       birincil=True)   # yedekte n_dead_tup tutulmaz
 def _olu_satir(r, g):
     kotu = [x for x in r if x["olu"] / max(x["canli"] + x["olu"], 1) > 0.2]
     if not kotu:
@@ -262,13 +382,63 @@ def _gecersiz_indeks(r, g):
 @kural("PG-MAINT-005", "bakim", "dusuk", "LOW", [K("pg_kullanilmayan_indeks")],
        _t("Kullanılmayan büyük indeksler", "Large unused indexes"),
        _t("İstatistiklere göre hiç taranmamış, 10 MB'tan büyük, tekil olmayan indeks yok.",
-          "There is no non-unique index over 10 MB that statistics show as never scanned."))
+          "There is no non-unique index over 10 MB that statistics show as never scanned."),
+       birincil=True)   # yedekteki idx_scan yalniz yedegin okumalarini sayar
 def _kullanilmayan_indeks(r, g):
     if not r:
         return []
     return [_f("pg_kullanilmayan_indeks", "pg_kullanilmayan_indeks", "dusuk",
                {"indeks_sayisi": len(r), "toplam_bayt": sum(x["bayt"] or 0 for x in r),
                 "nesneler": [_nesne(x, "schemaname", "indexrelname") for x in r[:10]]})]
+
+
+@kural("PG-MAINT-006", "bakim", "yuksek", "HIGH", [K("pg_autovacuum", "en_az_bir", ("name", "setting"))],
+       _t("Autovacuum", "Autovacuum"),
+       _t("autovacuum ve track_counts açık.", "autovacuum and track_counts are on."),
+       kaynak=("autovacuum", "track_counts"))
+def _autovacuum(r, g):
+    ayar = {x["name"]: x["setting"] for x in r}
+    if "autovacuum" not in ayar or "track_counts" not in ayar:
+        raise kanit.Belirsiz("eksik_veri")
+    g.gozle(autovacuum=ayar["autovacuum"], track_counts=ayar["track_counts"])
+    acik = {a: _gunluk_acik(ayar[a]) for a in ("autovacuum", "track_counts")}
+    if None in acik.values():
+        raise kanit.Belirsiz("gecersiz_veri")
+    kapali = [a for a, v in acik.items() if v is False]
+    if kapali:
+        return [_f("pg_autovacuum", "pg_autovacuum", "yuksek", {"kapali_ayarlar": kapali})]
+    return []
+
+
+@kural("PG-MAINT-007", "bakim", "orta", "HIGH", [K("pg_tablo_autovacuum", "herhangi", ("relname",))],
+       _t("Tablo düzeyinde kapatılmış autovacuum", "Autovacuum turned off per table"),
+       _t("Hiçbir tabloda autovacuum_enabled kapalı değil.", "No table has autovacuum_enabled turned off."))
+def _tablo_autovacuum(r, g):
+    g.gozle(tablo=len(r))
+    if not r:
+        return []
+    return [_f("pg_tablo_autovacuum", "pg_tablo_autovacuum", "orta",
+               {"tablo_sayisi": len(r), "nesneler": [_nesne(x, "schemaname", "relname") for x in r[:10]]})]
+
+
+@kural("PG-MAINT-008", "bakim", "kritik", "HIGH", [K("pg_xid_yasi", "en_az_bir", ("mxid_yas", "mxid_freeze_max_age"))],
+       _t("Multixact yaşı (wraparound)", "Multixact ID age (wraparound)"),
+       _t("Her veritabanında multixact yaşı autovacuum_multixact_freeze_max_age değerinin iki katından ve 1,6 milyardan küçük.",
+          "In every database the multixact ID age is below twice autovacuum_multixact_freeze_max_age and below 1.6 billion."))
+def _mxid(r, g):
+    worst = max(r, key=lambda x: x["mxid_yas"])
+    if worst["mxid_yas"] < 0 or worst["mxid_freeze_max_age"] <= 0:
+        raise kanit.Belirsiz("gecersiz_veri")
+    g.gozle(en_yuksek_mxid_yas=worst["mxid_yas"])
+    esik_orta = 2 * worst["mxid_freeze_max_age"]
+    if worst["mxid_yas"] >= 1600000000:
+        on = "kritik"
+    elif worst["mxid_yas"] >= esik_orta:
+        on = "orta"
+    else:
+        return []
+    return [_f("pg_xid_yasi", "pg_mxid_yasi", on,
+               {"veritabani": worst["datname"], "mxid_yas": worst["mxid_yas"], "esik_kritik": 1600000000, "esik_orta": esik_orta})]
 
 
 @kural("PG-CAP-002", "kapasite", "kritik", "HIGH",
@@ -309,10 +479,47 @@ def _slot(r, g):
                 "geri_bayt_en_fazla": max((x.get("geri_bayt") or 0) for x in kotu)})]
 
 
+GB = 1024 ** 3
+_AKIS_DISI = "backup"   # pg_basebackup baglantisi da pg_stat_replication'da gorunur: replika degildir
+
+
+@kural("PG-HA-002", "ha_dr", "yuksek", "MEDIUM", [K("pg_replikasyon", "herhangi", ("durum",))],
+       _t("Replikasyon gecikmesi", "Replication lag"),
+       _t("Bu sunucudan beslenen her replika akışta (streaming) ve yeniden oynatma gecikmesi 60 saniyenin ve 1 GB'ın altında.",
+          "Every replica fed by this server is streaming, with replay lag below 60 seconds and 1 GB."))
+def _replikasyon(r, g):
+    replikalar = [x for x in r if x["durum"] != _AKIS_DISI]
+    if not replikalar:
+        raise kanit.Uygulanmaz("replika_yok")
+    kotu = []
+    for x in replikalar:
+        sn, bayt = x.get("gecikme_sn"), x.get("gecikme_bayt")
+        if bayt is None:   # konum bilinmiyor: gecikme olculemedi (sure gecikmesi yetisen replikada NULL olabilir, bayt olamaz)
+            raise kanit.Belirsiz("eksik_veri")
+        if bayt < 0 or (sn is not None and sn < 0):
+            raise kanit.Belirsiz("gecersiz_veri")
+        sn = sn or 0
+        if sn >= 600 or bayt >= 16 * GB:
+            kotu.append((x, "yuksek"))
+        elif sn >= 60 or bayt >= GB or x["durum"] != "streaming":
+            kotu.append((x, "orta"))
+    en_sn = max((x.get("gecikme_sn") or 0) for x in replikalar)
+    en_bayt = max(x["gecikme_bayt"] for x in replikalar)
+    g.gozle(replika=len(replikalar), en_yuksek_gecikme_sn=en_sn, en_yuksek_gecikme_bayt=en_bayt)
+    if not kotu:
+        return []
+    return [_f("pg_replikasyon", "pg_replikasyon", "yuksek" if any(o == "yuksek" for _, o in kotu) else "orta",
+               {"replika_sayisi": len(replikalar), "sorunlu_replika": len(kotu), "en_yuksek_gecikme_sn": en_sn,
+                "en_yuksek_gecikme_bayt": en_bayt, "durumlar": sorted({x["durum"] for x, _ in kotu}),
+                "nesneler": [str(x.get("uygulama")) for x, _ in kotu[:10]],
+                "esik_orta": "60 sn ya da 1 GB", "esik_yuksek": "600 sn ya da 16 GB"})]
+
+
 @kural("PG-BACKUP-001", "yedek", "yuksek", "HIGH", [K("pg_arsiv", "tek", ("archive_mode",))],
        _t("WAL arşivleme", "WAL archiving"),
        _t("archive_mode açık, başarılı arşivleme kaydı var ve son hata son başarıdan eski.",
-          "archive_mode is on, a successful archive is recorded and the last failure is older than the last success."))
+          "archive_mode is on, a successful archive is recorded and the last failure is older than the last success."),
+       birincil=True)   # arsivlemeyi birincil yapar
 def _arsiv(r, g):
     a = r[0]
     g.gozle(archive_mode=a["archive_mode"], son_basari_utc=a.get("son_basari_utc"))

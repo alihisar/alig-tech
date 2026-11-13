@@ -2,6 +2,11 @@
 
 ## Yayınlanmadı
 
+- Sağlık taraması: altı yeni PostgreSQL kuralı: autovacuum ve track_counts, tablo düzeyinde kapatılmış autovacuum,
+  multixact yaşı, replikasyon gecikmesi (süre ve bayt), pg_stat_statements, geçici dosyalar. Toplayıcı sunucunun
+  birincil mi yedek mi olduğunu kaydeder; yedekte tablo istatistiğine ve arşivlemeye dayanan kurallar Uygulanmaz
+  (yedekte ölü satır kuralı veri yokken temiz çıkıyordu). Slot sorgusu yedek sunucuda hata veriyordu, düzeltildi. Hepsi
+  gerçek PostgreSQL 16 birincil ve akışlı yedek sunucuda sınandı; raporda sunucu rolü satırı.
 - Sağlık taraması: sağlık puanı (0–100) ve kanıt kapsamı (`tarama/puan.py`). Her kural bir risk düzeyi taşır; puan risk
   ağırlıklı kredi oranıdır. Bilinmiyor ve Alınamadı, Başarısız kadar puan kaybettirir: eksik ya da kaybolan veri puanı
   yükseltmez. Raporda özet satırları, kategori tablosu ve puanı düşüren denetimler (bulgu ve kanıt eksikliği ayrı);

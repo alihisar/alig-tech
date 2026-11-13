@@ -17,7 +17,7 @@ HEDEF = ROOT / "docs" / "kural-katalogu.md"
 MATRIS = ROOT / "docs" / "surum-matrisi.md"
 DOGRULAMA = ROOT / "docs" / "surum-dogrulama.json"
 BELGELER = ROOT / "tests" / "veri" / "surum"   # dogrulamada toplanan ham belgeler: <ana surum>/<hesap>.json
-HESAP_AD = {"pg_monitor": "pg_monitor hesabı", "yetkisiz": "Yetkisiz hesap", "super": "Süper kullanıcı"}
+HESAP_AD = {"pg_monitor": "pg_monitor hesabı", "yetkisiz": "Yetkisiz hesap", "super": "Süper kullanıcı", "yedek": "Yedek sunucu (pg_monitor)"}
 YETKI_AD = {"herkes": "herkes", "pg_read_all_stats": "pg_read_all_stats (pg_monitor)",
             "pg_read_all_settings": "pg_read_all_settings (pg_monitor)", "superuser": "süper kullanıcı"}
 YETKI_YOKSA = {"herkes": "-",
@@ -124,6 +124,9 @@ def uret():
           "(`pg_kapsam`); atlanan ya da seçilmeyen veritabanı varsa sonuç kısmidir.", "",
           "## PostgreSQL (%d kural)" % len(kurallar.KURALLAR), "", _tablo(kurallar.KURALLAR, katalog.PG_BY_ID), "",
           "Kural kaynağı olmayan bilgi denetimleri: %s." % ", ".join("`%s`" % x for x in kurallar.BILGI), "",
+          "Yalnız birincil sunucuda değerlendirilen kurallar: %s. Yedek sunucuda tablo istatistikleri (ölü satır, indeks kullanımı) "
+          "tutulmaz ve arşivlemeyi birincil yapar; bu kurallar yedekte Uygulanmaz olur. Sunucunun rolü `pg_sunucu_rolu` "
+          "denetiminden okunur; okunamazsa bu kurallar Geçti olamaz." % ", ".join(sorted(k.kimlik for k in kurallar.KURALLAR if k.birincil)), "",
           "## SQL Server, ön sürüm (%d kural)" % len(kurallar_mssql.KURALLAR), "", _tablo(kurallar_mssql.KURALLAR, katalog.MSSQL_BY_ID), ""]
     return "\n".join(p)
 
@@ -184,18 +187,20 @@ def uret_matris():
         h = s["hesaplar"]
         p += ["", "## PostgreSQL %s doğrulaması" % v, "",
               "%s, %s. Katalog özeti `%s`." % (s["tam_surum"].split(" on ")[0], s["tarih"], s["katalog_sha256"][:16]), "",
-              "Geçici bir kümede senaryo nesneleri kuruldu (geçersiz indeks, etkin olmayan replikasyon slotu, ölü satır, sınıra "
-              "yakın ve tarama hesabının okuyamadığı sequence, 10 MB üstü kullanılmamış indeks, boşta açık işlem, MD5 parolalı "
-              "rol, bağlanma yetkisi olmayan veritabanı, PUBLIC'e CREATE verilmiş public şeması) ve toplayıcı üç hesapla "
-              "çalıştırıldı.", "",
-              "| Denetim | %s |" % " | ".join(HESAP_AD.values()), "|---|---|---|---|"]
+              "Geçici bir kümede senaryo nesneleri kuruldu (geçersiz indeks, birincilde ve yedekte etkin olmayan replikasyon "
+              "slotu, ölü satır ve autovacuum'u kapatılmış tablo, sınıra yakın ve tarama hesabının okuyamadığı sequence, 10 MB "
+              "üstü kullanılmamış indeks, boşta açık işlem, MD5 parolalı rol, bağlanma yetkisi olmayan veritabanı, PUBLIC'e "
+              "CREATE verilmiş public şeması, geçici dosyaya yazan sıralama, pakette varsa pg_stat_statements). pg_basebackup "
+              "ile akışlı bir yedek sunucu başlatıldı, yeniden oynatması duraklatılarak geride bırakıldı. Toplayıcı birincilde "
+              "üç hesapla, yedekte pg_monitor hesabıyla çalıştırıldı.", "",
+              "| Denetim | %s |" % " | ".join(HESAP_AD.values()), "|---|---|---|---|---|"]
         for cid in [c["id"] for c in katalog.PG]:
             p.append("| `%s` | %s |" % (cid, " | ".join(_hucre(h[a]["kontroller"][cid]) if cid in h[a]["kontroller"] else "yok" for a in HESAP_AD)))
         durumlar = {a: {k["kural"]: k for k in kurallar.incele(json.loads((BELGELER / v / ("%s.json" % a)).read_text(encoding="utf-8"))).kayitlar}
                     for a in HESAP_AD if (BELGELER / v / ("%s.json" % a)).exists()}
         if len(durumlar) == len(HESAP_AD):
             p += ["", "Kuralların durumu: aynı belgeler bugünkü kural motoruyla değerlendirildi (`tests/veri/surum/%s/`)." % v, "",
-                  "| Kural | %s |" % " | ".join(HESAP_AD.values()), "|---|---|---|---|"]
+                  "| Kural | %s |" % " | ".join(HESAP_AD.values()), "|---|---|---|---|---|"]
             for kural in sorted(durumlar["pg_monitor"]):
                 p.append("| %s | %s |" % (kural, " | ".join(
                     rapor.M["tr"]["durum"][durumlar[a][kural]["durum"]] +

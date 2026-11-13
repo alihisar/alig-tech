@@ -16,6 +16,7 @@ Bu dosyanın `<!-- oto:... -->` ile işaretli bölümleri `ci/uret_readme.py` ta
 - E-posta doğrulaması kodlandı ve varsayılan olarak kapalı: açmak için SMTP sağlayıcısı ve gönderen adres gerekir (`docs/runbook.md`). Toplayıcı bağlanabildiği tüm veritabanlarını tarar.
 - Sağlık taramasında her kural kalıcı kimlikle tek durum üretir (PASS, FAIL, WARNING, UNKNOWN, UNAVAILABLE, NOT_APPLICABLE), veri yokken PASS çıkmaz. Kural listesi: `docs/kural-katalogu.md`.
 - Raporda sağlık puanı (0–100), kategori puanları ve kanıt kapsamı birlikte gösterilir; bilinmeyen durum puanı yükseltmez. Yöntem ve varsayılan katsayılar: `docs/kural-katalogu.md`, ayar: `ALIG_PUAN_AYARI` (`docs/runbook.md`).
+- PostgreSQL taraması yedek (standby) sunucuda da çalışır; tablo istatistiğine ve arşivlemeye dayanan denetimler orada Uygulanmaz. Replikasyon gecikmesi, autovacuum, multixact yaşı, pg_stat_statements ve geçici dosya denetimleri gerçek PostgreSQL 16 birincil ve yedek sunucuda sınandı.
 - PostgreSQL 12–18 sürüm ve yetki matrisi: `docs/surum-matrisi.md`. Sorgular gerçek sunucuda yalnız PostgreSQL 16'da sınandı; diğer sürümlerde rapor kanıt güvenini en çok orta gösterir.
 - Açık işler: e-posta gönderim yönteminin seçilmesi, SQL Server taramasının gerçek sunucuda sınanması, Kip B'nin açılması (kodlandı, kapalı), isteğe bağlı dil modeli özeti. Sıra ve durum: `docs/yol-haritasi.md`. Kaynak belge: `docs/master-prompt-v2.md`. Mevcut durum dökümü: `docs/faz0-analiz.md`. Son kod incelemesi: `docs/kod-inceleme.md`.
 
@@ -67,7 +68,7 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 383 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
+Birim testleri: 406 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
 <!-- oto:bitis testler -->
 
 ## Dizinler

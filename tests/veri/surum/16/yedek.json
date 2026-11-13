@@ -1,0 +1,376 @@
+{
+ "format": "alig-toplayici/1",
+ "katalog_sha256": "10a585c377602ea1c8be3aa00051bc51dcbea2454b583b1f25573ae68207582e",
+ "kontroller": {
+  "pg_arsiv": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "archive_mode": "off",
+     "basarili": 0,
+     "hatali": 0,
+     "son_basari_utc": null,
+     "son_hata_utc": null
+    }
+   ]
+  },
+  "pg_autovacuum": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "name": "autovacuum",
+     "setting": "on"
+    },
+    {
+     "name": "track_counts",
+     "setting": "on"
+    }
+   ]
+  },
+  "pg_baglanti": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "kullanilan": 1,
+     "ust": 100
+    }
+   ]
+  },
+  "pg_bosta_islem": {
+   "durum": "ok",
+   "satirlar": []
+  },
+  "pg_eklentiler": {
+   "atlanan": [
+    {
+     "neden": "yetki",
+     "veritabani": "gizli"
+    }
+   ],
+   "durum": "ok",
+   "satirlar": [
+    {
+     "extname": "plpgsql",
+     "extversion": "1.0",
+     "veritabani": "postgres"
+    },
+    {
+     "extname": "pg_stat_statements",
+     "extversion": "1.10",
+     "veritabani": "postgres"
+    },
+    {
+     "extname": "plpgsql",
+     "extversion": "1.0",
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_gecersiz_indeks": {
+   "atlanan": [
+    {
+     "neden": "yetki",
+     "veritabani": "gizli"
+    }
+   ],
+   "durum": "ok",
+   "satirlar": [
+    {
+     "indexrelname": "cift_x",
+     "schemaname": "public",
+     "veritabani": "postgres"
+    },
+    {
+     "indexrelname": "cift_x",
+     "schemaname": "public",
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_gecici_dosya": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "bayt": 0,
+     "datname": "postgres",
+     "dosya": 0,
+     "sifirlama_utc": null
+    },
+    {
+     "bayt": 0,
+     "datname": "satis db",
+     "dosya": 0,
+     "sifirlama_utc": null
+    },
+    {
+     "bayt": 0,
+     "datname": "template1",
+     "dosya": 0,
+     "sifirlama_utc": null
+    },
+    {
+     "bayt": 0,
+     "datname": "template0",
+     "dosya": 0,
+     "sifirlama_utc": null
+    },
+    {
+     "bayt": 0,
+     "datname": "gizli",
+     "dosya": 0,
+     "sifirlama_utc": null
+    }
+   ]
+  },
+  "pg_hesap": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "pg_read_all_settings": true,
+     "pg_read_all_stats": true,
+     "super_kullanici": false
+    }
+   ]
+  },
+  "pg_kapsam": {
+   "atlanan": [
+    {
+     "neden": "yetki",
+     "veritabani": "gizli"
+    }
+   ],
+   "durum": "ok",
+   "satirlar": [
+    {
+     "veritabani": "postgres",
+     "veritabani_sayisi": 3
+    },
+    {
+     "veritabani": "satis db",
+     "veritabani_sayisi": 3
+    }
+   ]
+  },
+  "pg_kullanilmayan_indeks": {
+   "atlanan": [
+    {
+     "neden": "yetki",
+     "veritabani": "gizli"
+    }
+   ],
+   "durum": "ok",
+   "satirlar": [
+    {
+     "bayt": 15745024,
+     "indexrelname": "buyuk_i",
+     "schemaname": "public",
+     "veritabani": "postgres"
+    },
+    {
+     "bayt": 15745024,
+     "indexrelname": "buyuk_i",
+     "schemaname": "public",
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_log_ayarlari": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "name": "log_connections",
+     "setting": "off"
+    },
+    {
+     "name": "log_disconnections",
+     "setting": "off"
+    },
+    {
+     "name": "log_min_duration_statement",
+     "setting": "-1"
+    }
+   ]
+  },
+  "pg_md5_roller": {
+   "durum": "hata",
+   "neden": "yetki"
+  },
+  "pg_olu_satir": {
+   "atlanan": [
+    {
+     "neden": "yetki",
+     "veritabani": "gizli"
+    }
+   ],
+   "durum": "ok",
+   "satirlar": []
+  },
+  "pg_public_create": {
+   "atlanan": [
+    {
+     "neden": "yetki",
+     "veritabani": "gizli"
+    }
+   ],
+   "durum": "ok",
+   "satirlar": [
+    {
+     "public_create": false,
+     "veritabani": "postgres"
+    },
+    {
+     "public_create": true,
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_replikasyon": {
+   "durum": "ok",
+   "satirlar": []
+  },
+  "pg_sequence": {
+   "atlanan": [
+    {
+     "neden": "yetki",
+     "veritabani": "gizli"
+    }
+   ],
+   "durum": "ok",
+   "satirlar": []
+  },
+  "pg_sequence_gorunurluk": {
+   "atlanan": [
+    {
+     "neden": "yetki",
+     "veritabani": "gizli"
+    }
+   ],
+   "durum": "ok",
+   "satirlar": [
+    {
+     "okunamayan": 1,
+     "toplam": 1,
+     "veritabani": "postgres"
+    },
+    {
+     "okunamayan": 1,
+     "toplam": 1,
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_slot": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "active": false,
+     "geri_bayt": 23324024,
+     "slot_name": "yedek_slot",
+     "wal_status": "reserved"
+    }
+   ]
+  },
+  "pg_sorgu_istatistigi": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "izleme": "top",
+     "shared_preload_libraries": "pg_stat_statements"
+    }
+   ]
+  },
+  "pg_sunucu_rolu": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "yedek": true
+    }
+   ]
+  },
+  "pg_super_roller": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "rolcanlogin": true,
+     "rolname": "alig_kurulum"
+    }
+   ]
+  },
+  "pg_surum": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "surum_num": 160015
+    }
+   ]
+  },
+  "pg_tablo_autovacuum": {
+   "atlanan": [
+    {
+     "neden": "yetki",
+     "veritabani": "gizli"
+    }
+   ],
+   "durum": "ok",
+   "satirlar": [
+    {
+     "relname": "olu",
+     "schemaname": "public",
+     "veritabani": "postgres"
+    },
+    {
+     "relname": "olu",
+     "schemaname": "public",
+     "veritabani": "satis db"
+    }
+   ]
+  },
+  "pg_tls_parola": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "password_encryption": "scram-sha-256",
+     "ssl": "off",
+     "ssl_min_protocol_version": "TLSv1.2"
+    }
+   ]
+  },
+  "pg_xid_yasi": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "datname": "postgres",
+     "freeze_max_age": 200000000,
+     "mxid_freeze_max_age": 400000000,
+     "mxid_yas": 0,
+     "yas": 40
+    },
+    {
+     "datname": "satis db",
+     "freeze_max_age": 200000000,
+     "mxid_freeze_max_age": 400000000,
+     "mxid_yas": 0,
+     "yas": 40
+    },
+    {
+     "datname": "template1",
+     "freeze_max_age": 200000000,
+     "mxid_freeze_max_age": 400000000,
+     "mxid_yas": 0,
+     "yas": 40
+    },
+    {
+     "datname": "gizli",
+     "freeze_max_age": 200000000,
+     "mxid_freeze_max_age": 400000000,
+     "mxid_yas": 0,
+     "yas": 40
+    }
+   ]
+  }
+ },
+ "maskeli": false,
+ "motor": "postgresql",
+ "olusturma_utc": "2026-11-13T17:03:04Z",
+ "superuser": false
+}

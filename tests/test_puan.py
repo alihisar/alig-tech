@@ -280,7 +280,8 @@ def rastgele_pg(r):
     k = b["kontroller"]
     sec = r.choice
     k["pg_surum"]["satirlar"] = [{"surum_num": sec([100005, 120010, 130020, 140010, 150004, 160002, 170001, 180000])}]
-    k["pg_xid_yasi"]["satirlar"] = [{"datname": _ad(r), "yas": sec([1000, 450000000, 1700000000]), "mxid_yas": 1, "freeze_max_age": 200000000}]
+    k["pg_xid_yasi"]["satirlar"] = [{"datname": _ad(r), "yas": sec([1000, 450000000, 1700000000]), "mxid_yas": sec([1, 900000000, 1700000000]),
+                                     "freeze_max_age": 200000000, "mxid_freeze_max_age": 400000000}]
     k["pg_bosta_islem"]["satirlar"] = [{"usename": _ad(r), "durum": "idle in transaction", "sure_sn": sec([10, 700, 4000])} for _ in range(sec([0, 1, 2]))]
     k["pg_baglanti"]["satirlar"] = [{"kullanilan": sec([10, 80, 95]), "ust": 100}]
     k["pg_olu_satir"]["satirlar"] = [{"veritabani": "postgres", "schemaname": "s", "relname": _ad(r), "canli": sec([1, 100000]), "olu": sec([20000, 50000]), "son_autovacuum": None} for _ in range(sec([0, 1]))]
@@ -295,6 +296,14 @@ def rastgele_pg(r):
     k["pg_super_roller"]["satirlar"] = [{"rolname": _ad(r), "rolcanlogin": True} for _ in range(sec([0, 1, 3]))]
     k["pg_public_create"]["satirlar"] = [{"veritabani": "postgres", "public_create": sec([True, False])}]
     k["pg_log_ayarlari"]["satirlar"] = [{"name": "log_connections", "setting": sec(["on", "off"])}, {"name": "log_disconnections", "setting": "on"}]
+    k["pg_autovacuum"]["satirlar"] = [{"name": "autovacuum", "setting": sec(["on", "off"])}, {"name": "track_counts", "setting": sec(["on", "off"])}]
+    k["pg_tablo_autovacuum"]["satirlar"] = [{"veritabani": "postgres", "schemaname": "s", "relname": _ad(r)} for _ in range(sec([0, 1]))]
+    k["pg_replikasyon"]["satirlar"] = [{"uygulama": _ad(r), "durum": sec(["streaming", "catchup", "backup"]), "senkron": "async",
+                                        "gecikme_sn": sec([None, 0.5, 90, 900]), "gecikme_bayt": sec([0, 2 * 1024 ** 3, 20 * 1024 ** 3])}
+                                       for _ in range(sec([0, 1, 2]))]
+    k["pg_sorgu_istatistigi"]["satirlar"] = [{"shared_preload_libraries": sec(["", "pg_stat_statements"]), "izleme": sec(["top", "none"])}]
+    k["pg_gecici_dosya"]["satirlar"] = [{"datname": _ad(r), "dosya": 3, "bayt": sec([0, 5 * 1024 ** 3, 50 * 1024 ** 3, 500 * 1024 ** 3]),
+                                         "sifirlama_utc": sec([None, "2026-11-09T12:00:00Z"])}]
     b["superuser"] = sec([True, False])
     return b
 

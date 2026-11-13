@@ -37,9 +37,10 @@ TUR_DENETIMI = {
 _M, _T, _S, _B = "metin", "tamsayi", "sayi", "mantik"
 TURLER = {
     "pg_surum": {"surum_num": _T},
+    "pg_sunucu_rolu": {"yedek": _B},
     "pg_hesap": {"super_kullanici": _B, "pg_read_all_stats": _B, "pg_read_all_settings": _B},
     "pg_kapsam": {"veritabani": _M, "veritabani_sayisi": _T},
-    "pg_xid_yasi": {"datname": _M, "yas": _T, "mxid_yas": _T, "freeze_max_age": _T},
+    "pg_xid_yasi": {"datname": _M, "yas": _T, "mxid_yas": _T, "freeze_max_age": _T, "mxid_freeze_max_age": _T},
     "pg_bosta_islem": {"usename": _M, "durum": _M, "sure_sn": _T},
     "pg_baglanti": {"kullanilan": _T, "ust": _T},
     "pg_olu_satir": {"veritabani": _M, "schemaname": _M, "relname": _M, "canli": _T, "olu": _T, "son_autovacuum": _M},
@@ -48,12 +49,17 @@ TURLER = {
     "pg_sequence": {"veritabani": _M, "schemaname": _M, "sequencename": _M, "oran": _S},
     "pg_sequence_gorunurluk": {"veritabani": _M, "toplam": _T, "okunamayan": _T},
     "pg_slot": {"slot_name": _M, "active": _B, "wal_status": _M, "geri_bayt": _T},
+    "pg_replikasyon": {"uygulama": _M, "durum": _M, "senkron": _M, "gecikme_sn": _S, "gecikme_bayt": _T},
     "pg_arsiv": {"archive_mode": _M, "basarili": _T, "hatali": _T, "son_basari_utc": _M, "son_hata_utc": _M},
     "pg_tls_parola": {"ssl": _M, "password_encryption": _M, "ssl_min_protocol_version": _M},
     "pg_md5_roller": {"sayi": _T},
     "pg_super_roller": {"rolname": _M, "rolcanlogin": _B},
     "pg_public_create": {"veritabani": _M, "public_create": _B},
     "pg_log_ayarlari": {"name": _M, "setting": _M},
+    "pg_autovacuum": {"name": _M, "setting": _M},
+    "pg_tablo_autovacuum": {"veritabani": _M, "schemaname": _M, "relname": _M},
+    "pg_sorgu_istatistigi": {"shared_preload_libraries": _M, "izleme": _M},
+    "pg_gecici_dosya": {"datname": _M, "dosya": _T, "bayt": _T, "sifirlama_utc": _M},
     "pg_eklentiler": {"veritabani": _M, "extname": _M, "extversion": _M},
 }
 

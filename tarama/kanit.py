@@ -26,6 +26,8 @@ Durum kurallari:
   - Veri geldi ama sonuca yetmiyorsa UNKNOWN: bicim ya da tur gecersiz, zorunlu deger eksik, beklenen satir yok,
     bazi veritabanlari taranmadi, ek kaynak gelmedi.
   - Veri, kuralin konusunun sunucuda olmadigini gosteriyorsa NOT_APPLICABLE (ornegin replikasyon slotu yok).
+  - Birincile ozgu kural (birincil=True: tablo istatistikleri, arsivleme) yedek sunucuda NOT_APPLICABLE: yedekte bu
+    istatistikler tutulmaz, veri yokken temiz gorunur. Sunucunun rolu okunamadiysa (pg_sunucu_rolu) sonuc kismidir.
   - Ancak butun kaynaklar eksiksiz geldiyse ve bulgu yoksa PASS. Veri yokken PASS cikmaz.
 """
 from datetime import datetime, timezone
@@ -92,15 +94,16 @@ class Kural(NamedTuple):
     beklenen: dict             # gecme kosulu (tr, en)
     fn: object                 # fn(birincil_satirlar, girdi) -> bulgu listesi; Belirsiz ya da Uygulanmaz firlatabilir
     kaynak: tuple = ()         # bos ise kaynak denetimlerinin katalogdaki "kaynak" listesi
+    birincil: bool = False     # yalniz birincil sunucuda anlamli: yedekte NOT_APPLICABLE
 
 
 def kayitci(liste, motor):
     """Kural fonksiyonunu kaydeden dekorator: @kural("PG-SEC-001", "guvenlik", "yuksek", "HIGH", [Kaynak(...)], ad, beklenen)."""
-    def kural(kimlik, kategori, risk, guven, kaynaklar, ad, beklenen, kaynak=()):
+    def kural(kimlik, kategori, risk, guven, kaynaklar, ad, beklenen, kaynak=(), birincil=False):
         if kategori not in KATEGORILER or risk not in ONEM_SIRASI or guven not in GUVENLER:
             raise ValueError("%s: kategori, risk ya da guven gecersiz" % kimlik)
         def sar(fn):
-            liste.append(Kural(kimlik, motor, kategori, risk, guven, tuple(kaynaklar), ad, beklenen, fn, tuple(kaynak)))
+            liste.append(Kural(kimlik, motor, kategori, risk, guven, tuple(kaynaklar), ad, beklenen, fn, tuple(kaynak), birincil))
             return fn
         return sar
     return kural
@@ -160,6 +163,16 @@ def _hesap(kontroller):
     if not all(isinstance(h.get(k), bool) for k in ("super_kullanici",) + ROL_YETKILERI):
         return None
     return h
+
+
+def yedek_mi(kontroller):
+    """Sunucu yedek mi (pg_sunucu_rolu: pg_is_in_recovery)? True, False ya da okunamadiysa None."""
+    e = kontroller.get("pg_sunucu_rolu")
+    try:
+        v = e["satirlar"][0]["yedek"] if e["durum"] == "ok" and len(e["satirlar"]) == 1 else None
+    except (TypeError, KeyError, IndexError):
+        return None
+    return v if isinstance(v, bool) else None
 
 
 def ana_surum(kontroller):
@@ -225,7 +238,7 @@ def _oku(belge, kontroller, kaynak, katalog_by_id, turler, tam_kapsam, hesap):
     return tam, None, None, kismi
 
 
-def _kayit(kural, belge, kontroller, taranan, katalog_by_id, turler, tam_kapsam, hesap, surum_tavani):
+def _kayit(kural, belge, kontroller, taranan, katalog_by_id, turler, tam_kapsam, hesap, surum_tavani, yedek):
     kaynak = list(kural.kaynak) or sorted({ad for k in kural.kaynaklar for ad in katalog_by_id.get(k.kontrol, {}).get("kaynak", ())})
     guven = kural.guven
     for tavan in (GUVEN_TAVANI.get(kural.motor), surum_tavani):
@@ -240,7 +253,11 @@ def _kayit(kural, belge, kontroller, taranan, katalog_by_id, turler, tam_kapsam,
         kayit["guven"] = None if durum in KANITSIZ else guven
         return kayit
 
+    if kural.birincil and yedek is True:
+        return bitir("NOT_APPLICABLE", "birincil_degil")
     veri, kismi = {}, []
+    if kural.birincil and yedek is None:
+        kismi.append("sunucu_rolu_bilinmiyor")
     for k in kural.kaynaklar:
         satirlar, durum, neden, k_kismi = _oku(belge, kontroller, k, katalog_by_id, turler, tam_kapsam, hesap)
         if satirlar is None:
@@ -277,7 +294,8 @@ def _kayit(kural, belge, kontroller, taranan, katalog_by_id, turler, tam_kapsam,
 
 class Sonuc:
     """Bir belgenin degerlendirmesi: kayitlar (kural sirasiyla), bulgular (onem sirasiyla), olculemeyenler.
-    baglam: ana_surum, sinanan (surum gercek sunucuda sinandi mi; PostgreSQL disinda None), hesap (tarama hesabi yetkileri)."""
+    baglam: ana_surum, sinanan (surum gercek sunucuda sinandi mi), yedek (sunucu yedek mi; bilinmiyorsa None) PostgreSQL'de;
+    hesap (tarama hesabi yetkileri)."""
 
     def __init__(self, kayitlar, baglam=None):
         self.kayitlar = kayitlar
@@ -295,9 +313,9 @@ def calistir(belge, kurallar, katalog_by_id, turler):
     kontroller = belge.get("kontroller") if isinstance(belge.get("kontroller"), dict) else {}
     taranan = _parse_utc(belge.get("olusturma_utc")) or datetime.now(timezone.utc)
     tam, hesap = _tam_kapsam(kontroller), _hesap(kontroller)
-    baglam, surum_tavani = {"hesap": hesap}, None
+    baglam, surum_tavani, yedek = {"hesap": hesap}, None, False
     if belge.get("motor", "postgresql") == "postgresql":
-        ana = ana_surum(kontroller)
-        baglam.update(ana_surum=ana, sinanan=ana in katalog.SINANAN)
+        ana, yedek = ana_surum(kontroller), yedek_mi(kontroller)
+        baglam.update(ana_surum=ana, sinanan=ana in katalog.SINANAN, yedek=yedek)
         surum_tavani = None if baglam["sinanan"] else SINANMAMIS_SURUM_TAVANI
-    return Sonuc([_kayit(k, belge, kontroller, taranan, katalog_by_id, turler, tam, hesap, surum_tavani) for k in kurallar], baglam)
+    return Sonuc([_kayit(k, belge, kontroller, taranan, katalog_by_id, turler, tam, hesap, surum_tavani, yedek) for k in kurallar], baglam)

@@ -64,7 +64,7 @@ Ağırlık, uyarı kredisi ve kategori çarpanları `ALIG_PUAN_AYARI` ile verile
 
 Veri koşulu: *tek satır* kaynakta tam bir satır beklenir; *en az bir satır* kaynakta boş sonuç veri yok demektir; *boş sonuç geçerli* kaynakta boş sonuç sorun yok demektir. Zorunlu değeri boş ya da türü yanlış satır değerlendirmeye girmez ve sonucu kısmi yapar. *Ek* kaynak gelmezse kural yine çalışır, bulguyu raporlar, ama PASS veremez. *Her veritabanında* çalışan kaynakta PASS için sunucudaki bağlanılabilir bütün veritabanlarının taranmış olması gerekir (`pg_kapsam`); atlanan ya da seçilmeyen veritabanı varsa sonuç kısmidir.
 
-## PostgreSQL (17 kural)
+## PostgreSQL (23 kural)
 
 | Kimlik | Denetim | Kategori | Risk | Güven | Toplama denetimi | Okunan kaynak | Geçme koşulu |
 |---|---|---|---|---|---|---|---|
@@ -72,12 +72,18 @@ Veri koşulu: *tek satır* kaynakta tam bir satır beklenir; *en az bir satır* 
 | PG-CAP-001 | Bağlantı doluluğu | Kapasite | Yüksek | MEDIUM | `pg_baglanti` (tek satır) | `max_connections`, `pg_stat_activity` | Tarama anında istemci bağlantıları max_connections değerinin %75'inden az. |
 | PG-CAP-002 | Sequence doluluğu | Kapasite | Kritik | HIGH | `pg_sequence` (her veritabanında, boş sonuç geçerli)<br>`pg_sequence_gorunurluk` (ek, her veritabanında, en az bir satır) | `has_sequence_privilege`, `pg_sequences` | Bütün sequence'lar okunabiliyor ve her biri en büyük değerinin %80'inin altında. |
 | PG-HA-001 | Replikasyon slotları | HA/DR | Kritik | HIGH | `pg_slot` (boş sonuç geçerli) | `pg_replication_slots` | Bütün replikasyon slotları etkin ve hiçbiri WAL kaybetmemiş (lost, unreserved değil). |
+| PG-HA-002 | Replikasyon gecikmesi | HA/DR | Yüksek | MEDIUM | `pg_replikasyon` (boş sonuç geçerli) | `pg_stat_replication` | Bu sunucudan beslenen her replika akışta (streaming) ve yeniden oynatma gecikmesi 60 saniyenin ve 1 GB'ın altında. |
 | PG-MAINT-001 | Ana sürüm desteği | Bakım | Yüksek | HIGH | `pg_surum` (tek satır) | `server_version_num` | Ana sürümün topluluk desteği en az 90 gün daha sürüyor. |
-| PG-MAINT-002 | İşlem kimliği yaşı (wraparound) | Bakım | Kritik | HIGH | `pg_xid_yasi` (en az bir satır) | `autovacuum_freeze_max_age`, `pg_database` | Her veritabanında işlem kimliği yaşı autovacuum_freeze_max_age değerinin iki katından ve 1,6 milyardan küçük. |
+| PG-MAINT-002 | İşlem kimliği yaşı (wraparound) | Bakım | Kritik | HIGH | `pg_xid_yasi` (en az bir satır) | `autovacuum_freeze_max_age`, `autovacuum_multixact_freeze_max_age`, `pg_database` | Her veritabanında işlem kimliği yaşı autovacuum_freeze_max_age değerinin iki katından ve 1,6 milyardan küçük. |
 | PG-MAINT-003 | Ölü satır oranı | Bakım | Orta | MEDIUM | `pg_olu_satir` (her veritabanında, boş sonuç geçerli) | `pg_stat_user_tables` | 10 000'den çok ölü satırı olan tablolarda ölü satır oranı %20'yi geçmiyor. |
 | PG-MAINT-004 | Geçersiz indeksler | Bakım | Yüksek | HIGH | `pg_gecersiz_indeks` (her veritabanında, boş sonuç geçerli) | `pg_index` | Geçersiz (indisvalid = false) indeks yok. |
 | PG-MAINT-005 | Kullanılmayan büyük indeksler | Bakım | Düşük | LOW | `pg_kullanilmayan_indeks` (her veritabanında, boş sonuç geçerli) | `pg_stat_user_indexes` | İstatistiklere göre hiç taranmamış, 10 MB'tan büyük, tekil olmayan indeks yok. |
+| PG-MAINT-006 | Autovacuum | Bakım | Yüksek | HIGH | `pg_autovacuum` (en az bir satır) | `autovacuum`, `track_counts` | autovacuum ve track_counts açık. |
+| PG-MAINT-007 | Tablo düzeyinde kapatılmış autovacuum | Bakım | Orta | HIGH | `pg_tablo_autovacuum` (her veritabanında, boş sonuç geçerli) | `pg_class` | Hiçbir tabloda autovacuum_enabled kapalı değil. |
+| PG-MAINT-008 | Multixact yaşı (wraparound) | Bakım | Kritik | HIGH | `pg_xid_yasi` (en az bir satır) | `autovacuum_freeze_max_age`, `autovacuum_multixact_freeze_max_age`, `pg_database` | Her veritabanında multixact yaşı autovacuum_multixact_freeze_max_age değerinin iki katından ve 1,6 milyardan küçük. |
 | PG-PERF-001 | Boşta bekleyen açık işlemler | Performans | Yüksek | MEDIUM | `pg_bosta_islem` (boş sonuç geçerli) | `pg_stat_activity` | Tarama anında 10 dakikadan uzun süredir boşta bekleyen açık işlem yok. |
+| PG-PERF-002 | Sorgu istatistikleri (pg_stat_statements) | Performans | Düşük | HIGH | `pg_sorgu_istatistigi` (tek satır) | `pg_stat_statements.track`, `shared_preload_libraries` | pg_stat_statements shared_preload_libraries ile yüklü ve sorgu topluyor (pg_stat_statements.track: top ya da all). |
+| PG-PERF-003 | Geçici dosyalar | Performans | Orta | MEDIUM | `pg_gecici_dosya` (en az bir satır) | `pg_stat_database` | Geçici dosya yazılmamış ya da istatistik başlangıcı bilinen her veritabanında günde ortalama 10 GB'ın altında; başlangıcı bilinmeyen kullanım bilgi olarak gösterilir. |
 | PG-SEC-001 | TLS | Güvenlik | Yüksek | HIGH | `pg_tls_parola` (tek satır) | `ssl`, `ssl_min_protocol_version` | ssl açık ve en düşük protokol sürümü TLSv1.2 ya da üstü. |
 | PG-SEC-002 | Parola özeti ayarı | Güvenlik | Orta | HIGH | `pg_tls_parola` (tek satır) | `password_encryption` | password_encryption değeri scram-sha-256. |
 | PG-SEC-003 | MD5 özetli rol parolaları | Güvenlik | Orta | HIGH | `pg_md5_roller` (tek satır) | `pg_authid` | MD5 özetiyle saklanan rol parolası yok (pg_authid okuma yetkisi gerekir). |
@@ -86,7 +92,9 @@ Veri koşulu: *tek satır* kaynakta tam bir satır beklenir; *en az bir satır* 
 | PG-SEC-006 | public şemasında CREATE yetkisi | Güvenlik | Orta | HIGH | `pg_public_create` (her veritabanında, en az bir satır) | `has_schema_privilege` | Hiçbir veritabanında PUBLIC rolü public şemasında nesne oluşturamıyor. |
 | PG-SEC-007 | Bağlantı günlüğü | Güvenlik | Düşük | HIGH | `pg_log_ayarlari` (en az bir satır) | `pg_settings` | log_connections ve log_disconnections açık. |
 
-Kural kaynağı olmayan bilgi denetimleri: `pg_hesap`, `pg_kapsam`, `pg_eklentiler`.
+Kural kaynağı olmayan bilgi denetimleri: `pg_sunucu_rolu`, `pg_hesap`, `pg_kapsam`, `pg_eklentiler`.
+
+Yalnız birincil sunucuda değerlendirilen kurallar: PG-BACKUP-001, PG-MAINT-003, PG-MAINT-005. Yedek sunucuda tablo istatistikleri (ölü satır, indeks kullanımı) tutulmaz ve arşivlemeyi birincil yapar; bu kurallar yedekte Uygulanmaz olur. Sunucunun rolü `pg_sunucu_rolu` denetiminden okunur; okunamazsa bu kurallar Geçti olamaz.
 
 ## SQL Server, ön sürüm (20 kural)
 

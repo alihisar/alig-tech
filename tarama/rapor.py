@@ -32,7 +32,11 @@ M = {
                         "ag_yok": "Always On kullanılmıyor", "yonetilen_hizmet": "yönetilen hizmet: sürümü Microsoft yönetir",
                         "tcp_baglanti_yok": "tarama anında TCP bağlantısı yok", "arsiv_kaniti_yok": "başarılı arşivleme kaydı yok",
                         "rol_eksik": "kısmen ölçüldü: tarama hesabında gereken rol yok (pg_monitor)",
-                        "rol_bilinmiyor": "kısmen ölçüldü: tarama hesabının yetkileri okunamadı"},
+                        "rol_bilinmiyor": "kısmen ölçüldü: tarama hesabının yetkileri okunamadı",
+                        "replika_yok": "bu sunucudan beslenen replika yok",
+                        "birincil_degil": "yedek sunucuda değerlendirilmez: birincil sunucuyu tarayın",
+                        "sunucu_rolu_bilinmiyor": "kısmen ölçüldü: sunucunun birincil mi yedek mi olduğu okunamadı"},
+           "rol": "Sunucu rolü", "rol_d": {True: "yedek sunucu: birincile özgü %d denetim uygulanmaz", False: "birincil", None: "bilinmiyor"},
            "sunucu": "Sunucu sürümü", "sinandi": "bu sürümde sınandı",
            "sinanmadi": "bu sürüm araçla henüz sınanmadı; kanıt güveni en çok orta gösterilir", "bilinmiyor_s": "bilinmiyor",
            "db": "Tablo, indeks ve sequence denetimleri",
@@ -79,7 +83,11 @@ M = {
                         "ag_yok": "Always On is not in use", "yonetilen_hizmet": "managed service: Microsoft manages the version",
                         "tcp_baglanti_yok": "no TCP connections at scan time", "arsiv_kaniti_yok": "no successful archiving recorded",
                         "rol_eksik": "partially measured: the scan account lacks the required role (pg_monitor)",
-                        "rol_bilinmiyor": "partially measured: the scan account's privileges could not be read"},
+                        "rol_bilinmiyor": "partially measured: the scan account's privileges could not be read",
+                        "replika_yok": "no replicas are fed by this server",
+                        "birincil_degil": "not evaluated on a standby: scan the primary",
+                        "sunucu_rolu_bilinmiyor": "partially measured: whether the server is a primary or a standby could not be read"},
+           "rol": "Server role", "rol_d": {True: "standby: %d primary-only checks are not applicable", False: "primary", None: "unknown"},
            "sunucu": "Server version", "sinandi": "tested on this version",
            "sinanmadi": "this version has not been tested with the tool yet; evidence confidence is shown as medium at most", "bilinmiyor_s": "unknown",
            "db": "Table, index and sequence checks",
@@ -159,6 +167,17 @@ def _surum(s, motor, m):
     metin = ("PostgreSQL %d: %s" % (ana, m["sinandi"] if s.baglam.get("sinanan") else m["sinanmadi"])) if ana else \
         "%s: %s" % (m["bilinmiyor_s"], m["sinanmadi"])
     return "<dt>%s</dt><dd>%s</dd>" % (escape(m["sunucu"]), escape(metin))
+
+
+def _rol(s, motor, m):
+    """PostgreSQL sunucusu birincil mi yedek mi; yedekte birincile ozgu kac denetimin uygulanmadigi."""
+    if motor != "postgresql":
+        return ""
+    yedek = s.baglam.get("yedek")
+    metin = m["rol_d"][yedek]
+    if yedek:
+        metin = metin % sum(1 for k in s.kayitlar if k["neden"] == "birincil_degil")
+    return "<dt>%s</dt><dd>%s</dd>" % (escape(m["rol"]), escape(metin))
 
 
 def _durumlar(s, m, d):
@@ -244,7 +263,7 @@ def govde(rapor, dil, token, eylemler=True):
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["kapsam_e"]), escape(m["kapsam_d"] % (m["yuzde"] % pn.kapsam, pn.olculen, pn.uygulanabilir))),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["bulgu"]), escape(", ".join("%s: %d" % (m["onem"][o], n) for o, n in sayim.items() if n) or m["yok"])),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["denetimler"]), escape(", ".join("%s: %d" % (m["durum"][x], n) for x, n in durum_sayim.items() if n))),
-         _surum(sonuc, motor, m), _kapsam(belge, m), "</dl>", _puan(pn, sonuc, m, d), "<h2>%s</h2>" % escape(m["bulgu"]),
+         _surum(sonuc, motor, m), _rol(sonuc, motor, m), _kapsam(belge, m), "</dl>", _puan(pn, sonuc, m, d), "<h2>%s</h2>" % escape(m["bulgu"]),
          "" if bulgu else "<p>%s</p>" % escape(m["yok"])]
     for b in bulgu:
         p.append("<section class=\"finding-card sev-%s\"><h3>%s: %s</h3>" % (escape(b["onem"]), escape(m["onem"][b["onem"]]), escape(b["baslik"][d])))

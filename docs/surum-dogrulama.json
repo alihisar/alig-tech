@@ -6,6 +6,7 @@
      "kontroller": {
       "pg_arsiv": {
        "atlanan": 0,
+       "bos": 2,
        "deger": {
         "archive_mode": "off",
         "basarili": 0,
@@ -16,8 +17,15 @@
        "durum": "ok",
        "satir": 1
       },
+      "pg_autovacuum": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
+      },
       "pg_baglanti": {
        "atlanan": 0,
+       "bos": 0,
        "deger": {
         "kullanilan": 2,
         "ust": 100
@@ -27,21 +35,31 @@
       },
       "pg_bosta_islem": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 1
       },
       "pg_eklentiler": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
-       "satir": 2
+       "satir": 3
       },
       "pg_gecersiz_indeks": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
+      "pg_gecici_dosya": {
+       "atlanan": 0,
+       "bos": 5,
+       "durum": "ok",
+       "satir": 5
+      },
       "pg_hesap": {
        "atlanan": 0,
+       "bos": 0,
        "deger": {
         "pg_read_all_settings": true,
         "pg_read_all_stats": true,
@@ -52,16 +70,19 @@
       },
       "pg_kapsam": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
       "pg_kullanilmayan_indeks": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
       "pg_log_ayarlari": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 3
       },
@@ -71,44 +92,83 @@
       },
       "pg_olu_satir": {
        "atlanan": 1,
+       "bos": 2,
        "durum": "ok",
        "satir": 2
       },
       "pg_public_create": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
+      "pg_replikasyon": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 1
+      },
       "pg_sequence": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
        "satir": 0
       },
       "pg_sequence_gorunurluk": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
       "pg_slot": {
        "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_sorgu_istatistigi": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "izleme": "top",
+        "shared_preload_libraries": "pg_stat_statements"
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_sunucu_rolu": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "yedek": false
+       },
        "durum": "ok",
        "satir": 1
       },
       "pg_super_roller": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 1
       },
       "pg_surum": {
        "atlanan": 0,
+       "bos": 0,
        "deger": {
         "surum_num": 160015
        },
        "durum": "ok",
        "satir": 1
       },
+      "pg_tablo_autovacuum": {
+       "atlanan": 1,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
+      },
       "pg_tls_parola": {
        "atlanan": 0,
+       "bos": 0,
        "deger": {
         "password_encryption": "scram-sha-256",
         "ssl": "off",
@@ -119,6 +179,7 @@
       },
       "pg_xid_yasi": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 4
       }
@@ -128,6 +189,7 @@
      "kontroller": {
       "pg_arsiv": {
        "atlanan": 0,
+       "bos": 2,
        "deger": {
         "archive_mode": "off",
         "basarili": 0,
@@ -138,8 +200,15 @@
        "durum": "ok",
        "satir": 1
       },
+      "pg_autovacuum": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
+      },
       "pg_baglanti": {
        "atlanan": 0,
+       "bos": 0,
        "deger": {
         "kullanilan": 2,
         "ust": 100
@@ -149,21 +218,31 @@
       },
       "pg_bosta_islem": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 1
       },
       "pg_eklentiler": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
-       "satir": 3
+       "satir": 4
       },
       "pg_gecersiz_indeks": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
+      "pg_gecici_dosya": {
+       "atlanan": 0,
+       "bos": 5,
+       "durum": "ok",
+       "satir": 5
+      },
       "pg_hesap": {
        "atlanan": 0,
+       "bos": 0,
        "deger": {
         "pg_read_all_settings": true,
         "pg_read_all_stats": true,
@@ -174,21 +253,25 @@
       },
       "pg_kapsam": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 3
       },
       "pg_kullanilmayan_indeks": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
       "pg_log_ayarlari": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 3
       },
       "pg_md5_roller": {
        "atlanan": 0,
+       "bos": 0,
        "deger": {
         "sayi": 1
        },
@@ -197,44 +280,83 @@
       },
       "pg_olu_satir": {
        "atlanan": 0,
+       "bos": 2,
        "durum": "ok",
        "satir": 2
       },
       "pg_public_create": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 3
       },
+      "pg_replikasyon": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 1
+      },
       "pg_sequence": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
       "pg_sequence_gorunurluk": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 3
       },
       "pg_slot": {
        "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_sorgu_istatistigi": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "izleme": "top",
+        "shared_preload_libraries": "pg_stat_statements"
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_sunucu_rolu": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "yedek": false
+       },
        "durum": "ok",
        "satir": 1
       },
       "pg_super_roller": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 1
       },
       "pg_surum": {
        "atlanan": 0,
+       "bos": 0,
        "deger": {
         "surum_num": 160015
        },
        "durum": "ok",
        "satir": 1
       },
+      "pg_tablo_autovacuum": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
+      },
       "pg_tls_parola": {
        "atlanan": 0,
+       "bos": 0,
        "deger": {
         "password_encryption": "scram-sha-256",
         "ssl": "off",
@@ -245,15 +367,17 @@
       },
       "pg_xid_yasi": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 4
       }
      }
     },
-    "yetkisiz": {
+    "yedek": {
      "kontroller": {
       "pg_arsiv": {
        "atlanan": 0,
+       "bos": 2,
        "deger": {
         "archive_mode": "off",
         "basarili": 0,
@@ -264,8 +388,15 @@
        "durum": "ok",
        "satir": 1
       },
+      "pg_autovacuum": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
+      },
       "pg_baglanti": {
        "atlanan": 0,
+       "bos": 0,
        "deger": {
         "kullanilan": 1,
         "ust": 100
@@ -275,21 +406,214 @@
       },
       "pg_bosta_islem": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 0
       },
       "pg_eklentiler": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
-       "satir": 2
+       "satir": 3
       },
       "pg_gecersiz_indeks": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
+      "pg_gecici_dosya": {
+       "atlanan": 0,
+       "bos": 5,
+       "durum": "ok",
+       "satir": 5
+      },
       "pg_hesap": {
        "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "pg_read_all_settings": true,
+        "pg_read_all_stats": true,
+        "super_kullanici": false
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_kapsam": {
+       "atlanan": 1,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_kullanilmayan_indeks": {
+       "atlanan": 1,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_log_ayarlari": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 3
+      },
+      "pg_md5_roller": {
+       "durum": "hata",
+       "neden": "yetki"
+      },
+      "pg_olu_satir": {
+       "atlanan": 1,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 0
+      },
+      "pg_public_create": {
+       "atlanan": 1,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_replikasyon": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 0
+      },
+      "pg_sequence": {
+       "atlanan": 1,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 0
+      },
+      "pg_sequence_gorunurluk": {
+       "atlanan": 1,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_slot": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_sorgu_istatistigi": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "izleme": "top",
+        "shared_preload_libraries": "pg_stat_statements"
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_sunucu_rolu": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "yedek": true
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_super_roller": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_surum": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "surum_num": 160015
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_tablo_autovacuum": {
+       "atlanan": 1,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_tls_parola": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "password_encryption": "scram-sha-256",
+        "ssl": "off",
+        "ssl_min_protocol_version": "TLSv1.2"
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_xid_yasi": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 4
+      }
+     }
+    },
+    "yetkisiz": {
+     "kontroller": {
+      "pg_arsiv": {
+       "atlanan": 0,
+       "bos": 2,
+       "deger": {
+        "archive_mode": "off",
+        "basarili": 0,
+        "hatali": 0,
+        "son_basari_utc": null,
+        "son_hata_utc": null
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_autovacuum": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_baglanti": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "kullanilan": 1,
+        "ust": 100
+       },
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_bosta_islem": {
+       "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 0
+      },
+      "pg_eklentiler": {
+       "atlanan": 1,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 3
+      },
+      "pg_gecersiz_indeks": {
+       "atlanan": 1,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
+      },
+      "pg_gecici_dosya": {
+       "atlanan": 0,
+       "bos": 5,
+       "durum": "ok",
+       "satir": 5
+      },
+      "pg_hesap": {
+       "atlanan": 0,
+       "bos": 0,
        "deger": {
         "pg_read_all_settings": false,
         "pg_read_all_stats": false,
@@ -300,16 +624,19 @@
       },
       "pg_kapsam": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
       "pg_kullanilmayan_indeks": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
       "pg_log_ayarlari": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 3
       },
@@ -319,41 +646,73 @@
       },
       "pg_olu_satir": {
        "atlanan": 1,
+       "bos": 2,
        "durum": "ok",
        "satir": 2
       },
       "pg_public_create": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
+      "pg_replikasyon": {
+       "atlanan": 0,
+       "bos": 4,
+       "durum": "ok",
+       "satir": 1
+      },
       "pg_sequence": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
        "satir": 0
       },
       "pg_sequence_gorunurluk": {
        "atlanan": 1,
+       "bos": 0,
        "durum": "ok",
        "satir": 2
       },
       "pg_slot": {
        "atlanan": 0,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 1
+      },
+      "pg_sorgu_istatistigi": {
+       "durum": "hata",
+       "neden": "yetki"
+      },
+      "pg_sunucu_rolu": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "yedek": false
+       },
        "durum": "ok",
        "satir": 1
       },
       "pg_super_roller": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 1
       },
       "pg_surum": {
        "atlanan": 0,
+       "bos": 0,
        "deger": {
         "surum_num": 160015
        },
        "durum": "ok",
        "satir": 1
+      },
+      "pg_tablo_autovacuum": {
+       "atlanan": 1,
+       "bos": 0,
+       "durum": "ok",
+       "satir": 2
       },
       "pg_tls_parola": {
        "durum": "hata",
@@ -361,13 +720,14 @@
       },
       "pg_xid_yasi": {
        "atlanan": 0,
+       "bos": 0,
        "durum": "ok",
        "satir": 4
       }
      }
     }
    },
-   "katalog_sha256": "7ac46a8ef353cfecc6288958aa32e3dae69dc59ce54e4928c179cec00a5d2b4f",
+   "katalog_sha256": "10a585c377602ea1c8be3aa00051bc51dcbea2454b583b1f25573ae68207582e",
    "tam_surum": "PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit",
    "tarih": "2026-11-13"
   }
