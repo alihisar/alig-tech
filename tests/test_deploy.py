@@ -497,6 +497,21 @@ class YapilandirmaTests(unittest.TestCase):
         self.assertIn("proxy_set_header X-Real-IP $remote_addr", konum)
         self.assertIn("client_max_body_size 6m", konum)
 
+    def test_musteri_portali_kapali_varsayilan_ve_yalniz_dogrulamayla(self):
+        var = (ROOT / "deploy" / "ansible" / "group_vars" / "all.yml").read_text()
+        self.assertRegex(var, r"(?m)^musteri_portali: false$")
+        konum = (self.SABLON / "web" / "templates" / "alig-konumlar.conf.j2").read_text()
+        blok = konum[konum.index("location /portal"):konum.index("location /yonetim")]
+        self.assertIn("{% if musteri_portali %}", blok)
+        self.assertIn("return 404", blok)                      # kapaliyken nginx hicbir sey iletmez
+        self.assertIn("proxy_set_header Host $host", blok)     # Origin denetimi icin
+        self.assertIn("include snippets/alig-basliklar.conf", blok)
+        birim = (self.SABLON / "servisler" / "templates" / "alig-tarama.service.j2").read_text()
+        self.assertIn("{% if musteri_portali %}", birim)
+        self.assertIn("ALIG_PORTAL=1", birim)
+        gorev = (self.SABLON / "servisler" / "tasks" / "main.yml").read_text()
+        self.assertIn("musteri_portali: true icin eposta_dogrulama: true olmali", gorev)
+
     def test_hsts_her_konumda(self):
         self.assertIn("Strict-Transport-Security", (self.SABLON / "web" / "templates" / "alig-basliklar.conf.j2").read_text())
 

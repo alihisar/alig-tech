@@ -54,6 +54,8 @@ def main():
         # Yerelde e-posta dogrulamasi: iletiler giden kutusunda bekler; okumak icin
         #   ALIG_POSTA_DIZINI=yerel-posta python3 tarama/posta.py --db yerel-tarama.sqlite
         tarama.eposta_ayarla({"ALIG_EPOSTA_DOGRULAMA": "1", "ALIG_SITE_ADRESI": f"http://localhost:{args.port}"}, tarama.H)
+        if os.environ.get("ALIG_PORTAL") == "1":   # musteri portali: yalniz e-posta dogrulamasiyla birlikte
+            tarama.portal_ayarla(os.environ, tarama.H)
 
     # Yonetim paneli ayri bir sunucu (canlidaki gibi); /yonetim/ istekleri ona aktarilir
     yonetim.H.ydb = str(ROOT / "yerel-yonetim.sqlite")
@@ -90,14 +92,14 @@ def main():
                 return aktar(self)
             if self.path == "/healthz":
                 return FormH.do_GET(self)
-            if self.path.startswith("/rapor/") or self.path == "/api/tarama/saglik" or self.path.startswith("/api/tarama/baglan"):
+            if self.path.startswith("/rapor/") or self.path.startswith("/portal") or self.path == "/api/tarama/saglik" or self.path.startswith("/api/tarama/baglan"):
                 return tarama.H.do_GET(self)
             return SimpleHTTPRequestHandler.do_GET(self)
 
         def do_POST(self):
             if self.path.startswith("/yonetim"):
                 return aktar(self)
-            if self.path.startswith("/api/tarama/") or self.path.startswith("/rapor/"):
+            if self.path.startswith("/api/tarama/") or self.path.startswith("/rapor/") or self.path.startswith("/portal/"):
                 return tarama.H.do_POST(self)
             return FormH.do_POST(self)
 

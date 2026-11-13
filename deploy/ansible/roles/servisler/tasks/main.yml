@@ -85,6 +85,13 @@
     fail_msg: "eposta_dogrulama: true icin smtp_sunucu ve eposta_gonderen doldurulmali"
   when: eposta_dogrulama
 
+- name: Musteri portali yalniz e-posta dogrulamasiyla acilir
+  ansible.builtin.assert:
+    that:
+      - eposta_dogrulama
+    fail_msg: "musteri_portali: true icin eposta_dogrulama: true olmali"
+  when: musteri_portali
+
 - name: Posta birimi (e-posta dogrulamasi)
   ansible.builtin.template:
     src: alig-posta.service.j2

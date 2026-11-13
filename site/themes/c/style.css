@@ -194,6 +194,9 @@ html:not(.demo-ready) .btns,html.demo-ready .nojs-note,html:not(.demo-ready) .au
 .finding-card.sev-yuksek{border-left-color:#c2570c}
 .finding-card.sev-orta{border-left-color:var(--signal)}
 .ev{margin-top:.4rem;display:grid;gap:.2rem;font-size:.9rem}
+.portal-page{max-width:40rem;margin:2rem auto}
+.portal-page .err{padding:.6rem .9rem;border-left:4px solid #b3261e;background:#fff;margin:1rem 0}
+.portal-nav{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;justify-content:space-between;max-width:72rem;margin:0 auto;padding:.75rem 1rem;border-top:1px solid var(--line-strong)}
 .rapor-sekme{display:flex;flex-wrap:wrap;gap:.5rem;margin:1.25rem 0}
 .rapor-sekme a{padding:.5rem 1rem;border:1px solid var(--line-strong);border-radius:var(--r-s);color:var(--fg);text-decoration:none;font-weight:600}
 .rapor-sekme a[aria-current=page]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
@@ -204,7 +207,7 @@ html:not(.demo-ready) .btns,html.demo-ready .nojs-note,html:not(.demo-ready) .au
 .kanit-blok{font-variant-numeric:tabular-nums}
 .riskler tbody th{font-weight:700}
 @page{margin:16mm}
-@media print{.top,.foot,.report form,.report .btn,.rapor-sekme{display:none}body{background:#fff;color:#000;font-size:11pt}.report{max-width:none}.finding-card{break-inside:avoid;background:transparent;border:1px solid #000;border-left-width:4px}.report h2,.report h3,.report h4{break-after:avoid}.report table{break-inside:auto}.report tr{break-inside:avoid}.report thead{display:table-header-group}.report a{color:#000;text-decoration:none}}
+@media print{.top,.foot,.report form,.report .btn,.rapor-sekme,.portal-nav{display:none}body{background:#fff;color:#000;font-size:11pt}.report{max-width:none}.finding-card{break-inside:avoid;background:transparent;border:1px solid #000;border-left-width:4px}.report h2,.report h3,.report h4{break-after:avoid}.report table{break-inside:auto}.report tr{break-inside:avoid}.report thead{display:table-header-group}.report a{color:#000;text-decoration:none}}
 .prose a.btn{color:var(--on-signal);text-decoration:none}
 .prose a.btn-ghost{color:var(--fg)}
 .field input[type=checkbox]{width:auto;margin-right:.5rem}

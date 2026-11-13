@@ -14,6 +14,8 @@ Kaynak: `tarama/saklama.py` (tek yer). Süreler ortamdan ayarlanır: `ALIG_SAKLA
 
 Geçmiş karşılaştırması (`tarama/gecmis.py`) yeni veri saklamaz: yalnız saklama süresi dolmamış raporları okur. Rapor silinince ya da süresi dolunca o tarama karşılaştırmaya da girmez. Daha uzun geçmiş için özet saklama ayrı bir veri sınıfı ve hukuk onayı ister `[doldurulacak: karşılaştırma özeti saklama kararı]`.
 
+Müşteri portalı (`ALIG_PORTAL`, varsayılan kapalı) yeni veri sınıfı ekler: portal hesabı (e-posta, scrypt parola özeti, dil). Hesap, firma silinince (yukarıdaki `firma` süresi) birlikte silinir; doğrulanmamış hesap isteği ve doğrulama kodu 24 saatte, oturum bostayken 30 dakikada (en çok 8 saat), giriş denemesi 1 günde silinir (`tarama/portal_depo.py`, günlük bakımda `temizle`). Kullanıcı kendi hesabını silme isteği madde 17'de gelir. Hesapların ayrı bir saklama süresi hukuk onayı ister `[doldurulacak: portal hesabı saklama süresi]`.
+
 Sabit kalanlar: sınır penceresi 30 gün (iş kuralı, `depo.SINIR_GUN`); yönetim oturumu kullanım süresine göre dolar, parola değişince silinir.
 
 Silme günlük bakım işinde (`deploy/bakim.py`) çalışır; yedekten önce yapılır.

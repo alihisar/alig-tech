@@ -20,7 +20,7 @@ from pathlib import Path
 
 KOK = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KOK))
-from tarama import depo, saklama  # noqa: E402
+from tarama import depo, portal_depo, saklama  # noqa: E402
 from yonetim import depo as ydepo  # noqa: E402
 
 VERITABANLARI = ("form.sqlite", "tarama.sqlite", "yonetim.sqlite")
@@ -296,6 +296,7 @@ def main(argv=None):
         con = depo.baglan(str(tarama))
         print(f"suresi dolan rapor silindi: {depo.suresi_dolanlari_sil(con)}")
         print(f"saklama suresi dolan firma silindi: {depo.saklama_uygula(con)}")
+        portal_depo.temizle(con)   # suresi dolan portal kodu, oturum, deneme kaydi ve dogrulanmamis hesap istegi
         con.close()
     print(f"saklama suresi dolan talep silindi: {talepleri_sil(veri)}")
     for ad in VERITABANLARI:

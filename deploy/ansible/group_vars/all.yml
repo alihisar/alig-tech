@@ -33,4 +33,7 @@ smtp_sunucu: ""
 smtp_port: 587
 smtp_kullanici: ""
 eposta_gonderen: ""
+# Musteri portali (/portal/). Varsayilan KAPALI. true icin eposta_dogrulama de true olmali: hesap acarken e-posta sahipligi
+# dogrulanir. Canlida gercek SMTP gonderimi kurulup denenmeden acilmaz.
+musteri_portali: false
 

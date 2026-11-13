@@ -18,6 +18,7 @@ SINIFLAR = {
 SABIT = {
     "sinir_penceresi": "30 gun (depo.SINIR_GUN): kod sabiti, is kurali; sayim kayitlari bu sureden sonra silinir",
     "oturum": "yonetim paneli oturumu: kullanim suresine gore dolar, parola degisince silinir (yonetim/depo.py)",
+    "portal": "musteri portali: hesap (e-posta, parola ozeti) firma silinince silinir; dogrulama kodu 24 saat, oturum bostayken 30 dk ve en cok 8 saat, giris denemesi 1 gun (tarama/portal_depo.py)",
 }
 
 

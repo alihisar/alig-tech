@@ -71,6 +71,18 @@ GOCLER = [
        SELECT id, token_sha256, olusturma_utc, bitis_utc, motor, dil, belge_json, firma_id, eposta, dogrulandi FROM rapor""",
     """DROP TABLE rapor""",
     """ALTER TABLE rapor_yeni RENAME TO rapor""",
+    # musteri portali (ALIG_PORTAL): firma kullanicisi, e-posta dogrulama kodu, oturum, giris denemesi. Platform yoneticisinden
+    # ayri tablolar ve ayri kimlik (yonetim.sqlite). Dogrulanmis kullanicinin firmasi vardir (CHECK); dogrulanmamisin yoktur.
+    """CREATE TABLE portal_kullanici(id INTEGER PRIMARY KEY AUTOINCREMENT, firma_id INTEGER, eposta TEXT NOT NULL UNIQUE,
+       parola TEXT NOT NULL, durum TEXT NOT NULL DEFAULT 'bekliyor', dil TEXT NOT NULL DEFAULT 'tr', sirket TEXT NOT NULL DEFAULT '',
+       kayit_utc TEXT NOT NULL, dogrulama_utc TEXT, son_giris_utc TEXT,
+       CHECK (durum IN ('bekliyor', 'aktif') AND (durum = 'bekliyor' OR firma_id IS NOT NULL)))""",
+    """CREATE INDEX portal_kullanici_firma ON portal_kullanici(firma_id)""",
+    """CREATE TABLE portal_kod(kod_sha256 TEXT PRIMARY KEY, kullanici_id INTEGER NOT NULL, bitis_utc TEXT NOT NULL)""",
+    """CREATE TABLE portal_oturum(kod_sha256 TEXT PRIMARY KEY, kullanici_id INTEGER NOT NULL, csrf TEXT NOT NULL,
+       olusturma_utc TEXT NOT NULL, son_erisim_utc TEXT NOT NULL)""",
+    """CREATE TABLE portal_deneme(id INTEGER PRIMARY KEY, anahtar TEXT NOT NULL, zaman_utc TEXT NOT NULL)""",
+    """CREATE INDEX portal_deneme_anahtar ON portal_deneme(anahtar, zaman_utc)""",
 ]
 ISTEK_DAKIKA = 30
 BEKLEME_SAAT = 24      # e-postayla dogrulanmamis rapor bu sure sonunda silinir
@@ -435,11 +447,14 @@ def firma_sinir_sifirla(con, fid):
 
 
 def firma_sil(con, fid):
-    """Firma kaydini, raporlarini ve sinir sayimini siler. Silinen rapor sayisini doner; firma yoksa None."""
+    """Firma kaydini, raporlarini, portal kullanicilarini ve sinir sayimini siler. Silinen rapor sayisini doner; firma yoksa None."""
     f = firma_getir(con, fid)
     if not f:
         return None
     n = con.execute("DELETE FROM rapor WHERE firma_id=?", (fid,)).rowcount
+    for tablo in ("portal_kod", "portal_oturum"):   # firmanin portal kullanicilarinin kodlari ve oturumlari
+        con.execute("DELETE FROM %s WHERE kullanici_id IN (SELECT id FROM portal_kullanici WHERE firma_id=?)" % tablo, (fid,))
+    con.execute("DELETE FROM portal_kullanici WHERE firma_id=?", (fid,))
     con.execute("DELETE FROM kullanim WHERE anahtar_sha256=?", (_firma_ozeti(f),))
     con.execute("DELETE FROM baglanti_istegi WHERE firma_id=?", (fid,))
     con.execute("DELETE FROM firma WHERE id=?", (fid,))

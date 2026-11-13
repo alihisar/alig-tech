@@ -11,6 +11,10 @@ EnvironmentFile=/etc/alig/env
 Environment=ALIG_EPOSTA_DOGRULAMA=1
 Environment=ALIG_SITE_ADRESI=https://{{ alan_adi }}
 {% endif %}
+{% if musteri_portali %}
+# Musteri portali acik (e-posta dogrulamasi da acik olmali; tarama/server.py aksi halde baslamaz).
+Environment=ALIG_PORTAL=1
+{% endif %}
 {% if dogrudan_baglanti %}
 # Kip B acik: tarama, ayri calistirici servisine yerel soketten devredilir. Bu birim disariya baglanmaz.
 Environment=ALIG_DOGRUDAN=1

@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import importlib.util  # noqa: E402
 
-from tarama import baglanti, calistirici, depo, hata, hedef, posta, puan, rapor, saklama, yukleme  # noqa: E402
+from tarama import baglanti, calistirici, depo, hata, hedef, portal, posta, puan, rapor, saklama, yukleme  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("alig_form_server", Path(__file__).resolve().parent.parent / "form" / "server.py")
 _form = importlib.util.module_from_spec(_spec)
@@ -61,6 +61,8 @@ class H(BaseHTTPRequestHandler):
     calistirici_soketi = None            # uretimde zorunlu: tarama ayri calistirici surecinde kosar
     eposta_dogrulama = False             # ALIG_EPOSTA_DOGRULAMA=1: rapor baglantisi yalniz e-postayla gider
     site_adresi = ""                     # e-postadaki baglantinin koku (ALIG_SITE_ADRESI)
+    portal = False                       # musteri portali (/portal/): ALIG_PORTAL=1 ve e-posta dogrulamasi acikken
+    portal_cerez_guvenli = True          # oturum cerezi Secure; yalniz yerel HTTP'de kapatilir
     posta_adres_siniri = 3               # ayni adrese 24 saatte en cok posta
     bekleyen_firma_siniri = 5            # bir firmada 24 saatte en cok dogrulanmamis rapor
     sys_version = ""
@@ -88,6 +90,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         yol = self.path.split("?")[0]
+        if yol == "/portal" or yol.startswith("/portal/"):
+            return portal.isle(self, "GET")
         if yol == "/api/tarama/saglik":
             try:
                 depo.baglan(self.db_yolu).close()
@@ -118,6 +122,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         yol = self.path.split("?")[0]
+        if yol.startswith("/portal/"):
+            return portal.isle(self, "POST")
         m = TOKEN.match(yol)
         if m and m.group(2) == "sil":
             return self._sil(m.group(1))
@@ -398,6 +404,19 @@ def eposta_ayarla(ortam, H):
     return True
 
 
+def portal_ayarla(ortam, H):
+    """ALIG_PORTAL=1 ise portali acar, ama yalniz e-posta dogrulamasi aciksa: dogrulama olmadan bir adresin sahibi
+    dogrulanamaz, baskasinin firmasina hesap acilabilirdi. Acildiysa True; dogrulama kapaliyken ValueError."""
+    if ortam.get("ALIG_PORTAL") != "1":
+        H.portal = False
+        return False
+    if not H.eposta_dogrulama:
+        raise ValueError("ALIG_PORTAL=1 icin ALIG_EPOSTA_DOGRULAMA=1 de acik olmali (e-posta sahipligi dogrulanmadan portal acilmaz)")
+    H.portal = True
+    H.portal_cerez_guvenli = H.site_adresi.startswith("https://")
+    return True
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=os.environ.get("ALIG_TARAMA_DB", "tarama.sqlite"))
@@ -414,6 +433,7 @@ def main(argv=None):
         saklama.dogrula()
         puan.yukle()   # gecersiz puan ayariyla servis baslamaz (PuanAyarHatasi bir ValueError)
         eposta_ayarla(os.environ, H)
+        portal_ayarla(os.environ, H)
     except (depo.AnahtarHatasi, saklama.SaklamaHatasi, ValueError) as ex:
         raise SystemExit("hata: %s" % ex)
     depo.baglan(a.db).close()

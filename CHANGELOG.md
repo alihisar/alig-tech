@@ -2,6 +2,11 @@
 
 ## Yayınlanmadı
 
+- Müşteri portalı, ilk dilim (`/portal/`, varsayılan kapalı): hesap isteği ve tek kullanımlık, süreli e-posta doğrulaması
+  (GET hiçbir şey değiştirmez, hesap düğmeyle açılır), parola girişi (scrypt, deneme sınırı), oturum, rapor listesi ve
+  görüntüleme. Firma izolasyonu veri erişim katmanındadır: her sorgu oturumdaki kullanıcının firmasına bağlıdır, başka
+  firmanın raporu tahmin edilen kimlikle bulunamaz ve var olmayan kimlikle aynı yanıtı verir. Hesap varlığı ekrandan
+  anlaşılmaz. Yalnız e-posta doğrulaması açıkken açılır (`ALIG_PORTAL=1`, `musteri_portali`). Parola sıfırlama yok.
 - Rapor görünümleri: `?gorunum=yonetici` yönetici özeti (genel durum, en önemli 5 risk ve olası iş etkisi, öncelik sıralı
   öneriler, önceki taramaya göre değişim, kanıt türü: kesin kanıt, istatistik, hipotez), `?gorunum=teknik` (varsayılan)
   teknik rapor. Özet yalnız kural çıktısından üretilir, dil modeli yok. Kanıtı eksik tarama temiz sayılmaz. Bulgu

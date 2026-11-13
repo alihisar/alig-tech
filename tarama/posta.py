@@ -45,6 +45,44 @@ ILETI = {
 }
 
 
+PORTAL_ILETI = {
+    "tr": ("alig.tech müşteri portalı: e-posta adresinizi doğrulayın",
+           "Merhaba,\n\n"
+           "alig.tech müşteri portalında bu e-posta adresiyle bir hesap açma isteği yapıldı. Hesabı etkinleştirmek için aşağıdaki "
+           "bağlantıyı açın ve sayfadaki düğmeyle e-posta adresinizi doğrulayın:\n\n{baglanti}\n\n"
+           "Bağlantı {saat} saat geçerlidir ve yalnız bir kez kullanılabilir.\n\n"
+           "Bu isteği siz yapmadıysanız bu e-postayı yok sayın. Hesap açılmaz.\n\n"
+           "alig.tech\n"),
+    "en": ("alig.tech customer portal: confirm your email address",
+           "Hello,\n\n"
+           "A request was made to open an account in the alig.tech customer portal with this email address. To activate the "
+           "account, open the link below and confirm your email address with the button on the page:\n\n{baglanti}\n\n"
+           "The link is valid for {saat} hours and can be used only once.\n\n"
+           "If you did not make this request, ignore this email. No account is opened.\n\n"
+           "alig.tech\n"),
+}
+PORTAL_VAR_ILETI = {
+    "tr": ("alig.tech müşteri portalı: hesabınız zaten var",
+           "Merhaba,\n\nBu e-posta adresiyle alig.tech müşteri portalında zaten bir hesap var. Yeni hesap açılmadı; "
+           "mevcut hesabınızla giriş yapabilirsiniz:\n\n{baglanti}\n\nBu isteği siz yapmadıysanız bu e-postayı yok sayın.\n\nalig.tech\n"),
+    "en": ("alig.tech customer portal: you already have an account",
+           "Hello,\n\nThere is already an account in the alig.tech customer portal with this email address. No new account was "
+           "opened; you can sign in with your existing account:\n\n{baglanti}\n\nIf you did not make this request, ignore this email.\n\nalig.tech\n"),
+}
+
+
+def portal_iletisi(dil, baglanti, saat):
+    """(konu, metin): hesap dogrulama baglantisi."""
+    konu, metin = PORTAL_ILETI["en" if dil == "en" else "tr"]
+    return konu, metin.format(baglanti=baglanti, saat=saat)
+
+
+def portal_var_iletisi(dil, baglanti):
+    """(konu, metin): adreste hesap zaten var; hesap varligi ekrandan degil yalniz posta kutusundan anlasilir."""
+    konu, metin = PORTAL_VAR_ILETI["en" if dil == "en" else "tr"]
+    return konu, metin.format(baglanti=baglanti)
+
+
 class PostaAyarHatasi(ValueError):
     pass
 

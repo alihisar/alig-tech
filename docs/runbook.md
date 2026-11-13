@@ -153,6 +153,17 @@ Yerelde denemek: `ALIG_EPOSTA_DOGRULAMA=1 python3 yerel.py`, iletileri okumak i�
 
 **Durum:** gönderim sahte SMTP nesnesiyle sınandı (STARTTLS girişten önce, STARTTLS yoksa parola gönderilmez, 465'te doğrudan TLS). Gerçek bir SMTP sunucusuyla denenmedi.
 
+## Müşteri portalı (varsayılan kapalı)
+
+Portal `/portal/` altındadır. Açmak için `group_vars/all.yml` içinde `musteri_portali: true` **ve** `eposta_dogrulama: true` olmalıdır; ikincisi olmadan Ansible durur, servis de başlamaz (`ALIG_PORTAL=1` yalnız e-posta doğrulaması açıkken kabul edilir). Gerçek SMTP gönderimi kurulup denenmeden açmayın: hesap, adresin sahibi e-postadaki bağlantıyı onaylayınca açılır.
+
+- Giriş: e-posta ve parola (en az 12 karakter, scrypt). Hatalı giriş e-posta başına 5, IP başına 10 denemede 15 dakika engellenir. Oturum bostayken 30 dakika, en çok 8 saat sürer; çerez `HttpOnly`, `SameSite=Strict`, yolu `/portal`.
+- Aynı kurumsal alan adındaki kullanıcılar aynı firmanın raporlarını görür (`ornek.com.tr`); ücretsiz posta adresleri (gmail vb.) tek başınadır.
+- Firma izolasyonu veri katmanındadır (`tarama/portal_depo.py` `Kapsam`): her sorgu oturumdaki kullanıcının firmasıyla sınırlıdır; başka firmanın raporu var olmayan kimlikle aynı yanıtı verir.
+- Platform yöneticisinin hesabı ve oturumu ayrıdır (`yonetim.sqlite`); portal hesabı panele girmez.
+- Bir firmayı panelden pasif yapmak o firmanın portal girişini ve açık oturumlarını hemen geçersiz kılar; firma silinince hesapları da silinir.
+- Parola sıfırlama bu dilimde yoktur: parolasını unutan kullanıcı için yeni bir hesap isteği yapılamaz (adreste etkin hesap varsa istek yeni hesap açmaz). Parola sıfırlama sonraki dilimde gelir; o zamana kadar canlıya açmayın.
+
 ## Sorun giderme
 
 | Belirti | Bak |
