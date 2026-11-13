@@ -296,10 +296,46 @@ class PanelTests(Taban):
 
     def test_beklenmeyen_kural_hatasi_paneli_dusurmez(self):
         from unittest import mock
-        with mock.patch.object(server.kurallar, "degerlendir", side_effect=RuntimeError("beklenmeyen")):
+        with mock.patch.object(server.kurallar, "incele", side_effect=RuntimeError("beklenmeyen")):
             for yol in ("/yonetim/", "/yonetim/taramalar", "/yonetim/firmalar/%d" % self.firma["id"], "/yonetim/taramalar/1"):
                 self.assertEqual(self.istek("GET", yol)[0].status, 200, yol)
             self.assertIn("Bu raporu kalıcı olarak sil", self.istek("GET", "/yonetim/taramalar/1")[1])
+            self.assertIn("değerlendirilemedi", self.istek("GET", "/yonetim/taramalar")[1])
+        with mock.patch.object(server.puan, "hesapla", side_effect=RuntimeError("beklenmeyen")):
+            for yol in ("/yonetim/", "/yonetim/taramalar", "/yonetim/firmalar/%d" % self.firma["id"]):
+                self.assertEqual(self.istek("GET", yol)[0].status, 200, yol)
+
+    def test_puan_kapsamla_birlikte_gorunur(self):
+        from tarama import kurallar, puan
+        t = tdepo.baglan(self.tdb)
+        p = puan.hesapla(kurallar.incele(tdepo.rapor_getir_id(t, 1)["belge"]))
+        bos = temiz_belge()
+        bos["kontroller"] = {cid: {"durum": "hata", "neden": "yetki"} for cid in bos["kontroller"]}
+        del bos["superuser"]
+        tdepo.rapor_ekle(t, "kanitsiz", "postgresql", "tr", bos, self.firma["id"])
+        t.close()
+        beklenen = "%d/100 (kapsam %%%d)" % (p.genel, p.kapsam)
+        for yol in ("/yonetim/taramalar", "/yonetim/firmalar/%d" % self.firma["id"]):
+            g = self.istek("GET", yol)[1]
+            self.assertIn("<th scope=\"col\">Puan</th>", g, yol)
+            self.assertIn(beklenen, g, yol)
+            self.assertIn("hesaplanamadı (kapsam %0)", g, yol)   # kanit yoksa puan yazilmaz
+        g = self.istek("GET", "/yonetim/taramalar/1")[1]
+        self.assertIn("Sağlık puanı", g)
+        self.assertIn("%d/100" % p.genel, g)
+
+    def test_sistem_sayfasi_puan_katsayilarini_gosterir(self):
+        from tarama import puan
+        g = self.istek("GET", "/yonetim/sistem")[1]
+        self.assertIn("Sağlık puanı katsayıları", g)
+        self.assertIn("kritik 10", g)
+        self.assertIn("Varsayılan değerler", g)
+        eski = puan.ETKIN
+        self.addCleanup(setattr, puan, "ETKIN", eski)
+        puan.ETKIN = puan.katsayi_dogrula({"agirlik": {"kritik": 12}})
+        g = self.istek("GET", "/yonetim/sistem")[1]
+        self.assertIn("kritik 12", g)
+        self.assertIn("Bu kurulum için ayarlandı", g)
 
     def test_firma_pasif_aktif_dugmeleri(self):
         fid = self.firma["id"]

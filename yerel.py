@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "form"))
 import build as site_build  # noqa: E402
 import server as form  # noqa: E402
 from tarama import server as tarama  # noqa: E402
-from tarama import depo  # noqa: E402
+from tarama import depo, puan  # noqa: E402
 from yonetim import depo as ydepo  # noqa: E402
 from yonetim import server as yonetim  # noqa: E402
 import http.client  # noqa: E402
@@ -46,6 +46,10 @@ def main():
     tarama.H.motorlar = ("postgresql", "mssql")  # yerelde SQL Server on surumu acik
     tarama.H.dogrudan = True  # yerelde Kip B formu acik; hedef dogrulamasi gercektir, yerel ve ic adresler reddedilir
     depo.baglan(tarama.H.db_yolu).close()
+    try:
+        puan.yukle()   # ALIG_PUAN_AYARI verilirse yerelde de o katsayilar kullanilir
+    except puan.PuanAyarHatasi as ex:
+        raise SystemExit("hata: %s" % ex)
     if os.environ.get("ALIG_EPOSTA_DOGRULAMA") == "1":
         # Yerelde e-posta dogrulamasi: iletiler giden kutusunda bekler; okumak icin
         #   ALIG_POSTA_DIZINI=yerel-posta python3 tarama/posta.py --db yerel-tarama.sqlite

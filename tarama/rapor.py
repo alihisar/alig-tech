@@ -1,7 +1,7 @@
 """Rapor HTML'i. Tum degerler html.escape ile yazilir; nesne adlari yalniz kanit listesinde gorunur."""
 from html import escape
 
-from tarama import kanit, katalog, kurallar
+from tarama import kanit, katalog, kurallar, puan
 
 M = {
     "tr": {"baslik": "Sağlık taraması raporu", "ozet": "Özet", "tarama": "Tarama zamanı (UTC)", "motor": "Motor",
@@ -38,7 +38,19 @@ M = {
            "db": "Tablo, indeks ve sequence denetimleri",
            "db_d": "%d veritabanında çalıştı (sunucuda %d)",
            "db_a": "Atlanan veritabanları",
-           "db_k": "Atlanan %d veritabanında tablo, indeks ve sequence durumu. Tarama hesabına bağlanma yetkisi verin ya da betiği --veritabanlari ile o veritabanları için çalıştırın."},
+           "db_k": "Atlanan %d veritabanında tablo, indeks ve sequence durumu. Tarama hesabına bağlanma yetkisi verin ya da betiği --veritabanlari ile o veritabanları için çalıştırın.",
+           "puan": "Sağlık puanı", "puan_yok": "hesaplanamadı: puana giren denetimlerin hiçbirinde kanıt yok",
+           "kapsam_e": "Kanıt kapsamı", "kapsam_d": "%s (kanıtı olan denetim: %d / %d)", "yuzde": "%%%d",
+           "puan_a": "Puan, uygulanabilir denetimlerin risk düzeyine göre ağırlıklı ortalamasıdır. Geçen denetim tam kredi alır, "
+                     "uyarı veren denetim bulgunun önemine göre kısmi kredi alır, başarısız denetim kredi almaz. Kanıtı olmayan denetim "
+                     "(Bilinmiyor, Alınamadı) da kredi almaz: eksik veri puanı yükseltmez. Uygulanmaz denetimler hesaba girmez. "
+                     "Puanı kanıt kapsamıyla birlikte okuyun; puan yalnız bu raporun baktığı konuları anlatır.",
+           "katsayi": "Ağırlıklar (denetimin risk düzeyine göre): %s. Uyarı kredisi (bulgunun önemine göre): %s.",
+           "carpan": "Kategori çarpanları: %s.", "ozel": "Katsayılar bu kurulum için ayarlanmıştır.",
+           "kategori_b": ("Kategori", "Puan", "Kanıt kapsamı", "Kanıtı olan denetim"), "kat_yok": "uygulanmaz",
+           "kayip_h": "Puanı düşüren denetimler", "kayip_b": ("Kural", "Denetim", "Durum", "Puan kaybı"),
+           "kayip_ozet": "Bulgulardan %s puan, kanıt eksikliğinden %s puan kayıp.",
+           "tam": "Puanı düşüren denetim yok."},
     "en": {"baslik": "Health check report", "ozet": "Summary", "tarama": "Scan time (UTC)", "motor": "Engine",
            "surum": "Masked", "evet": "yes", "hayir": "no", "bulgu": "Findings", "yok": "No findings in this scan.",
            "kanit": "Evidence", "neden": "Why it matters", "oneri": "Proposal", "risk": "Risk of the proposal", "geri": "Rollback",
@@ -73,16 +85,28 @@ M = {
            "db": "Table, index and sequence checks",
            "db_d": "ran in %d databases (%d on the server)",
            "db_a": "Skipped databases",
-           "db_k": "Table, index and sequence state in the %d skipped databases. Grant the scan account permission to connect, or run the script with --veritabanlari for those databases."},
+           "db_k": "Table, index and sequence state in the %d skipped databases. Grant the scan account permission to connect, or run the script with --veritabanlari for those databases.",
+           "puan": "Health score", "puan_yok": "not calculated: none of the scored checks has evidence",
+           "kapsam_e": "Evidence coverage", "kapsam_d": "%s (checks with evidence: %d of %d)", "yuzde": "%d%%",
+           "puan_a": "The score is a weighted average of the applicable checks, weighted by each check's risk level. A passing check "
+                     "earns full credit, a warning earns partial credit depending on the finding's severity, and a failing check earns "
+                     "none. A check without evidence (Unknown, Unavailable) earns none either: missing data never raises the score. "
+                     "Not applicable checks are left out. Read the score together with the evidence coverage; it only describes "
+                     "what this report looks at.",
+           "katsayi": "Weights (by the check's risk level): %s. Warning credit (by the finding's severity): %s.",
+           "carpan": "Category multipliers: %s.", "ozel": "The coefficients have been adjusted for this installation.",
+           "kategori_b": ("Category", "Score", "Evidence coverage", "Checks with evidence"), "kat_yok": "not applicable",
+           "kayip_h": "Checks that lower the score", "kayip_b": ("Rule", "Check", "Status", "Points lost"),
+           "kayip_ozet": "%s points lost to findings, %s points to missing evidence.",
+           "tam": "No check lowers the score."},
 }
 
 
-def _kanit(kanit):
+def _kanit(kanit, m):
     out = []
     for k, v in kanit.items():
-        if isinstance(v, list):
-            v = ", ".join(str(x) for x in v)
-        out.append("<li><code>%s</code>: %s</li>" % (escape(str(k)), escape(str(v))))
+        v = ", ".join(str(x) for x in v) if isinstance(v, list) else _deger(v, m)
+        out.append("<li><code>%s</code>: %s</li>" % (escape(str(k)), escape(v)))
     return "<ul class=\"ev\">%s</ul>" % "".join(out)
 
 
@@ -150,12 +174,63 @@ def _durumlar(s, m, d):
         "".join(satirlar)))
 
 
+def _sayi(v, d, ondalik=None):
+    """Turkcede ondalik ayirac virgul. ondalik verilirse o kadar basamak; 0'a yuvarlanan pozitif deger '<0,1' yazilir."""
+    if ondalik is None:
+        metin = "%g" % v
+    elif 0 < v < 0.5 * 10 ** -ondalik:
+        metin = "<%s" % ("%.*f" % (ondalik, 10 ** -ondalik))
+    else:
+        metin = "%.*f" % (ondalik, v)
+    return metin.replace(".", ",") if d == "tr" else metin
+
+
+def _puan(pn, sonuc, m, d):
+    """Saglik puani bolumu: yontem, etkin katsayilar, kategori tablosu ve puani dusuren denetimler (tarama/puan.py)."""
+    k = puan.ETKIN
+    onem = lambda o: m["onem"][o].lower()  # noqa: E731
+    yontem = m["katsayi"] % (", ".join("%s %s" % (onem(o), _sayi(v, d)) for o, v in k["agirlik"].items()),
+                             ", ".join("%s %s" % (onem(o), _sayi(v, d)) for o, v in k["kredi_uyari"].items()))
+    if not puan.varsayilan_mi():
+        yontem += " " + m["carpan"] % ", ".join("%s %s" % (m["kategori"][c], _sayi(v, d)) for c, v in k["kategori_carpani"].items())
+        yontem += " " + m["ozel"]
+    satir = []
+    for kat, x in pn.kategoriler.items():
+        if not x["uygulanabilir"]:
+            hucre = ("-", "-", m["kat_yok"])
+        else:
+            hucre = ("-" if x["puan"] is None else str(x["puan"]), m["yuzde"] % x["kapsam"], "%d / %d" % (x["olculen"], x["uygulanabilir"]))
+        satir.append("<tr><th scope=\"row\">%s</th>%s</tr>" % (escape(m["kategori"][kat]), "".join(
+            "<td data-label=\"%s\">%s</td>" % (escape(b), escape(h)) for b, h in zip(m["kategori_b"][1:], hucre))))
+    p = ["<h2>%s</h2><p>%s</p><p>%s</p>" % (escape(m["puan"]), escape(m["puan_a"]), escape(yontem)),
+         "<table class=\"tiers puanlar\"><thead><tr>%s</tr></thead><tbody>%s</tbody></table>" % (
+             "".join("<th scope=\"col\">%s</th>" % escape(b) for b in m["kategori_b"]), "".join(satir))]
+    if pn.genel is None:
+        return "\n".join(p)
+    p.append("<h3>%s</h3>" % escape(m["kayip_h"]))
+    if not pn.kayiplar:
+        p.append("<p>%s</p>" % escape(m["tam"]))
+        return "\n".join(p)
+    ad = {r["kural"]: r["ad"][d] for r in sonuc.kayitlar}
+    satir = []
+    for x in pn.kayiplar:
+        durum = m["durum"][x["durum"]] + (" (%s)" % m["nedenler"].get(x["neden"], x["neden"]) if x["tur"] == "kanit" and x["neden"] else "")
+        hucre = (ad[x["kural"]], durum, _sayi(x["kayip"], d, 1))
+        satir.append("<tr><th scope=\"row\"><code>%s</code></th>%s</tr>" % (escape(x["kural"]), "".join(
+            "<td data-label=\"%s\">%s</td>" % (escape(b), escape(h)) for b, h in zip(m["kayip_b"][1:], hucre))))
+    p.append("<p>%s</p>" % escape(m["kayip_ozet"] % (_sayi(pn.bulgu_kaybi, d, 1), _sayi(pn.kanit_kaybi, d, 1))))
+    p.append("<table class=\"tiers durumlar kayiplar\"><thead><tr>%s</tr></thead><tbody>%s</tbody></table>" % (
+        "".join("<th scope=\"col\">%s</th>" % escape(b) for b in m["kayip_b"]), "".join(satir)))
+    return "\n".join(p)
+
+
 def govde(rapor, dil, token, eylemler=True):
     m = M[dil if dil in M else "tr"]
     d = dil if dil in M else "tr"
     belge = rapor["belge"]
     sonuc = kurallar.incele(belge)
     bulgu, olcul = sonuc.bulgular, sonuc.olculemeyen
+    pn = puan.hesapla(sonuc)
     sayim = {o: sum(1 for b in bulgu if b["onem"] == o) for o in kurallar.ONEM}
     durum_sayim = sonuc.sayim()
     motor = belge.get("motor", "postgresql")
@@ -165,9 +240,12 @@ def govde(rapor, dil, token, eylemler=True):
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["tarama"]), escape(belge["olusturma_utc"])),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["motor"]), escape(katalog.MOTOR_AD.get(motor, motor))),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["surum"]), escape(m["evet"] if belge.get("maskeli") else m["hayir"])),
+         "<dt>%s</dt><dd>%s</dd>" % (escape(m["puan"]), escape(m["puan_yok"] if pn.genel is None else "%d/100" % pn.genel)),
+         "<dt>%s</dt><dd>%s</dd>" % (escape(m["kapsam_e"]), escape(m["kapsam_d"] % (m["yuzde"] % pn.kapsam, pn.olculen, pn.uygulanabilir))),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["bulgu"]), escape(", ".join("%s: %d" % (m["onem"][o], n) for o, n in sayim.items() if n) or m["yok"])),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["denetimler"]), escape(", ".join("%s: %d" % (m["durum"][x], n) for x, n in durum_sayim.items() if n))),
-         _surum(sonuc, motor, m), _kapsam(belge, m), "</dl>", "<h2>%s</h2>" % escape(m["bulgu"])]
+         _surum(sonuc, motor, m), _kapsam(belge, m), "</dl>", _puan(pn, sonuc, m, d), "<h2>%s</h2>" % escape(m["bulgu"]),
+         "" if bulgu else "<p>%s</p>" % escape(m["yok"])]
     for b in bulgu:
         p.append("<section class=\"finding-card sev-%s\"><h3>%s: %s</h3>" % (escape(b["onem"]), escape(m["onem"][b["onem"]]), escape(b["baslik"][d])))
         p.append("<p><strong>%s.</strong> %s (%s). %s: %s. %s: %s.</p>" % (
@@ -177,7 +255,7 @@ def govde(rapor, dil, token, eylemler=True):
             p.append("<p><strong>%s.</strong> %s</p>" % (escape(m[etiket]), escape(b[anahtar][d])))
         p.append("<p><strong>%s.</strong> %s</p>" % (escape(m["is"]), escape(m["isb"][b["is"]])))
         p.append("<p><strong>%s.</strong> %s</p>" % (escape(m["kaynak"]), ", ".join("<code>%s</code>" % escape(x) for x in b["kaynak"])))
-        p.append("<p><strong>%s.</strong></p>%s</section>" % (escape(m["kanit"]), _kanit(b["kanit"])))
+        p.append("<p><strong>%s.</strong></p>%s</section>" % (escape(m["kanit"]), _kanit(b["kanit"], m)))
     p.append(_durumlar(sonuc, m, d))
     kapsam_l = list(m["kapsam_l"])
     db = _db(belge)

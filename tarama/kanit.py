@@ -5,6 +5,8 @@ Her kural her taramada tek bir kayit uretir (KAYIT_ALANLARI):
   kural        kalici kimlik, ornegin PG-SEC-001. Kimlik degismez; kaldirilan kuralin kimligi yeniden kullanilmaz.
   motor        postgresql | mssql
   kategori     KATEGORILER
+  risk         kuralin risk duzeyi: basarisiz olursa en kotu durumda ne kadar onemli (ONEM_SIRASI). Kuralin uretebilecegi en
+               yuksek bulgu onemine esittir; saglik puaninda kuralin agirligini belirler (tarama/puan.py)
   durum        FAIL, WARNING, UNKNOWN, UNAVAILABLE, NOT_APPLICABLE, PASS
   onem         bulgu varsa en yuksek onem (kritik ... bilgi), yoksa None
   guven        HIGH, MEDIUM, LOW. Kanit yoksa (UNKNOWN, UNAVAILABLE) None
@@ -49,7 +51,7 @@ GUVEN_TAVANI = {"mssql": "MEDIUM"}
 SINANMAMIS_SURUM_TAVANI = "MEDIUM"
 ROL_YETKILERI = ("pg_read_all_stats", "pg_read_all_settings")   # hesapta yoksa sorgu calisir ama eksik sonuc dondurur
 TOPLAYICI = "toplayici"   # kaynak olarak belgenin ust alani (superuser): toplayicinin baglandigi hesap
-KAYIT_ALANLARI = ("kural", "motor", "kategori", "durum", "onem", "guven", "kaynak", "kontroller", "toplama_utc",
+KAYIT_ALANLARI = ("kural", "motor", "kategori", "risk", "durum", "onem", "guven", "kaynak", "kontroller", "toplama_utc",
                   "neden", "gozlem", "bulgular", "ad", "beklenen")
 
 # Kural icinde tur ya da anahtar hatasi: kural "gecersiz_veri" ile UNKNOWN olur, rapor ve panel dusmez.
@@ -83,6 +85,7 @@ class Kural(NamedTuple):
     kimlik: str
     motor: str
     kategori: str
+    risk: str                  # ONEM_SIRASI: kuralin uretebilecegi en yuksek bulgu onemi
     guven: str                 # HIGH: ayar ya da katalog durumu; MEDIUM: istatistik ya da anlik goruntu; LOW: dolayli isaret
     kaynaklar: tuple           # ilki birincil kaynak
     ad: dict
@@ -92,10 +95,12 @@ class Kural(NamedTuple):
 
 
 def kayitci(liste, motor):
-    """Kural fonksiyonunu kaydeden dekorator: @kural("PG-SEC-001", "guvenlik", "HIGH", [Kaynak(...)], ad, beklenen)."""
-    def kural(kimlik, kategori, guven, kaynaklar, ad, beklenen, kaynak=()):
+    """Kural fonksiyonunu kaydeden dekorator: @kural("PG-SEC-001", "guvenlik", "yuksek", "HIGH", [Kaynak(...)], ad, beklenen)."""
+    def kural(kimlik, kategori, risk, guven, kaynaklar, ad, beklenen, kaynak=()):
+        if kategori not in KATEGORILER or risk not in ONEM_SIRASI or guven not in GUVENLER:
+            raise ValueError("%s: kategori, risk ya da guven gecersiz" % kimlik)
         def sar(fn):
-            liste.append(Kural(kimlik, motor, kategori, guven, tuple(kaynaklar), ad, beklenen, fn, tuple(kaynak)))
+            liste.append(Kural(kimlik, motor, kategori, risk, guven, tuple(kaynaklar), ad, beklenen, fn, tuple(kaynak)))
             return fn
         return sar
     return kural
@@ -226,7 +231,7 @@ def _kayit(kural, belge, kontroller, taranan, katalog_by_id, turler, tam_kapsam,
     for tavan in (GUVEN_TAVANI.get(kural.motor), surum_tavani):
         if tavan:
             guven = max(guven, tavan, key=GUVENLER.index)   # daha dusuk olani
-    kayit = {"kural": kural.kimlik, "motor": kural.motor, "kategori": kural.kategori, "durum": None, "onem": None, "guven": None,
+    kayit = {"kural": kural.kimlik, "motor": kural.motor, "kategori": kural.kategori, "risk": kural.risk, "durum": None, "onem": None, "guven": None,
              "kaynak": kaynak, "kontroller": [k.kontrol for k in kural.kaynaklar], "toplama_utc": belge.get("olusturma_utc"),
              "neden": None, "gozlem": {}, "bulgular": [], "ad": dict(kural.ad), "beklenen": dict(kural.beklenen)}   # kopya: kayit degisse de kural degismez
 

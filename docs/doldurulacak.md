@@ -29,6 +29,7 @@ Diğer açık kararlar (metinde değil, yapılandırmada):
 - `pg_kullanilmayan_indeks`: 10 MB ustu ve idx_scan=0: dusuk (istatistik sifirlanmis olabilir)
 - PostgreSQL destek sonu tarihleri (`tarama/kurallar.py` `PG_EOL`): her yıl postgresql.org/support/versioning ile doğrulayın.
 - Sürüm doğrulaması: PostgreSQL 12, 13, 14, 15, 17 ve 18'de `tarama/surum_dogrula.py` çalıştırılmalı (bu ortamda indirilen ikilileri çalıştırma izni çıkmadı). Sonuç `docs/surum-dogrulama.json` ve `tests/veri/surum/` altına girer, sürüm `katalog.SINANAN` listesine eklenir.
+- Sağlık puanı katsayıları (onay bekliyor, işi engellemiyor): ağırlıklar kritik 10, yüksek 6, orta 3, düşük 1, bilgi 0; uyarı kredisi orta 0,5, düşük 0,75, bilgi 1; kategori çarpanları 1; kuralların risk düzeyleri (`docs/kural-katalogu.md`). Değiştirmek için `ALIG_PUAN_AYARI` (`docs/runbook.md`).
 - Kanıt modeli seçimleri (onay bekliyor, işi engellemiyor): kural kategorileri ve güven düzeyleri (`docs/kural-katalogu.md`), önemden duruma eşleme (kritik ve yüksek FAIL, diğerleri WARNING), bağlanılamayan bir veritabanı varken veritabanı başına kuralların UNKNOWN sayılması.
 - Hukuki metinler: sağlık taraması kullanım koşulları, KVKK eki, veri konumu ve saklama sağlayıcısı, e-posta doğrulama ve gönderim yöntemi.
 - E-posta doğrulamasını açmak için: SMTP sağlayıcısı (587 STARTTLS ya da 465 TLS), kullanıcı adı ve parolası, gönderen adres (`deploy/ansible/group_vars/all.yml` ve `/etc/alig/env`). Kod hazır, varsayılan kapalı.

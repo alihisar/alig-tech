@@ -114,6 +114,20 @@ Firmalar sayfası, sağlık taraması yükleyen ve iletişim formu dolduran şir
 
 Paneldeki her işlem (giriş, talep ve rapor görüntüleme, durum değişikliği, silme) yönetim denetim zincirine yazılır; müşteri raporuna erişim ayrıca tarama zincirine `yonetici:<ad>` olarak düşer. `yonetim.sqlite` doğrulama anahtarlarını içerir: yedekleri bu yüzden 0600 izinlidir, başka yere kopyalarken şifreleyin.
 
+## Sağlık puanı katsayıları
+
+Rapordaki sağlık puanı varsayılan katsayılarla hesaplanır; yöntem ve değerler `docs/kural-katalogu.md` içinde, "Sağlık puanı" başlığında. Değiştirmek için sunucuda bir JSON dosyası yazın ve yalnız değiştirmek istediğiniz değerleri verin; verilmeyenler varsayılan kalır:
+
+```sh
+sudoedit /etc/alig/puan.json
+#   {"agirlik": {"kritik": 12}, "kredi_uyari": {"orta": 0.4}, "kategori_carpani": {"guvenlik": 1.5}}
+sudo chown root:alig-web /etc/alig/puan.json && sudo chmod 0640 /etc/alig/puan.json
+echo 'ALIG_PUAN_AYARI=/etc/alig/puan.json' | sudo tee -a /etc/alig/env
+sudo systemctl restart alig-tarama alig-yonetim
+```
+
+Alanlar: `agirlik` (kritik, yuksek, orta, dusuk, bilgi; 0–1000), `kredi_uyari` (orta, dusuk, bilgi; 0–1), `kategori_carpani` (guvenlik, performans, konfigurasyon, bakim, kapasite, ha_dr, yedek; 0–100). Durum kredileri sabittir: Bilinmiyor ve Alınamadı her zaman 0 alır. Dosya geçersizse (bilinmeyen alan, aralık dışı değer, bozuk JSON, yinelenen anahtar, bütün ağırlıklar sıfır) `alig-tarama` ve `alig-yonetim` başlamaz, nedeni `journalctl -u alig-tarama -n 20` gösterir. İki servis aynı dosyayı okur; rapor ve panel aynı puanı gösterir. Puan saklanmaz, rapor her açıldığında hesaplanır: katsayı değişince eski raporların puanı da değişir. Etkin değerler panelde Sistem sayfasındadır.
+
 ## E-posta doğrulaması (varsayılan kapalı)
 
 Kapalıyken rapor bağlantısı yüklemeden hemen sonra gösterilir ve yazılan e-posta adresi doğrulanmaz; panelde firmalar "doğrulanmamış" görünür. Açıkken:

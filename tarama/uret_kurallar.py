@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from tarama import kanit, katalog, kurallar, kurallar_mssql, rapor  # noqa: E402
+from tarama import kanit, katalog, kurallar, kurallar_mssql, puan, rapor  # noqa: E402
 
 HEDEF = ROOT / "docs" / "kural-katalogu.md"
 MATRIS = ROOT / "docs" / "surum-matrisi.md"
@@ -53,17 +53,52 @@ def _kaynaklar(k, by_id):
 
 def _tablo(liste, by_id):
     m = rapor.M["tr"]
-    satirlar = ["| Kimlik | Denetim | Kategori | Güven | Toplama denetimi | Okunan kaynak | Geçme koşulu |",
-                "|---|---|---|---|---|---|---|"]
+    satirlar = ["| Kimlik | Denetim | Kategori | Risk | Güven | Toplama denetimi | Okunan kaynak | Geçme koşulu |",
+                "|---|---|---|---|---|---|---|---|"]
     for k in sorted(liste, key=lambda x: x.kimlik):
         kaynak = list(k.kaynak) or sorted({a for kay in k.kaynaklar for a in by_id.get(kay.kontrol, {}).get("kaynak", ())})
         guven = k.guven
         tavan = kanit.GUVEN_TAVANI.get(k.motor)
         if tavan and kanit.GUVENLER.index(tavan) > kanit.GUVENLER.index(guven):
             guven = "%s (gösterilen: %s)" % (guven, tavan)
-        satirlar.append("| %s | %s | %s | %s | %s | %s | %s |" % (
-            k.kimlik, k.ad["tr"], m["kategori"][k.kategori], guven, _kaynaklar(k, by_id), ", ".join("`%s`" % a for a in kaynak), k.beklenen["tr"]))
+        satirlar.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
+            k.kimlik, k.ad["tr"], m["kategori"][k.kategori], m["onem"][k.risk], guven, _kaynaklar(k, by_id),
+            ", ".join("`%s`" % a for a in kaynak), k.beklenen["tr"]))
     return "\n".join(satirlar)
+
+
+def _sayi(v):
+    return ("%g" % v).replace(".", ",")
+
+
+def _puan_bolumu():
+    m, v = rapor.M["tr"], puan.VARSAYILAN
+    p = ["## Sağlık puanı", "",
+         "Puan (0–100) uygulanabilir kuralların ağırlıklı kredi oranıdır (`tarama/puan.py`):", "",
+         "```text", "puan = 100 × Σ(kategori çarpanı × ağırlık × kredi) / Σ(kategori çarpanı × ağırlık)", "```", "",
+         "Ağırlık kuralın risk düzeyinden gelir. Risk düzeyi, kuralın üretebileceği en yüksek bulgu önemidir "
+         "(`tests/test_puan.py` rastgele belgelerle denetler). Kredi kuralın durumundan gelir:", "",
+         "| Risk düzeyi | Varsayılan ağırlık |", "|---|---|"]
+    p += ["| %s | %s |" % (m["onem"][o], _sayi(w)) for o, w in v["agirlik"].items()]
+    p += ["", "| Durum | Kredi |", "|---|---|"]
+    for d in kanit.DURUMLAR:
+        if d == "WARNING":
+            kredi = "bulgunun önemine göre, varsayılan: " + "; ".join("%s %s" % (m["onem"][o].lower(), _sayi(c)) for o, c in v["kredi_uyari"].items())
+        elif d == "NOT_APPLICABLE":
+            kredi = "hesaba girmez"
+        else:
+            kredi = "%s (sabit)" % _sayi(puan.KREDI[d])
+        p.append("| %s | %s |" % (d, kredi))
+    p += ["", "Kategori çarpanlarının varsayılanı %s." % ", ".join(sorted({_sayi(c) for c in v["kategori_carpani"].values()})), "",
+          "Bilinmeyen durum puanı yükseltmez: kanıtı olmayan kural, başarısız kural kadar puan kaybettirir; kanıtı kaybolan "
+          "kural puanı iyileştirmez. Bu yüzden puan her zaman kanıt kapsamıyla (kanıtı olan uygulanabilir kuralların oranı, "
+          "ağırlıksız) birlikte gösterilir ve rapor her kaybın bulgudan mı kanıt eksikliğinden mi geldiğini ayırır. Puana "
+          "giren kuralların hiçbirinde kanıt yoksa puan hesaplanmaz. Gösterilen tamsayılar aşağı yuvarlanır: 100 yalnız kayıp "
+          "yoksa, %100 kapsam yalnız her kuralın kanıtı varsa görünür. Kategori puanı aynı formülle, yalnız o kategorinin "
+          "kurallarıyla ve çarpansız hesaplanır.", "",
+          "Ağırlık, uyarı kredisi ve kategori çarpanları `%s` ile verilen JSON dosyasından ayarlanabilir (`docs/runbook.md`); "
+          "durum kredileri sabittir. Varsayılan değerler mühendislik seçimidir, bir standarttan gelmez." % puan.ORTAM, ""]
+    return p
 
 
 def uret():
@@ -79,7 +114,9 @@ def uret():
           "## Güven düzeyleri", "", "| Düzey | Anlamı |", "|---|---|"]
     p += ["| %s | %s |" % (g, GUVEN_ACIKLAMA[g]) for g in kanit.GUVENLER]
     p += ["", "Güven yalnız kanıtı olan durumlarda verilir (FAIL, WARNING, NOT_APPLICABLE, PASS). "
-          "SQL Server kuralları ön sürümdür: sorgular gerçek sunucuda sınanmadı, raporda güven en çok MEDIUM gösterilir.", "",
+          "SQL Server kuralları ön sürümdür: sorgular gerçek sunucuda sınanmadı, raporda güven en çok MEDIUM gösterilir.", ""]
+    p += _puan_bolumu()
+    p += ["## Veri koşulları", "",
           "Veri koşulu: *tek satır* kaynakta tam bir satır beklenir; *en az bir satır* kaynakta boş sonuç veri yok demektir; "
           "*boş sonuç geçerli* kaynakta boş sonuç sorun yok demektir. Zorunlu değeri boş ya da türü yanlış satır "
           "değerlendirmeye girmez ve sonucu kısmi yapar. *Ek* kaynak gelmezse kural yine çalışır, bulguyu raporlar, ama PASS veremez. "

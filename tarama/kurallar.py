@@ -172,7 +172,7 @@ def _gunluk_acik(deger, liste=False):
 
 # Kural sirasi bulgularin ayni onemdeki sirasidir; kimlikler kalicidir, yeni kural yeni numara alir.
 
-@kural("PG-MAINT-001", "bakim", "HIGH", [K("pg_surum", "tek", ("surum_num",))],
+@kural("PG-MAINT-001", "bakim", "yuksek", "HIGH", [K("pg_surum", "tek", ("surum_num",))],
        _t("Ana sürüm desteği", "Major version support"),
        _t("Ana sürümün topluluk desteği en az 90 gün daha sürüyor.", "Community support for the major version lasts at least 90 more days."))
 def _surum(r, g):
@@ -192,7 +192,7 @@ def _surum(r, g):
     return []
 
 
-@kural("PG-MAINT-002", "bakim", "HIGH", [K("pg_xid_yasi", "en_az_bir", ("yas",))],
+@kural("PG-MAINT-002", "bakim", "kritik", "HIGH", [K("pg_xid_yasi", "en_az_bir", ("yas",))],
        _t("İşlem kimliği yaşı (wraparound)", "Transaction ID age (wraparound)"),
        _t("Her veritabanında işlem kimliği yaşı autovacuum_freeze_max_age değerinin iki katından ve 1,6 milyardan küçük.",
           "In every database the transaction ID age is below twice autovacuum_freeze_max_age and below 1.6 billion."))
@@ -210,7 +210,7 @@ def _xid(r, g):
                {"veritabani": worst["datname"], "yas": worst["yas"], "esik_kritik": 1600000000, "esik_orta": esik_orta})]
 
 
-@kural("PG-PERF-001", "performans", "MEDIUM", [K("pg_bosta_islem", "herhangi", ("sure_sn",))],
+@kural("PG-PERF-001", "performans", "yuksek", "MEDIUM", [K("pg_bosta_islem", "herhangi", ("sure_sn",))],
        _t("Boşta bekleyen açık işlemler", "Idle-in-transaction sessions"),
        _t("Tarama anında 10 dakikadan uzun süredir boşta bekleyen açık işlem yok.", "At scan time no transaction has been idle for more than 10 minutes."))
 def _bosta(r, g):
@@ -222,7 +222,7 @@ def _bosta(r, g):
                {"oturum_sayisi": len(uzun), "en_uzun_sn": en, "esik_orta_sn": 600, "esik_yuksek_sn": 3600})]
 
 
-@kural("PG-CAP-001", "kapasite", "MEDIUM", [K("pg_baglanti", "tek", ("kullanilan", "ust"))],
+@kural("PG-CAP-001", "kapasite", "yuksek", "MEDIUM", [K("pg_baglanti", "tek", ("kullanilan", "ust"))],
        _t("Bağlantı doluluğu", "Connection usage"),
        _t("Tarama anında istemci bağlantıları max_connections değerinin %75'inden az.", "At scan time client connections are below 75% of max_connections."))
 def _baglanti(r, g):
@@ -237,7 +237,7 @@ def _baglanti(r, g):
                {"kullanilan": kullanilan, "ust": ust, "oran": round(oran, 3), "esik_orta": 0.75, "esik_yuksek": 0.9})]
 
 
-@kural("PG-MAINT-003", "bakim", "MEDIUM", [K("pg_olu_satir", "herhangi", ("canli", "olu"))],
+@kural("PG-MAINT-003", "bakim", "orta", "MEDIUM", [K("pg_olu_satir", "herhangi", ("canli", "olu"))],
        _t("Ölü satır oranı", "Dead row ratio"),
        _t("10 000'den çok ölü satırı olan tablolarda ölü satır oranı %20'yi geçmiyor.", "In tables with more than 10,000 dead rows the dead-row ratio stays below 20%."))
 def _olu_satir(r, g):
@@ -249,7 +249,7 @@ def _olu_satir(r, g):
                 "esik_oran": 0.2, "kaynak": "autovacuum_vacuum_scale_factor varsayilani"})]
 
 
-@kural("PG-MAINT-004", "bakim", "HIGH", [K("pg_gecersiz_indeks")],
+@kural("PG-MAINT-004", "bakim", "yuksek", "HIGH", [K("pg_gecersiz_indeks")],
        _t("Geçersiz indeksler", "Invalid indexes"),
        _t("Geçersiz (indisvalid = false) indeks yok.", "There are no invalid indexes (indisvalid = false)."))
 def _gecersiz_indeks(r, g):
@@ -259,7 +259,7 @@ def _gecersiz_indeks(r, g):
                {"indeks_sayisi": len(r), "nesneler": [_nesne(x, "schemaname", "indexrelname") for x in r[:10]]})]
 
 
-@kural("PG-MAINT-005", "bakim", "LOW", [K("pg_kullanilmayan_indeks")],
+@kural("PG-MAINT-005", "bakim", "dusuk", "LOW", [K("pg_kullanilmayan_indeks")],
        _t("Kullanılmayan büyük indeksler", "Large unused indexes"),
        _t("İstatistiklere göre hiç taranmamış, 10 MB'tan büyük, tekil olmayan indeks yok.",
           "There is no non-unique index over 10 MB that statistics show as never scanned."))
@@ -271,7 +271,7 @@ def _kullanilmayan_indeks(r, g):
                 "nesneler": [_nesne(x, "schemaname", "indexrelname") for x in r[:10]]})]
 
 
-@kural("PG-CAP-002", "kapasite", "HIGH",
+@kural("PG-CAP-002", "kapasite", "kritik", "HIGH",
        [K("pg_sequence", "herhangi", ("oran",)), K("pg_sequence_gorunurluk", "en_az_bir", ("okunamayan",), ek=True)],
        _t("Sequence doluluğu", "Sequence exhaustion"),
        _t("Bütün sequence'lar okunabiliyor ve her biri en büyük değerinin %80'inin altında.",
@@ -292,7 +292,7 @@ def _sequence(r, g):
                 "nesneler": [_nesne(x, "schemaname", "sequencename") for x in r if x["oran"] > 0.8][:10]})]
 
 
-@kural("PG-HA-001", "ha_dr", "HIGH", [K("pg_slot", "herhangi", ("active",))],
+@kural("PG-HA-001", "ha_dr", "kritik", "HIGH", [K("pg_slot", "herhangi", ("active",))],
        _t("Replikasyon slotları", "Replication slots"),
        _t("Bütün replikasyon slotları etkin ve hiçbiri WAL kaybetmemiş (lost, unreserved değil).",
           "All replication slots are active and none has lost WAL (not lost or unreserved)."))
@@ -309,7 +309,7 @@ def _slot(r, g):
                 "geri_bayt_en_fazla": max((x.get("geri_bayt") or 0) for x in kotu)})]
 
 
-@kural("PG-BACKUP-001", "yedek", "HIGH", [K("pg_arsiv", "tek", ("archive_mode",))],
+@kural("PG-BACKUP-001", "yedek", "yuksek", "HIGH", [K("pg_arsiv", "tek", ("archive_mode",))],
        _t("WAL arşivleme", "WAL archiving"),
        _t("archive_mode açık, başarılı arşivleme kaydı var ve son hata son başarıdan eski.",
           "archive_mode is on, a successful archive is recorded and the last failure is older than the last success."))
@@ -329,7 +329,7 @@ def _arsiv(r, g):
     return []
 
 
-@kural("PG-SEC-001", "guvenlik", "HIGH", [K("pg_tls_parola", "tek", ("ssl",))],
+@kural("PG-SEC-001", "guvenlik", "yuksek", "HIGH", [K("pg_tls_parola", "tek", ("ssl",))],
        _t("TLS", "TLS"),
        _t("ssl açık ve en düşük protokol sürümü TLSv1.2 ya da üstü.", "ssl is on and the minimum protocol version is TLSv1.2 or later."),
        kaynak=("ssl", "ssl_min_protocol_version"))
@@ -350,7 +350,7 @@ def _tls(r, g):
     return []
 
 
-@kural("PG-SEC-002", "guvenlik", "HIGH", [K("pg_tls_parola", "tek", ("password_encryption",))],
+@kural("PG-SEC-002", "guvenlik", "orta", "HIGH", [K("pg_tls_parola", "tek", ("password_encryption",))],
        _t("Parola özeti ayarı", "Password hashing setting"),
        _t("password_encryption değeri scram-sha-256.", "password_encryption is scram-sha-256."),
        kaynak=("password_encryption",))
@@ -364,7 +364,7 @@ def _parola_ayari(r, g):
     return []
 
 
-@kural("PG-SEC-003", "guvenlik", "HIGH", [K("pg_md5_roller", "tek", ("sayi",))],
+@kural("PG-SEC-003", "guvenlik", "orta", "HIGH", [K("pg_md5_roller", "tek", ("sayi",))],
        _t("MD5 özetli rol parolaları", "Role passwords stored as MD5"),
        _t("MD5 özetiyle saklanan rol parolası yok (pg_authid okuma yetkisi gerekir).",
           "No role password is stored as an MD5 hash (requires read access to pg_authid)."))
@@ -378,7 +378,7 @@ def _md5_roller(r, g):
     return []
 
 
-@kural("PG-SEC-004", "guvenlik", "HIGH", [K("pg_super_roller", "herhangi", ("rolcanlogin",))],
+@kural("PG-SEC-004", "guvenlik", "orta", "HIGH", [K("pg_super_roller", "herhangi", ("rolcanlogin",))],
        _t("Oturum açabilen süper kullanıcılar", "Superusers that can log in"),
        _t("Oturum açabilen süper kullanıcı rolü yok.", "No superuser role can log in."))
 def _super_roller(r, g):
@@ -390,7 +390,7 @@ def _super_roller(r, g):
                {"oturum_acabilen_super_sayisi": len(oturum), "nesneler": [x["rolname"] for x in oturum[:10]]})]
 
 
-@kural("PG-SEC-005", "guvenlik", "HIGH", [K(kanit.TOPLAYICI, "tek", ("superuser",))],
+@kural("PG-SEC-005", "guvenlik", "orta", "HIGH", [K(kanit.TOPLAYICI, "tek", ("superuser",))],
        _t("Taramanın hesabı", "Scan account"),
        _t("Tarama süper kullanıcı olmayan bir rolle çalıştırıldı.", "The scan ran with a role that is not a superuser."),
        kaynak=("is_superuser",))
@@ -401,7 +401,7 @@ def _tarama_hesabi(r, g):
     return []
 
 
-@kural("PG-SEC-006", "guvenlik", "HIGH", [K("pg_public_create", "en_az_bir", ("public_create",))],
+@kural("PG-SEC-006", "guvenlik", "orta", "HIGH", [K("pg_public_create", "en_az_bir", ("public_create",))],
        _t("public şemasında CREATE yetkisi", "CREATE on the public schema"),
        _t("Hiçbir veritabanında PUBLIC rolü public şemasında nesne oluşturamıyor.", "In no database can PUBLIC create objects in the public schema."))
 def _public_create(r, g):
@@ -413,7 +413,7 @@ def _public_create(r, g):
                {"public_create": True, "veritabanlari": [str(x.get("veritabani")) for x in acik[:10]]})]
 
 
-@kural("PG-SEC-007", "guvenlik", "HIGH", [K("pg_log_ayarlari", "en_az_bir", ("name", "setting"))],
+@kural("PG-SEC-007", "guvenlik", "dusuk", "HIGH", [K("pg_log_ayarlari", "en_az_bir", ("name", "setting"))],
        _t("Bağlantı günlüğü", "Connection logging"),
        _t("log_connections ve log_disconnections açık.", "log_connections and log_disconnections are on."))
 def _gunluk(r, g):

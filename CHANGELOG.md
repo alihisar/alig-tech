@@ -2,6 +2,12 @@
 
 ## Yayınlanmadı
 
+- Sağlık taraması: sağlık puanı (0–100) ve kanıt kapsamı (`tarama/puan.py`). Her kural bir risk düzeyi taşır; puan risk
+  ağırlıklı kredi oranıdır. Bilinmiyor ve Alınamadı, Başarısız kadar puan kaybettirir: eksik ya da kaybolan veri puanı
+  yükseltmez. Raporda özet satırları, kategori tablosu ve puanı düşüren denetimler (bulgu ve kanıt eksikliği ayrı);
+  yönetim panelinde Puan sütunu ve etkin katsayılar. Katsayılar `ALIG_PUAN_AYARI` ile verilen JSON dosyasından
+  ayarlanır, geçersiz dosyayla servisler başlamaz. Raporun kanıt listesinde evet/hayır değerleri artık Türkçe/İngilizce
+  yazılır; bulgusuz raporda Bulgular başlığının altı boş kalmaz.
 - Sağlık taraması: PostgreSQL sürüm ve yetki matrisi. Toplayıcı ve doğrudan bağlantı sunucunun ana sürümünü okur, o sürümün
   sorgusunu seçer, desteklenmeyen sürümde sorguyu hiç çalıştırmaz (PostgreSQL 12 için ayrı slot sorgusu). Yeni `pg_hesap`
   denetimi tarama hesabının rollerini okur; `pg_monitor` içindeki gerekli rol yoksa kural Geçti olamaz (gerçek PostgreSQL 16'da

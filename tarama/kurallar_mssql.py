@@ -185,7 +185,7 @@ def _ayar(r, ad):
 
 # Kural sirasi bulgularin ayni onemdeki sirasidir; kimlikler kalicidir, yeni kural yeni numara alir.
 
-@kural("MS-MAINT-001", "bakim", "HIGH", [K("ms_surum", "tek", ("ana_surum", "motor_turu"))],
+@kural("MS-MAINT-001", "bakim", "yuksek", "HIGH", [K("ms_surum", "tek", ("ana_surum", "motor_turu"))],
        _t("Sürüm desteği", "Version support"),
        _t("Genişletilmiş destek en az 90 gün daha sürüyor.", "Extended support lasts at least 90 more days."))
 def _surum(r, g):
@@ -207,7 +207,7 @@ def _surum(r, g):
     return []
 
 
-@kural("MS-BACKUP-001", "yedek", "MEDIUM", [K("ms_yedek", "en_az_bir", ("kurtarma_modeli",))],
+@kural("MS-BACKUP-001", "yedek", "yuksek", "MEDIUM", [K("ms_yedek", "en_az_bir", ("kurtarma_modeli",))],
        _t("Yedek geçmişi", "Backup history"),
        _t("Bu sunucunun msdb kaydına göre her veritabanının son 7 günde tam yedeği, tam ya da toplu kayıtlı kurtarma "
           "modelindekilerin son 24 saatte log yedeği var.",
@@ -224,7 +224,7 @@ def _yedek(r, g):
                 "esik_tam_saat": 168, "esik_log_saat": 24})]
 
 
-@kural("MS-MAINT-002", "bakim", "HIGH", [K("ms_checkdb", "en_az_bir", ("gun",))],
+@kural("MS-MAINT-002", "bakim", "orta", "HIGH", [K("ms_checkdb", "en_az_bir", ("gun",))],
        _t("Bütünlük denetimi (CHECKDB)", "Integrity check (CHECKDB)"),
        _t("Her veritabanında son başarılı CHECKDB 14 günden yeni.", "In every database the last successful CHECKDB is less than 14 days old."))
 def _checkdb(r, g):
@@ -236,7 +236,7 @@ def _checkdb(r, g):
                 "nesneler": [str(x.get("veritabani")) for x in eski[:10]], "esik_gun": 14})]
 
 
-@kural("MS-HA-001", "ha_dr", "HIGH", [K("ms_db_ayar", "en_az_bir", ("durum",))],
+@kural("MS-HA-001", "ha_dr", "yuksek", "HIGH", [K("ms_db_ayar", "en_az_bir", ("durum",))],
        _t("Veritabanı durumu", "Database state"),
        _t("Bütün veritabanları ONLINE.", "All databases are ONLINE."))
 def _db_durum(r, g):
@@ -248,7 +248,7 @@ def _db_durum(r, g):
                 "durumlar": sorted({str(x["durum"]) for x in kapali})})]
 
 
-@kural("MS-CONFIG-001", "konfigurasyon", "HIGH", [K("ms_db_ayar", "en_az_bir", ("sayfa_dogrulama",))],
+@kural("MS-CONFIG-001", "konfigurasyon", "yuksek", "HIGH", [K("ms_db_ayar", "en_az_bir", ("sayfa_dogrulama",))],
        _t("Sayfa doğrulama", "Page verification"),
        _t("Bütün veritabanlarında PAGE_VERIFY CHECKSUM.", "PAGE_VERIFY is CHECKSUM in all databases."))
 def _sayfa_dogrulama(r, g):
@@ -259,7 +259,7 @@ def _sayfa_dogrulama(r, g):
                {"veritabani_sayisi": len(dogrulama), "nesneler": [str(x.get("veritabani")) for x in dogrulama[:10]]})]
 
 
-@kural("MS-CONFIG-002", "konfigurasyon", "HIGH", [K("ms_db_ayar", "en_az_bir")],
+@kural("MS-CONFIG-002", "konfigurasyon", "orta", "HIGH", [K("ms_db_ayar", "en_az_bir")],
        _t("AUTO_SHRINK ve AUTO_CLOSE", "AUTO_SHRINK and AUTO_CLOSE"),
        _t("Hiçbir veritabanında AUTO_SHRINK ya da AUTO_CLOSE açık değil.", "No database has AUTO_SHRINK or AUTO_CLOSE on."))
 def _auto(r, g):
@@ -274,7 +274,7 @@ def _auto(r, g):
                 "nesneler": [str(x.get("veritabani")) for x in oto[:10]]})]
 
 
-@kural("MS-SEC-001", "guvenlik", "HIGH", [K("ms_db_ayar", "en_az_bir", ("trustworthy",))],
+@kural("MS-SEC-001", "guvenlik", "orta", "HIGH", [K("ms_db_ayar", "en_az_bir", ("trustworthy",))],
        _t("TRUSTWORTHY", "TRUSTWORTHY"),
        _t("msdb dışında TRUSTWORTHY açık veritabanı yok.", "No database other than msdb has TRUSTWORTHY on."))
 def _trustworthy(r, g):
@@ -285,7 +285,7 @@ def _trustworthy(r, g):
                {"veritabani_sayisi": len(guven), "nesneler": [str(x.get("veritabani")) for x in guven[:10]]})]
 
 
-@kural("MS-SEC-002", "guvenlik", "HIGH", [K("ms_sunucu_ayar", "en_az_bir", ("ad",))],
+@kural("MS-SEC-002", "guvenlik", "yuksek", "HIGH", [K("ms_sunucu_ayar", "en_az_bir", ("ad",))],
        _t("Saldırı yüzeyini büyüten ayarlar", "Settings that widen the attack surface"),
        _t("xp_cmdshell, Ad Hoc Distributed Queries ve cross db ownership chaining kapalı.",
           "xp_cmdshell, Ad Hoc Distributed Queries and cross db ownership chaining are off."))
@@ -300,7 +300,7 @@ def _tehlikeli_ayar(r, g):
     return []
 
 
-@kural("MS-CONFIG-003", "konfigurasyon", "HIGH", [K("ms_sunucu_ayar", "en_az_bir", ("ad",))],
+@kural("MS-CONFIG-003", "konfigurasyon", "orta", "HIGH", [K("ms_sunucu_ayar", "en_az_bir", ("ad",))],
        _t("En yüksek sunucu belleği", "Max server memory"),
        _t("max server memory varsayılan (sınırsız) değerde değil.", "max server memory is not at the default (unlimited) value."))
 def _bellek(r, g):
@@ -311,7 +311,7 @@ def _bellek(r, g):
     return []
 
 
-@kural("MS-PERF-001", "performans", "HIGH", [K("ms_sunucu_ayar", "en_az_bir", ("ad",))],
+@kural("MS-PERF-001", "performans", "dusuk", "HIGH", [K("ms_sunucu_ayar", "en_az_bir", ("ad",))],
        _t("Paralellik maliyet eşiği", "Cost threshold for parallelism"),
        _t("cost threshold for parallelism varsayılan 5 değerinde değil.", "cost threshold for parallelism is not at the default of 5."))
 def _paralellik(r, g):
@@ -322,7 +322,7 @@ def _paralellik(r, g):
     return []
 
 
-@kural("MS-SEC-003", "guvenlik", "HIGH", [K("ms_sa", "tek", ("devre_disi",))],
+@kural("MS-SEC-003", "guvenlik", "orta", "HIGH", [K("ms_sa", "tek", ("devre_disi",))],
        _t("sa girişi", "The sa login"),
        _t("sa girişi devre dışı.", "The sa login is disabled."))
 def _sa(r, g):
@@ -335,7 +335,7 @@ def _sa(r, g):
     return []
 
 
-@kural("MS-SEC-004", "guvenlik", "HIGH", [K("ms_sysadmin", "en_az_bir", ("devre_disi",))],
+@kural("MS-SEC-004", "guvenlik", "bilgi", "HIGH", [K("ms_sysadmin", "en_az_bir", ("devre_disi",))],
        _t("sysadmin üyeleri", "sysadmin members"),
        _t("sysadmin rolünün etkin üyesi yok; varsa liste gözden geçirilir.", "The sysadmin role has no enabled members; if it has, the list is reviewed."))
 def _sysadmin(r, g):
@@ -346,7 +346,7 @@ def _sysadmin(r, g):
     return [_f("ms_sysadmin", "ms_sysadmin", "bilgi", {"uye_sayisi": len(etkin), "nesneler": [str(x.get("giris")) for x in etkin[:20]]})]
 
 
-@kural("MS-SEC-005", "guvenlik", "HIGH", [K("ms_parola_politikasi", "tek", ("sayi",))],
+@kural("MS-SEC-005", "guvenlik", "orta", "HIGH", [K("ms_parola_politikasi", "tek", ("sayi",))],
        _t("Parola politikası", "Password policy"),
        _t("Etkin SQL girişlerinin hepsinde CHECK_POLICY açık.", "CHECK_POLICY is on for every enabled SQL login."))
 def _parola_politikasi(r, g):
@@ -359,7 +359,7 @@ def _parola_politikasi(r, g):
     return []
 
 
-@kural("MS-PERF-002", "performans", "HIGH", [K("ms_tempdb", "tek", ("veri_dosyasi", "cpu"))],
+@kural("MS-PERF-002", "performans", "orta", "HIGH", [K("ms_tempdb", "tek", ("veri_dosyasi", "cpu"))],
        _t("tempdb veri dosyaları", "tempdb data files"),
        _t("Çok çekirdekli sunucuda tempdb birden çok veri dosyasıyla çalışıyor.", "On a multi-core server tempdb has more than one data file."))
 def _tempdb(r, g):
@@ -372,7 +372,7 @@ def _tempdb(r, g):
     return []
 
 
-@kural("MS-HA-002", "ha_dr", "HIGH", [K("ms_ag")],
+@kural("MS-HA-002", "ha_dr", "yuksek", "HIGH", [K("ms_ag")],
        _t("Always On replikaları", "Always On replicas"),
        _t("Bütün replikalar HEALTHY ve CONNECTED.", "All replicas are HEALTHY and CONNECTED."))
 def _ag(r, g):
@@ -389,7 +389,7 @@ def _ag(r, g):
                 "durumlar": sorted({"%s, %s" % (x.get("saglik"), x.get("baglanti")) for x in kotu})})]
 
 
-@kural("MS-CONFIG-004", "konfigurasyon", "HIGH", [K("ms_dosya_buyume")],
+@kural("MS-CONFIG-004", "konfigurasyon", "dusuk", "HIGH", [K("ms_dosya_buyume")],
        _t("Dosya büyüme ayarı", "File growth setting"),
        _t("Yüzde ile büyüyen veri ya da log dosyası yok.", "No data or log file grows by percentage."))
 def _dosya_buyume(r, g):
@@ -399,7 +399,7 @@ def _dosya_buyume(r, g):
                {"dosya_sayisi": len(r), "nesneler": ["%s / %s" % (x.get("veritabani"), x.get("dosya")) for x in r[:10]]})]
 
 
-@kural("MS-SEC-006", "guvenlik", "MEDIUM", [K("ms_sifreleme", "tek", ("toplam", "sifreli"))],
+@kural("MS-SEC-006", "guvenlik", "orta", "MEDIUM", [K("ms_sifreleme", "tek", ("toplam", "sifreli"))],
        _t("Bağlantı şifrelemesi", "Connection encryption"),
        _t("Tarama anındaki TCP bağlantılarının hepsi şifreli.", "All TCP connections at scan time are encrypted."))
 def _sifreleme(r, g):
@@ -414,7 +414,7 @@ def _sifreleme(r, g):
     return []
 
 
-@kural("MS-PERF-003", "performans", "MEDIUM", [K("ms_acik_islem", "herhangi", ("sure_sn",))],
+@kural("MS-PERF-003", "performans", "yuksek", "MEDIUM", [K("ms_acik_islem", "herhangi", ("sure_sn",))],
        _t("Uzun açık işlemler", "Long open transactions"),
        _t("Tarama anında 10 dakikadan uzun süredir açık kullanıcı işlemi yok.", "At scan time no user transaction has been open for more than 10 minutes."))
 def _acik_islem(r, g):
@@ -426,7 +426,7 @@ def _acik_islem(r, g):
                {"oturum_sayisi": len(uzun), "en_uzun_sn": en, "esik_orta_sn": 600, "esik_yuksek_sn": 3600})]
 
 
-@kural("MS-SEC-007", "guvenlik", "HIGH", [K("ms_kimlik", "tek", ("yalniz_windows",))],
+@kural("MS-SEC-007", "guvenlik", "dusuk", "HIGH", [K("ms_kimlik", "tek", ("yalniz_windows",))],
        _t("Kimlik doğrulama kipi", "Authentication mode"),
        _t("Yalnızca Windows kimlik doğrulaması açık.", "Only Windows authentication is enabled."))
 def _kimlik(r, g):
@@ -439,7 +439,7 @@ def _kimlik(r, g):
     return []
 
 
-@kural("MS-SEC-008", "guvenlik", "HIGH", [K(kanit.TOPLAYICI, "tek", ("superuser",))],
+@kural("MS-SEC-008", "guvenlik", "orta", "HIGH", [K(kanit.TOPLAYICI, "tek", ("superuser",))],
        _t("Taramanın hesabı", "Scan account"),
        _t("Tarama sysadmin üyesi olmayan bir girişle çalıştırıldı.", "The scan ran with a login that is not a sysadmin member."),
        kaynak=("IS_SRVROLEMEMBER('sysadmin')",))

@@ -19,6 +19,7 @@ Bu repoda hiçbir şey gerçek bir sunucuda çalıştırılmadı. Gerçek dağı
 | Yedekten geri yükleme mantığı | DONE | `tests/test_deploy.py` `GeriYuklemeTests` (geçici dizinde) |
 | Toplayıcının tüm veritabanlarını dolaşması | DONE | Yerel PostgreSQL 16 kümesinde: boşluklu adlı veritabanı tarandı, CONNECT yetkisi olmayan "yetki" ile atlandı (`GercekPgTests` ve elle çalıştırma; sunucu değil, müşteri tarafı betik) |
 | E-posta gönderimi (SMTP) | NOT_TESTED | Yalnız sahte SMTP nesnesiyle; gerçek sağlayıcı seçilmedi |
+| Geçersiz sağlık puanı ayarıyla servislerin başlamaması | DONE | `tests/test_puan.py` `BaslangicTests` (servis süreci değil, `main()` çağrısı; sunucuda systemd ile denenmedi) |
 
 ## 2. Kuru çalıştırma (hedef sunucu gerekir)
 
@@ -47,3 +48,4 @@ Bu repoda hiçbir şey gerçek bir sunucuda çalıştırılmadı. Gerçek dağı
 | Kip B (yalnız açılacaksa) | NOT_TESTED | `docs/kip-b-tasarim.md` "canlıya almadan önce" |
 | E-posta doğrulaması (yalnız açılacaksa): `alig-posta` çalışıyor, ileti ulaşıyor, bağlantı doğruluyor | NOT_TESTED | `docs/runbook.md` "E-posta doğrulaması" |
 | Hukuki metinler, gerçek iletişim bilgileri | NOT_TESTED | Ali'den bekliyor |
+| Sağlık puanı ayarı (yalnız varsayılan değiştirilecekse): `/etc/alig/puan.json` servis kullanıcısınca okunuyor, panel Sistem sayfası "Bu kurulum için ayarlandı" | NOT_TESTED | `docs/runbook.md` "Sağlık puanı katsayıları" |

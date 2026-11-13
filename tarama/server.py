@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import importlib.util  # noqa: E402
 
-from tarama import baglanti, calistirici, depo, hata, hedef, posta, rapor, saklama, yukleme  # noqa: E402
+from tarama import baglanti, calistirici, depo, hata, hedef, posta, puan, rapor, saklama, yukleme  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("alig_form_server", Path(__file__).resolve().parent.parent / "form" / "server.py")
 _form = importlib.util.module_from_spec(_spec)
@@ -409,6 +409,7 @@ def main(argv=None):
     try:
         depo.denetim_anahtari()
         saklama.dogrula()
+        puan.yukle()   # gecersiz puan ayariyla servis baslamaz (PuanAyarHatasi bir ValueError)
         eposta_ayarla(os.environ, H)
     except (depo.AnahtarHatasi, saklama.SaklamaHatasi, ValueError) as ex:
         raise SystemExit("hata: %s" % ex)

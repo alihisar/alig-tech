@@ -339,8 +339,10 @@ class RaporTests(unittest.TestCase):
             self.assertIn(metin, tr)
         for metin in ("Check results", "PG-SEC-003", "Unavailable", "no permission", "Pass", "Not applicable", "no replication slots"):
             self.assertIn(metin, en)
-        self.assertEqual(tr.count("<th scope=\"row\">"), len(kurallar.KURALLAR))   # her kural bir satir
-        self.assertEqual(tr.count("<td data-label"), len(kurallar.KURALLAR) * 5)
+        tablo = tr[tr.index("<table class=\"tiers durumlar\">"):]
+        tablo = tablo[:tablo.index("</table>")]
+        self.assertEqual(tablo.count("<th scope=\"row\">"), len(kurallar.KURALLAR))   # her kural bir satir
+        self.assertEqual(tablo.count("<td data-label"), len(kurallar.KURALLAR) * 5)
 
     def test_bulgu_kartinda_kural_durum_guven_kaynak(self):
         b = test_tarama.temiz_belge()

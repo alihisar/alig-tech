@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 KOK = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KOK))
-from tarama import depo as tdepo, kurallar, rapor as trapor, saklama  # noqa: E402
+from tarama import depo as tdepo, kurallar, puan, rapor as trapor, saklama  # noqa: E402
 from yonetim import depo  # noqa: E402
 
 try:
@@ -68,12 +68,20 @@ def ro(yol):
 
 
 def degerlendir(belge):
-    """Tek bir raporun degerlendirme hatasi tum paneli dusurmesin: hata olursa rapor 'degerlendirilemedi' sayilir."""
+    """(bulgular, saglik puani). Tek bir raporun degerlendirme hatasi tum paneli dusurmesin: hata olursa ([], None)."""
     try:
-        return kurallar.degerlendir(belge)
+        s = kurallar.incele(belge)
+        return s.bulgular, puan.hesapla(s)
     except Exception as ex:  # noqa: BLE001 - bilerek genis: panel ayakta kalmali, olay gunluge yazilir
         print("UYARI: rapor degerlendirilemedi: %s" % type(ex).__name__, flush=True)
-        return [], [("*", "hata")]
+        return [], None
+
+
+def puan_metni(p):
+    """Panel hucresi: puan kanit kapsamiyla birlikte yazilir, kapsamsiz puan gosterilmez."""
+    if p is None:
+        return "değerlendirilemedi"
+    return "%s (kapsam %%%d)" % ("hesaplanamadı" if p.genel is None else "%d/100" % p.genel, p.kapsam)
 
 
 def eposta_etiketi(f):
@@ -514,12 +522,12 @@ class H(BaseHTTPRequestHandler):
                "<p><button class=\"btn btn-sm\" type=\"submit\">Notu kaydet</button></p></form>") % (fid, csrf, e(f["aciklama"]))
         rs = []
         for r in raporlar:
-            b, ol = degerlendir(r["belge"])
+            b, pn = degerlendir(r["belge"])
             rs.append(["<a href=\"/yonetim/taramalar/%d\">#%d</a>%s" % (r["id"], r["id"], "" if r["dogrulandi"] else " <span class=\"pill pill-bekliyor\">doğrulama bekliyor</span>"),
                        e(r["eposta"] or "-"), e(ist(r["olusturma_utc"])),
                        e(", ".join("%s %d" % (ONEM_AD[k], n) for k, n in ((k, sum(1 for x in b if x["onem"] == k)) for k in kurallar.ONEM) if n) or "bulgu yok"),
-                       e(len(ol)), e(ist(r["bitis_utc"]))])
-        ic += "<h2>Taramalar</h2>" + tablo(["Rapor", "Yükleyen", "Yüklenme", "Bulgular", "Ölçülemeyen", "Silinme"], rs, "Bu firmanın taraması yok.")
+                       e(puan_metni(pn)), e(ist(r["bitis_utc"]))])
+        ic += "<h2>Taramalar</h2>" + tablo(["Rapor", "Yükleyen", "Yüklenme", "Bulgular", "Puan", "Silinme"], rs, "Bu firmanın taraması yok.")
         durumlar = depo.talep_durumlari(con)
         ts = [[e(ist(t_[1])), e(t_[2]), "<a href=\"mailto:%s\">%s</a>" % (e(t_[4]), e(t_[4])), "<span class=\"msg\">%s</span>" % e(t_[6]),
                e(DURUM_AD[durumlar.get(t_[0], {}).get("durum", "yeni")])] for t_ in self._talep_sayilari().get(f["anahtar"], [])]
@@ -603,14 +611,14 @@ class H(BaseHTTPRequestHandler):
             finally:
                 tc.close()
         for r in self._raporlar():
-            b, ol = degerlendir(r["belge"])
+            b, pn = degerlendir(r["belge"])
             ozet = ", ".join("%s %d" % (ONEM_AD[k], n) for k, n in ((k, sum(1 for x in b if x["onem"] == k)) for k in kurallar.ONEM) if n) or "bulgu yok"
             firma = "<a href=\"/yonetim/firmalar/%d\">%s</a>" % (r["firma_id"], e(adlar[r["firma_id"]])) if r.get("firma_id") in adlar else "<span class=\"muted\">bilinmiyor</span>"
             satirlar.append(["<a href=\"/yonetim/taramalar/%d\">#%d</a>%s" % (r["id"], r["id"], "" if r["dogrulandi"] else " <span class=\"pill pill-bekliyor\">doğrulama bekliyor</span>"),
-                             firma, e(r["eposta"] or "-"), e(ist(r["olusturma_utc"])), e(r["motor"]), e(ozet), e(len(ol)),
+                             firma, e(r["eposta"] or "-"), e(ist(r["olusturma_utc"])), e(r["motor"]), e(ozet), e(puan_metni(pn)),
                              e("evet" if r["belge"].get("maskeli") else "hayır"), e(ist(r["bitis_utc"]))])
         self._sayfa("Taramalar", "<p class=\"muted\">Raporlar 30 gün sonra kendiliğinden silinir.</p>" +
-                    tablo(["Rapor", "Firma", "Yükleyen", "Yüklenme", "Motor", "Bulgular", "Ölçülemeyen", "Maskeli", "Silinme"], satirlar, "Tarama yok."), o)
+                    tablo(["Rapor", "Firma", "Yükleyen", "Yüklenme", "Motor", "Bulgular", "Puan", "Maskeli", "Silinme"], satirlar, "Tarama yok."), o)
 
     def _tarama(self, con, o, rid):
         if not Path(self.tarama_db).exists():
@@ -681,6 +689,12 @@ class H(BaseHTTPRequestHandler):
         ic += "<h2>Veritabanları</h2>" + tablo(["Ad", "Dosya", "Boyut"], dosyalar)
         sak = [[e(a), e(sure + ("" if vars_ else " (ayarlı)")), e(yer), e(acik)] for a, sure, yer, acik, vars_ in saklama.tablo()]
         ic += "<h2>Saklama süreleri</h2>" + tablo(["Sınıf", "Süre", "Nerede", "Açıklama"], sak) + "<p class=\"muted\">Varsayılanlar hukuken onaylanmış değerler değildir. Ayar: ALIG_SAKLAMA_&lt;SINIF&gt;_GUN.</p>"
+        k, sayi = puan.ETKIN, lambda v: ("%g" % v).replace(".", ",")
+        katsayi = [[e("Ağırlık"), e(", ".join("%s %s" % (ONEM_AD[o].lower(), sayi(v)) for o, v in k["agirlik"].items()))],
+                   [e("Uyarı kredisi"), e(", ".join("%s %s" % (ONEM_AD[o].lower(), sayi(v)) for o, v in k["kredi_uyari"].items()))],
+                   [e("Kategori çarpanı"), e(", ".join("%s %s" % (trapor.M["tr"]["kategori"][c], sayi(v)) for c, v in k["kategori_carpani"].items()))]]
+        ic += "<h2>Sağlık puanı katsayıları</h2>" + tablo(["Katsayı", "Değer"], katsayi) + "<p class=\"muted\">%s. Ayar: ALIG_PUAN_AYARI (JSON dosyası), servis yeniden başlayınca geçerli olur.</p>" % (
+            "Varsayılan değerler" if puan.varsayilan_mi() else "Bu kurulum için ayarlandı")
         ic += "<h2>Yedekler</h2>" + tablo(["Dosya", "Boyut", "Zaman"], yedekler, "Yedek dizini tanımlı değil ya da boş.")
         ic += "<h2>Açık oturumlar</h2>" + tablo(["Kullanıcı", "Giriş", "Son erişim"], oturumlar)
         self._sayfa("Sistem", ic, o)
@@ -702,7 +716,8 @@ def main(argv=None):
     try:
         depo.zincir.denetim_anahtari()
         saklama.dogrula()
-    except (depo.zincir.AnahtarHatasi, saklama.SaklamaHatasi) as ex:
+        puan.yukle()   # tarama servisiyle ayni ortam dosyasi: rapor ve panel ayni puani gosterir
+    except (depo.zincir.AnahtarHatasi, saklama.SaklamaHatasi, puan.PuanAyarHatasi) as ex:
         raise SystemExit("hata: %s" % ex)
     depo.baglan(a.db).close()
     print("yonetim paneli dinliyor 127.0.0.1:%d" % a.port, flush=True)
