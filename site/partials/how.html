@@ -6,72 +6,17 @@
     </header>
     <div class="sec-body">
       <figure class="flow">
-        <svg class="flow-h" viewBox="0 0 960 140" role="img" aria-labelledby="flow-h-t">
-          <title id="flow-h-t">{{flow_title}}</title>
-          <g class="flow-line">
-            <path d="M116 50H139M257 50H280M398 50H421M539 50H562M680 50H703M821 50H844"/>
-            <path d="M133 46L139 50L133 54M274 46L280 50L274 54M415 46L421 50L415 54M556 46L562 50L556 54M697 46L703 50L697 54M838 46L844 50L838 54"/>
-            <path d="M1 98H536M565 98H677M706 98H959"/>
-          </g>
-          <g class="flow-boxes">
-            <rect class="flow-box" x="1" y="24" width="112" height="52" rx="4"/>
-            <rect class="flow-box" x="142" y="24" width="112" height="52" rx="4"/>
-            <rect class="flow-box" x="283" y="24" width="112" height="52" rx="4"/>
-            <rect class="flow-box" x="424" y="24" width="112" height="52" rx="4"/>
-            <rect class="flow-box flow-you" x="565" y="24" width="112" height="52" rx="4"/>
-            <rect class="flow-box" x="706" y="24" width="112" height="52" rx="4"/>
-            <rect class="flow-box" x="847" y="24" width="112" height="52" rx="4"/>
-          </g>
-          <g class="flow-text" text-anchor="middle" dominant-baseline="middle">
-            <text x="57" y="50">{{flow_1}}</text>
-            <text x="198" y="50">{{flow_2}}</text>
-            <text x="339" y="50">{{flow_3}}</text>
-            <text x="480" y="50">{{flow_4}}</text>
-            <text class="flow-you-text" x="621" y="50">{{flow_5}}</text>
-            <text x="762" y="50">{{flow_6}}</text>
-            <text x="903" y="50">{{flow_7}}</text>
-          </g>
-          <g class="flow-actor" text-anchor="middle" dominant-baseline="middle">
-            <text x="268" y="122">{{flow_agent}}</text>
-            <text x="621" y="122">{{flow_you}}</text>
-            <text x="832" y="122">{{flow_agent}}</text>
-          </g>
-        </svg>
-        <svg class="flow-v" viewBox="0 0 300 450" role="img" aria-labelledby="flow-v-t">
-          <title id="flow-v-t">{{flow_title}}</title>
-          <g class="flow-line">
-            <path d="M95 48V67M95 114V133M95 180V199M95 246V265M95 312V331M95 378V397"/>
-            <path d="M91 61L95 67L99 61M91 127L95 133L99 127M91 193L95 199L99 193M91 259L95 265L99 259M91 325L95 331L99 325M91 391L95 397L99 391"/>
-          </g>
-          <g class="flow-boxes">
-            <rect class="flow-box" x="1" y="4" width="188" height="44" rx="4"/>
-            <rect class="flow-box" x="1" y="70" width="188" height="44" rx="4"/>
-            <rect class="flow-box" x="1" y="136" width="188" height="44" rx="4"/>
-            <rect class="flow-box" x="1" y="202" width="188" height="44" rx="4"/>
-            <rect class="flow-box flow-you" x="1" y="268" width="188" height="44" rx="4"/>
-            <rect class="flow-box" x="1" y="334" width="188" height="44" rx="4"/>
-            <rect class="flow-box" x="1" y="400" width="188" height="44" rx="4"/>
-          </g>
-          <g class="flow-text" text-anchor="middle" dominant-baseline="middle">
-            <text x="95" y="26">{{flow_1}}</text>
-            <text x="95" y="92">{{flow_2}}</text>
-            <text x="95" y="158">{{flow_3}}</text>
-            <text x="95" y="224">{{flow_4}}</text>
-            <text class="flow-you-text" x="95" y="290">{{flow_5}}</text>
-            <text x="95" y="356">{{flow_6}}</text>
-            <text x="95" y="422">{{flow_7}}</text>
-          </g>
-          <g class="flow-actor" dominant-baseline="middle">
-            <text x="208" y="26">{{flow_agent}}</text>
-            <text x="208" y="92">{{flow_agent}}</text>
-            <text x="208" y="158">{{flow_agent}}</text>
-            <text x="208" y="224">{{flow_agent}}</text>
-            <text x="208" y="290">{{flow_you}}</text>
-            <text x="208" y="356">{{flow_agent}}</text>
-            <text x="208" y="422">{{flow_agent}}</text>
-          </g>
-        </svg>
-        <figcaption>{{flow_caption}}</figcaption>
+        <ol class="flow-steps" aria-label="{{flow_title}}">
+          <li class="flow-step" tabindex="0"><span class="flow-name">{{flow_1}}</span><span class="flow-actor">{{flow_agent}}</span><span class="flow-tip">{{flow_1_d}}</span></li>
+          <li class="flow-step" tabindex="0"><span class="flow-name">{{flow_2}}</span><span class="flow-actor">{{flow_agent}}</span><span class="flow-tip">{{flow_2_d}}</span></li>
+          <li class="flow-step" tabindex="0"><span class="flow-name">{{flow_3}}</span><span class="flow-actor">{{flow_agent}}</span><span class="flow-tip">{{flow_3_d}}</span></li>
+          <li class="flow-step" tabindex="0"><span class="flow-name">{{flow_4}}</span><span class="flow-actor">{{flow_agent}}</span><span class="flow-tip">{{flow_4_d}}</span></li>
+          <li class="flow-step flow-you" tabindex="0"><span class="flow-name">{{flow_5}}</span><span class="flow-actor">{{flow_you}}</span><span class="flow-tip">{{flow_5_d}}</span></li>
+          <li class="flow-step" tabindex="0"><span class="flow-name">{{flow_6}}</span><span class="flow-actor">{{flow_agent}}</span><span class="flow-tip">{{flow_6_d}}</span></li>
+          <li class="flow-step" tabindex="0"><span class="flow-name">{{flow_7}}</span><span class="flow-actor">{{flow_agent}}</span><span class="flow-tip">{{flow_7_d}}</span></li>
+        </ol>
+        <div class="flow-actors" aria-hidden="true"><span>{{flow_agent}}</span><span class="flow-actors-you">{{flow_you}}</span><span>{{flow_agent}}</span></div>
+        <figcaption>{{flow_caption}} <span class="flow-hint">{{flow_hint}}</span></figcaption>
       </figure>
     </div>
   </div>
