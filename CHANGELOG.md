@@ -2,6 +2,7 @@
 
 ## Yayınlanmadı
 
+- Ana sayfa: 7 hizmet kartı (sağlık denetimi, yönetilen operasyon, yüksek erişilebilirlik, güvenlik sertleştirme, performans, sürüm yükseltme ve göç, danışmanlık), "sağlık taraması nasıl çalışır" dört adımı ve altı soruluk SSS; üç temada, TR ve EN. Sürüm desteği SSS'de olduğu gibi yazılır: yalnız PostgreSQL 16 gerçek sunucuda sınandı. Tema C'de ajan bölümünün bağlantı kimliği `#ajan` oldu; `#hizmetler` hizmet kartlarına gider.
 - Müşteri portalı, ikinci dilim (varsayılan kapalı): tarama geçmişinde önceki taramaya göre puan değişimi, rapor silme
   (onay sayfası, form kodu, yalnız kendi firması), ücretsiz tarama hakkı ve yenilenme tarihi, hizmet talebi (günde en
   çok 5), hesap ve veri silme talebi (yalnız kayıt; silme yönetici işlemi). Yönetim panelinde Portal talepleri sayfası:
