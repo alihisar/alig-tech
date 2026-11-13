@@ -12,6 +12,7 @@ SINIFLAR = {
     "baglanti_istegi": (1, False, "tarama.sqlite", "Dogrudan baglanti istegi (parola yok); suresi dolunca silinir"),
     "firma": (365, True, "tarama.sqlite", "Firma kaydi (ad, e-posta); son etkinlikten sonra, etkin raporu yoksa silinir"),
     "talep": (365, True, "form.sqlite, yonetim.sqlite", "Iletisim talebi ve durum notu; olusturulmasindan sonra silinir"),
+    "posta": (7, False, "tarama.sqlite", "Giden e-posta kaydi (alici, konu); metin gonderilince hemen silinir"),
     "denetim": (None, True, "tum zincirler", "Denetim zinciri; silme zinciri bozar, bu yuzden suresiz tutulur ve disa aktarilan zincir basi ile korunur"),
 }
 SABIT = {

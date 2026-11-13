@@ -41,6 +41,7 @@ main.adm a.btn{color:var(--on-signal)}
 .pill{display:inline-block;padding:.1rem .55rem;border-radius:var(--r-s);font-size:.82rem;font-weight:650;border:1.5px solid}
 .pill-aktif{color:#1b7f5a;border-color:#1b7f5a}
 .pill-pasif{color:#b3261e;border-color:#b3261e}
+.pill-bekliyor{color:#8a5a00;border-color:#8a5a00}
 .actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1rem}
 .searchbar{margin-top:1.25rem}
 .searchbar input[type=text]{width:min(24rem,100%)}

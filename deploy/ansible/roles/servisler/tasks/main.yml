@@ -77,6 +77,29 @@
   when: not dogrudan_baglanti
   notify: systemd yeniden yukle
 
+- name: E-posta dogrulamasi ayarlari eksiksiz
+  ansible.builtin.assert:
+    that:
+      - smtp_sunucu | length > 0
+      - "'@' in eposta_gonderen"
+    fail_msg: "eposta_dogrulama: true icin smtp_sunucu ve eposta_gonderen doldurulmali"
+  when: eposta_dogrulama
+
+- name: Posta birimi (e-posta dogrulamasi)
+  ansible.builtin.template:
+    src: alig-posta.service.j2
+    dest: /etc/systemd/system/alig-posta.service
+    mode: "0644"
+  when: eposta_dogrulama
+  notify: systemd yeniden yukle
+
+- name: E-posta dogrulamasi kapaliyken posta birimi kaldirilir
+  ansible.builtin.file:
+    path: /etc/systemd/system/alig-posta.service
+    state: absent
+  when: not eposta_dogrulama
+  notify: systemd yeniden yukle
+
 - name: Zamanlayicilari etkinlestir
   ansible.builtin.systemd:
     name: "{{ item }}"

@@ -63,7 +63,7 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 262 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
+Birim testleri: 286 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
 <!-- oto:bitis testler -->
 
 ## Dizinler
@@ -96,6 +96,7 @@ Birim testleri: 262 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmada
 | `/api/tarama/yukle` | `tarama/server.py` | Tarama dosyası yükleme (POST) |
 | `/rapor/<token>/` | `tarama/server.py` | Rapor sayfası (rastgele bağlantı) |
 | `/rapor/<token>/sil` | `tarama/server.py` | Raporu hemen silme (POST) |
+| `/rapor/<token>/dogrula` | `tarama/server.py` | E-posta doğrulaması: raporu açar, hakkı harcar (POST, varsayılan kapalı) |
 | `/api/tarama/saglik` | `tarama/server.py` | Tarama sunucu sağlık denetimi |
 | `/api/tarama/baglan` | `tarama/server.py` | Doğrudan bağlantı formu ve isteği (varsayılan kapalı) |
 | `/api/tarama/baglan/<token>` | `tarama/server.py` | Parolayı alıp taramayı çalıştırma (POST, varsayılan kapalı) |

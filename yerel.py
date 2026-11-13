@@ -8,6 +8,7 @@ Iletisim formu da calisir: kayitlar yerel-form.sqlite dosyasina yazilir.
 """
 import argparse
 import functools
+import os
 import sys
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -45,6 +46,10 @@ def main():
     tarama.H.motorlar = ("postgresql", "mssql")  # yerelde SQL Server on surumu acik
     tarama.H.dogrudan = True  # yerelde Kip B formu acik; hedef dogrulamasi gercektir, yerel ve ic adresler reddedilir
     depo.baglan(tarama.H.db_yolu).close()
+    if os.environ.get("ALIG_EPOSTA_DOGRULAMA") == "1":
+        # Yerelde e-posta dogrulamasi: iletiler giden kutusunda bekler; okumak icin
+        #   ALIG_POSTA_DIZINI=yerel-posta python3 tarama/posta.py --db yerel-tarama.sqlite
+        tarama.eposta_ayarla({"ALIG_EPOSTA_DOGRULAMA": "1", "ALIG_SITE_ADRESI": f"http://localhost:{args.port}"}, tarama.H)
 
     # Yonetim paneli ayri bir sunucu (canlidaki gibi); /yonetim/ istekleri ona aktarilir
     yonetim.H.ydb = str(ROOT / "yerel-yonetim.sqlite")

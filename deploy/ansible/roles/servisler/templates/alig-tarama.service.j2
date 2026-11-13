@@ -6,6 +6,11 @@ After=network.target
 User={{ servis_kullanici }}
 Group={{ servis_kullanici }}
 EnvironmentFile=/etc/alig/env
+{% if eposta_dogrulama %}
+# Rapor baglantisi yalniz e-postayla gider; gonderimi alig-posta servisi yapar (bu birim aga cikmaz).
+Environment=ALIG_EPOSTA_DOGRULAMA=1
+Environment=ALIG_SITE_ADRESI=https://{{ alan_adi }}
+{% endif %}
 {% if dogrudan_baglanti %}
 # Kip B acik: tarama, ayri calistirici servisine yerel soketten devredilir. Bu birim disariya baglanmaz.
 Environment=ALIG_DOGRUDAN=1

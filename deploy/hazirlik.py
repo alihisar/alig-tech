@@ -76,7 +76,7 @@ def yerel():
 
 def _birimleri_dogrula(ap, sa):
     """Birim sablonlarini Ansible'in kendisiyle (projeye Jinja bagimliligi eklemeden) isler ve systemd-analyze ile denetler.
-    Kip B birimi de uretilsin diye dogrudan_baglanti=true verilir."""
+    Kosullu bloklar da denetlensin diye dogrudan_baglanti ve eposta_dogrulama acik verilir."""
     sablonlar = sorted((ANSIBLE / "roles" / "servisler" / "templates").glob("*.service.j2"))
     gec = Path(tempfile.mkdtemp())
     oyun = gec / "birimler.yml"
@@ -86,7 +86,7 @@ def _birimleri_dogrula(ap, sa):
         "        src: \"{{ item }}\"\n        dest: \"%s/{{ item | basename | regex_replace('\\\\.j2$', '') }}\"\n        mode: \"0644\"\n"
         "      loop: %s\n" % (json.dumps(str(ANSIBLE / "group_vars" / "all.yml")), gec, json.dumps([str(x) for x in sablonlar])),
         encoding="utf-8")
-    r = _calistir([ap, "-i", "localhost,", str(oyun), "-e", json.dumps({"dogrudan_baglanti": True})],
+    r = _calistir([ap, "-i", "localhost,", str(oyun), "-e", json.dumps({"dogrudan_baglanti": True, "eposta_dogrulama": True})],
                   env=dict(os.environ, ANSIBLE_LOCALHOST_WARNING="False", ANSIBLE_NOCOLOR="1"))
     if r.returncode != 0:
         return [("SOZDIZIMI birim sablonlari islenir", "FAIL", (r.stdout + r.stderr).strip()[-300:])]
@@ -168,6 +168,10 @@ def sunucu(v=None, kok="/", servis_kontrol=True, disk=shutil.disk_usage):
             m = re.search(rf"^{anahtar}=(.*)$", icerik, re.M)
             ekle(f"/etc/alig/env {anahtar} tanimli ve >= {min_uzunluk} karakter", "PASS" if m and len(m.group(1)) >= min_uzunluk else "FAIL",
                  "" if m else "yok")  # deger asla yazdirilmaz
+    if v.get("eposta_dogrulama") and env.exists():
+        var = re.search(r"^ALIG_SMTP_PAROLA=.+$", env.read_text(encoding="utf-8", errors="replace"), re.M) is not None
+        ekle("/etc/alig/env ALIG_SMTP_PAROLA tanimli (e-posta dogrulamasi acik)", "PASS" if var or not v.get("smtp_kullanici") else "FAIL",
+             "" if var else "yok")
     for dizin, ad in ((v["veri_dizini"], "veri"), (v["yedek_dizini"], "yedek")):
         y = yol(dizin)
         for f in sorted(y.glob("*.sqlite")) if y.exists() else []:
@@ -179,7 +183,8 @@ def sunucu(v=None, kok="/", servis_kontrol=True, disk=shutil.disk_usage):
             durum, a = disk_durumu(str(y), disk)
             ekle(f"disk doluluk ({ad}: {dizin})", durum, a)
     if servis_kontrol and shutil.which("systemctl") and _calistir(["systemctl", "is-system-running"]).stdout.strip() in ("running", "degraded", "starting"):
-        birimler = ["alig-form", "alig-tarama", "alig-yonetim", "nginx"] + (["alig-calistirici"] if v.get("dogrudan_baglanti") else [])
+        birimler = (["alig-form", "alig-tarama", "alig-yonetim", "nginx"] + (["alig-calistirici"] if v.get("dogrudan_baglanti") else [])
+                    + (["alig-posta"] if v.get("eposta_dogrulama") else []))
         for b in birimler:
             r = _calistir(["systemctl", "is-active", b])
             ekle(f"servis {b} calisiyor", "PASS" if r.stdout.strip() == "active" else "FAIL", r.stdout.strip() or r.stderr.strip())

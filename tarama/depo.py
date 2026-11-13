@@ -1,5 +1,6 @@
 """SQLite (WAL) deposu ve zincirli denetim kaydi (anahtar varsa HMAC-SHA-256, yoksa SHA-256). Zamanlar UTC.
 Dogrulama: python3 tarama/depo.py dogrula <db> [--bas dosya.json]; zincir basi: python3 tarama/depo.py bas <db>"""
+import contextlib
 import hashlib
 import hmac
 import json
@@ -43,8 +44,19 @@ GOCLER = [
     """ALTER TABLE denetim ADD COLUMN alanlar TEXT NOT NULL DEFAULT ''""",
     # silinen firmanin izi: eski bir talepten (iletisim formu) kendiliginden geri olusmasin. Duz anahtar degil ozet tutulur.
     """CREATE TABLE firma_silinen(anahtar_sha256 TEXT PRIMARY KEY, silinme_utc TEXT NOT NULL)""",
+    # e-posta dogrulamasi (ALIG_EPOSTA_DOGRULAMA): raporda yukleyen adres, dogrulanmamis rapor gizli, firma dogrulama zamani
+    """ALTER TABLE rapor ADD COLUMN eposta TEXT NOT NULL DEFAULT ''""",
+    """ALTER TABLE rapor ADD COLUMN dogrulandi INTEGER NOT NULL DEFAULT 1""",
+    """ALTER TABLE firma ADD COLUMN eposta_dogrulama_utc TEXT""",
+    # giden kutusu: web sureci aga cikmaz, ayri posta servisi gonderir; metin gonderilince silinir
+    """CREATE TABLE posta(id INTEGER PRIMARY KEY, alici TEXT NOT NULL, konu TEXT NOT NULL, metin TEXT NOT NULL,
+       olusturma_utc TEXT NOT NULL, deneme INTEGER NOT NULL DEFAULT 0, durum TEXT NOT NULL DEFAULT 'bekliyor',
+       son_hata TEXT NOT NULL DEFAULT '', gonderim_utc TEXT)""",
+    """CREATE INDEX posta_alici ON posta(alici, olusturma_utc)""",
 ]
 ISTEK_DAKIKA = 30
+BEKLEME_SAAT = 24      # e-postayla dogrulanmamis rapor bu sure sonunda silinir
+POSTA_DENEME = 5       # gecici hatada en cok deneme
 ISTEK_DENEME = 3
 ISTEK_SAATLIK = 5
 FIRMA_DURUMLARI = ("aktif", "pasif")
@@ -71,6 +83,47 @@ def goc_uygula(con, gocler):
         raise
 
 
+class _IslemIcinde:
+    """Dis islem suresince commit'i erteleyen baglanti sarmalayicisi. Depo fonksiyonlari kendi commit'lerini cagirir;
+    gercek commit islem bitince bir kez yapilir, istisnada hepsi geri alinir."""
+    in_transaction = True
+
+    def __init__(self, con):
+        self._con = con
+
+    def execute(self, *a, **k):
+        return self._con.execute(*a, **k)
+
+    def executemany(self, *a, **k):
+        return self._con.executemany(*a, **k)
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        raise RuntimeError("islem icinde rollback cagrilmaz: istisna firlatin")
+
+    def __getattr__(self, ad):
+        return getattr(self._con, ad)
+
+
+@contextlib.contextmanager
+def islem(con):
+    """Is eylemi ve denetim kaydi tek islemde: ya ikisi birlikte yazilir ya hicbiri. Yazma kilidi bastan alinir."""
+    if isinstance(con, _IslemIcinde):
+        yield con
+        return
+    if con.in_transaction:
+        con.commit()
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        yield _IslemIcinde(con)
+    except BaseException:
+        con.rollback()
+        raise
+    con.commit()
+
+
 def wal_ac(con, deneme=50):
     """WAL kipine gecis ilk acilista kisa sure ozel kilit ister; es zamanli acilista kilit bosalana kadar bekler."""
     for i in range(deneme):
@@ -84,7 +137,7 @@ def wal_ac(con, deneme=50):
 
 
 def baglan(yol):
-    con = sqlite3.connect(yol)
+    con = sqlite3.connect(yol, timeout=10)
     wal_ac(con)
     goc_uygula(con, GOCLER)
     return con
@@ -235,11 +288,11 @@ def sirket_anahtari(eposta):
     return hashlib.sha256(("sirket|" + ham).encode()).hexdigest() if ham else None
 
 
-_FIRMA_KOLON = "id, anahtar, ad, eposta, durum, kaynak, aciklama, kayit_utc, son_utc, dogrudan_izin"
+_FIRMA_KOLON = "id, anahtar, ad, eposta, durum, kaynak, aciklama, kayit_utc, son_utc, dogrudan_izin, eposta_dogrulama_utc"
 
 
 def _firma(r):
-    return dict(zip(("id", "anahtar", "ad", "eposta", "durum", "kaynak", "aciklama", "kayit_utc", "son_utc", "dogrudan_izin"), r)) if r else None
+    return dict(zip(_FIRMA_KOLON.split(", "), r)) if r else None
 
 
 def _iz_ozeti(anahtar):
@@ -257,10 +310,16 @@ def firma_kaydet(con, anahtar, ad, eposta, kaynak, zaman=None, guncelle=True):
     z = zaman or simdi()
     ad, eposta = (ad or "").strip()[:160], (eposta or "").strip().lower()[:200]
     con.execute("INSERT OR IGNORE INTO firma(anahtar, ad, eposta, kaynak, kayit_utc, son_utc) VALUES(?,?,?,?,?,?)", (anahtar, ad, eposta, kaynak, z, z))
-    if guncelle:
-        con.execute("UPDATE firma SET son_utc=?, eposta=?, ad=CASE WHEN ad='' THEN ? ELSE ad END WHERE anahtar=?", (z, eposta, ad, anahtar))
+    if guncelle:  # e-posta degismez: dogrulanmamis bir yukleme kayitli iletisim adresini ele geciremesin
+        con.execute("UPDATE firma SET son_utc=?, ad=CASE WHEN ad='' THEN ? ELSE ad END WHERE anahtar=?", (z, ad, anahtar))
     con.commit()
     return _firma(con.execute("SELECT %s FROM firma WHERE anahtar=?" % _FIRMA_KOLON, (anahtar,)).fetchone())
+
+
+def firma_eposta_dogrula(con, fid, eposta):
+    """E-postadaki baglantiyla dogrulanan adres firmanin iletisim adresi olur."""
+    con.execute("UPDATE firma SET eposta=?, eposta_dogrulama_utc=? WHERE id=?", ((eposta or "").strip().lower()[:200], simdi(), fid))
+    con.commit()
 
 
 def firma_getir(con, fid):
@@ -382,20 +441,40 @@ def kullanim_ekle(con, anahtar, ozet=None):
     con.commit()
 
 
-def rapor_ekle(con, token, motor, dil, belge, firma_id=None):
+def rapor_ekle(con, token, motor, dil, belge, firma_id=None, eposta="", dogrulandi=True):
+    """dogrulandi=False: rapor e-postadaki baglantiyla dogrulanana kadar gizlidir ve BEKLEME_SAAT sonra silinir."""
     n = datetime.now(timezone.utc)
-    con.execute("INSERT INTO rapor(token_sha256, olusturma_utc, bitis_utc, motor, dil, belge_json, firma_id) VALUES(?,?,?,?,?,?,?)",
-                (token_ozeti(token), n.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                 (n + timedelta(days=saklama.gun("rapor"))).strftime("%Y-%m-%dT%H:%M:%SZ"), motor, dil, json.dumps(belge, sort_keys=True), firma_id))
+    bitis = n + (timedelta(days=saklama.gun("rapor")) if dogrulandi else timedelta(hours=BEKLEME_SAAT))
+    con.execute("INSERT INTO rapor(token_sha256, olusturma_utc, bitis_utc, motor, dil, belge_json, firma_id, eposta, dogrulandi)"
+                " VALUES(?,?,?,?,?,?,?,?,?)",
+                (token_ozeti(token), n.strftime("%Y-%m-%dT%H:%M:%SZ"), bitis.strftime("%Y-%m-%dT%H:%M:%SZ"), motor, dil,
+                 json.dumps(belge, sort_keys=True), firma_id, (eposta or "").strip().lower()[:200], 1 if dogrulandi else 0))
     con.commit()
 
 
 def rapor_getir(con, token):
-    satir = con.execute("SELECT id, olusturma_utc, bitis_utc, motor, dil, belge_json FROM rapor WHERE token_sha256=?",
-                        (token_ozeti(token),)).fetchone()
-    if not satir or satir[2] <= simdi():
-        return None
-    return {"id": satir[0], "olusturma_utc": satir[1], "bitis_utc": satir[2], "motor": satir[3], "dil": satir[4], "belge": json.loads(satir[5])}
+    """Dogrulanmis ve suresi dolmamis rapor; yoksa None."""
+    r = _rapor(con.execute("SELECT %s FROM rapor WHERE token_sha256=? AND dogrulandi=1" % _RAPOR_KOLON, (token_ozeti(token),)).fetchone())
+    return r if r and r["bitis_utc"] > simdi() else None
+
+
+def rapor_bekleyen_getir(con, token):
+    """E-posta dogrulamasi bekleyen ve suresi dolmamis rapor; yoksa None."""
+    r = _rapor(con.execute("SELECT %s FROM rapor WHERE token_sha256=? AND dogrulandi=0" % _RAPOR_KOLON, (token_ozeti(token),)).fetchone())
+    return r if r and r["bitis_utc"] > simdi() else None
+
+
+def rapor_dogrula(con, rid):
+    """Raporu gorunur yapar; saklama suresi dogrulama aninda baslar."""
+    bitis = (datetime.now(timezone.utc) + timedelta(days=saklama.gun("rapor"))).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n = con.execute("UPDATE rapor SET dogrulandi=1, bitis_utc=? WHERE id=? AND dogrulandi=0", (bitis, rid)).rowcount
+    con.commit()
+    return n
+
+
+def bekleyen_say(con, firma_id, saat=BEKLEME_SAAT):
+    esik = (datetime.now(timezone.utc) - timedelta(hours=saat)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return con.execute("SELECT count(*) FROM rapor WHERE firma_id=? AND dogrulandi=0 AND olusturma_utc > ?", (firma_id, esik)).fetchone()[0]
 
 
 def rapor_sil(con, token):
@@ -404,18 +483,49 @@ def rapor_sil(con, token):
     return n
 
 
+_RAPOR_KOLON = "id, olusturma_utc, bitis_utc, motor, dil, belge_json, firma_id, eposta, dogrulandi"
+
+
 def _rapor(r):
-    return {"id": r[0], "olusturma_utc": r[1], "bitis_utc": r[2], "motor": r[3], "dil": r[4], "belge": json.loads(r[5]), "firma_id": r[6]} if r else None
+    if not r:
+        return None
+    d = dict(zip(_RAPOR_KOLON.split(", "), r))
+    d["belge"] = json.loads(d.pop("belge_json"))
+    return d
 
 
 def rapor_listele(con, limit=200, firma_id=None):
     kosul, arg = ("WHERE firma_id=?", (firma_id, limit)) if firma_id is not None else ("", (limit,))
-    return [_rapor(r) for r in con.execute(
-        "SELECT id, olusturma_utc, bitis_utc, motor, dil, belge_json, firma_id FROM rapor %s ORDER BY id DESC LIMIT ?" % kosul, arg)]
+    return [_rapor(r) for r in con.execute("SELECT %s FROM rapor %s ORDER BY id DESC LIMIT ?" % (_RAPOR_KOLON, kosul), arg)]
 
 
 def rapor_getir_id(con, rid):
-    return _rapor(con.execute("SELECT id, olusturma_utc, bitis_utc, motor, dil, belge_json, firma_id FROM rapor WHERE id=?", (rid,)).fetchone())
+    return _rapor(con.execute("SELECT %s FROM rapor WHERE id=?" % _RAPOR_KOLON, (rid,)).fetchone())
+
+
+# --- giden kutusu (tarama/posta.py gonderir) ---
+def posta_ekle(con, alici, konu, metin):
+    con.execute("INSERT INTO posta(alici, konu, metin, olusturma_utc) VALUES(?,?,?,?)", (alici.strip().lower()[:200], konu, metin, simdi()))
+    con.commit()
+
+
+def posta_say(con, alici, saat=24):
+    esik = (datetime.now(timezone.utc) - timedelta(hours=saat)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return con.execute("SELECT count(*) FROM posta WHERE alici=? AND olusturma_utc > ?", ((alici or "").strip().lower(), esik)).fetchone()[0]
+
+
+def posta_bekleyenler(con, en_cok=20):
+    return con.execute("SELECT id, alici, konu, metin, deneme FROM posta WHERE durum='bekliyor' ORDER BY id LIMIT ?", (en_cok,)).fetchall()
+
+
+def posta_sonuc(con, pid, hata=None, deneme_siniri=POSTA_DENEME):
+    """Gonderildiyse metin silinir (baglanti gizlidir). Hatada deneme artar; sinirda vazgecilir ve metin yine silinir."""
+    if hata is None:
+        con.execute("UPDATE posta SET durum='gonderildi', metin='', gonderim_utc=?, son_hata='' WHERE id=?", (simdi(), pid))
+    else:
+        con.execute("UPDATE posta SET deneme=deneme+1, son_hata=? WHERE id=?", (str(hata)[:200], pid))
+        con.execute("UPDATE posta SET durum='basarisiz', metin='' WHERE id=? AND deneme >= ?", (pid, deneme_siniri))
+    con.commit()
 
 
 def rapor_sil_id(con, rid):
@@ -450,6 +560,8 @@ def suresi_dolanlari_sil(con):
     con.execute("DELETE FROM kullanim WHERE zaman_utc <= ?", (esik,))
     gun = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     con.execute("DELETE FROM baglanti_istegi WHERE bitis_utc <= ?", (gun,))
+    pg = (datetime.now(timezone.utc) - timedelta(days=saklama.gun("posta"))).strftime("%Y-%m-%dT%H:%M:%SZ")
+    con.execute("DELETE FROM posta WHERE olusturma_utc <= ? AND durum != 'bekliyor'", (pg,))
     con.commit()
     return n
 

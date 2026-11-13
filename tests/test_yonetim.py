@@ -258,6 +258,18 @@ class PanelTests(Taban):
         self.istek("GET", "/yonetim/firmalar")
         self.assertIn("ornek.com", [x["anahtar"] for x in tdepo.firma_listele(t)])
 
+    def test_eposta_dogrulama_durumu_ve_yukleyen_gorunur(self):
+        g = self.istek("GET", "/yonetim/firmalar")[1]
+        self.assertIn("doğrulanmamış", g)
+        t = tdepo.baglan(self.tdb)
+        tdepo.firma_eposta_dogrula(t, self.firma["id"], "ayse@firma.com.tr")
+        tdepo.rapor_ekle(t, "bekleyen", "postgresql", "tr", temiz_belge(), self.firma["id"], "mehmet@firma.com.tr", dogrulandi=False)
+        t.close()
+        self.assertIn("doğrulandı", self.istek("GET", "/yonetim/firmalar/%d" % self.firma["id"])[1])
+        g = self.istek("GET", "/yonetim/taramalar")[1]
+        self.assertIn("mehmet@firma.com.tr", g)
+        self.assertIn("doğrulama bekliyor", g)
+
     def test_zehirli_rapor_paneli_dusurmez(self):
         t = tdepo.baglan(self.tdb)
         b = temiz_belge()

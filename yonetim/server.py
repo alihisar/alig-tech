@@ -75,6 +75,13 @@ def degerlendir(belge):
         return [], [("*", "hata")]
 
 
+def eposta_etiketi(f):
+    """Firma e-postasinin dogrulama durumu: e-posta dogrulamasi acik degilken her adres dogrulanmamistir."""
+    if f.get("eposta_dogrulama_utc"):
+        return "<span class=\"pill pill-aktif\" title=\"%s\">doğrulandı</span>" % e(ist(f["eposta_dogrulama_utc"]))
+    return "<span class=\"pill pill-bekliyor\" title=\"Adres e-postayla doğrulanmadı; yazan kişi bu adresin sahibi olmayabilir.\">doğrulanmamış</span>"
+
+
 def csv_hucre(v):
     """Hucre tablolama programinda formul olarak calismasin: =, +, -, @ ile baslayan degerin onune tek tirnak konur."""
     m = "" if v is None else str(v)
@@ -413,7 +420,7 @@ class H(BaseHTTPRequestHandler):
         satirlar = []
         for f in secili:
             satirlar.append(["<a href=\"/yonetim/firmalar/%d\"><strong>%s</strong></a><br><span class=\"muted\">%s</span>" % (f["id"], e(f["ad"] or "(adsız)"), e(f["anahtar"])),
-                             "<a href=\"mailto:%s\">%s</a>" % (e(f["eposta"]), e(f["eposta"])),
+                             "<a href=\"mailto:%s\">%s</a> %s" % (e(f["eposta"]), e(f["eposta"]), eposta_etiketi(f)),
                              "<span class=\"pill pill-%s\">%s</span>" % (f["durum"], e(FIRMA_DURUM_AD[f["durum"]])),
                              e(f["rapor_sayisi"]), e(len(talepler.get(f["anahtar"], []))), e(KAYNAK_AD.get(f["kaynak"], f["kaynak"])),
                              e(ist(f["kayit_utc"])), e(ist(f["son_utc"])), self._durum_dugmesi(f, o, "liste")])
@@ -439,9 +446,9 @@ class H(BaseHTTPRequestHandler):
         depo.denetim_ekle(con, o["ad"], "firma goruntulendi #%d" % fid)
         csrf = e(o["csrf"])
         ic = "<p><a href=\"/yonetim/firmalar\">Firmalara dön</a></p>"
-        ic += ("<dl class=\"facts\"><dt>Durum</dt><dd><span class=\"pill pill-%s\">%s</span></dd><dt>Tanımlayıcı</dt><dd>%s</dd><dt>E-posta</dt><dd><a href=\"mailto:%s\">%s</a></dd>"
+        ic += ("<dl class=\"facts\"><dt>Durum</dt><dd><span class=\"pill pill-%s\">%s</span></dd><dt>Tanımlayıcı</dt><dd>%s</dd><dt>E-posta</dt><dd><a href=\"mailto:%s\">%s</a> %s</dd>"
                "<dt>İlk kaynak</dt><dd>%s</dd><dt>Kayıt</dt><dd>%s</dd><dt>Son etkinlik</dt><dd>%s</dd><dt>Kalan ücretsiz tarama</dt><dd>%d / %d (30 gün)</dd></dl>") % (
-                   f["durum"], e(FIRMA_DURUM_AD[f["durum"]]), e(f["anahtar"]), e(f["eposta"]), e(f["eposta"]), e(KAYNAK_AD.get(f["kaynak"], f["kaynak"])),
+                   f["durum"], e(FIRMA_DURUM_AD[f["durum"]]), e(f["anahtar"]), e(f["eposta"]), e(f["eposta"]), eposta_etiketi(f), e(KAYNAK_AD.get(f["kaynak"], f["kaynak"])),
                    e(ist(f["kayit_utc"])), e(ist(f["son_utc"])), kalan, tdepo.SINIR_ADET)
         ic += "<h2>İşlemler</h2><div class=\"actions\">" + self._durum_dugmesi(f, o, "detay")
         ic += ("<form method=\"post\" action=\"/yonetim/firmalar/%d/sinir\" class=\"inline\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
@@ -458,10 +465,11 @@ class H(BaseHTTPRequestHandler):
         rs = []
         for r in raporlar:
             b, ol = degerlendir(r["belge"])
-            rs.append(["<a href=\"/yonetim/taramalar/%d\">#%d</a>" % (r["id"], r["id"]), e(ist(r["olusturma_utc"])),
+            rs.append(["<a href=\"/yonetim/taramalar/%d\">#%d</a>%s" % (r["id"], r["id"], "" if r["dogrulandi"] else " <span class=\"pill pill-bekliyor\">doğrulama bekliyor</span>"),
+                       e(r["eposta"] or "-"), e(ist(r["olusturma_utc"])),
                        e(", ".join("%s %d" % (ONEM_AD[k], n) for k, n in ((k, sum(1 for x in b if x["onem"] == k)) for k in kurallar.ONEM) if n) or "bulgu yok"),
                        e(len(ol)), e(ist(r["bitis_utc"]))])
-        ic += "<h2>Taramalar</h2>" + tablo(["Rapor", "Yüklenme", "Bulgular", "Ölçülemeyen", "Silinme"], rs, "Bu firmanın taraması yok.")
+        ic += "<h2>Taramalar</h2>" + tablo(["Rapor", "Yükleyen", "Yüklenme", "Bulgular", "Ölçülemeyen", "Silinme"], rs, "Bu firmanın taraması yok.")
         durumlar = depo.talep_durumlari(con)
         ts = [[e(ist(t_[1])), e(t_[2]), "<a href=\"mailto:%s\">%s</a>" % (e(t_[4]), e(t_[4])), "<span class=\"msg\">%s</span>" % e(t_[6]),
                e(DURUM_AD[durumlar.get(t_[0], {}).get("durum", "yeni")])] for t_ in self._talep_sayilari().get(f["anahtar"], [])]
@@ -535,10 +543,11 @@ class H(BaseHTTPRequestHandler):
             b, ol = degerlendir(r["belge"])
             ozet = ", ".join("%s %d" % (ONEM_AD[k], n) for k, n in ((k, sum(1 for x in b if x["onem"] == k)) for k in kurallar.ONEM) if n) or "bulgu yok"
             firma = "<a href=\"/yonetim/firmalar/%d\">%s</a>" % (r["firma_id"], e(adlar[r["firma_id"]])) if r.get("firma_id") in adlar else "<span class=\"muted\">bilinmiyor</span>"
-            satirlar.append(["<a href=\"/yonetim/taramalar/%d\">#%d</a>" % (r["id"], r["id"]), firma, e(ist(r["olusturma_utc"])), e(r["motor"]), e(ozet), e(len(ol)),
+            satirlar.append(["<a href=\"/yonetim/taramalar/%d\">#%d</a>%s" % (r["id"], r["id"], "" if r["dogrulandi"] else " <span class=\"pill pill-bekliyor\">doğrulama bekliyor</span>"),
+                             firma, e(r["eposta"] or "-"), e(ist(r["olusturma_utc"])), e(r["motor"]), e(ozet), e(len(ol)),
                              e("evet" if r["belge"].get("maskeli") else "hayır"), e(ist(r["bitis_utc"]))])
         self._sayfa("Taramalar", "<p class=\"muted\">Raporlar 30 gün sonra kendiliğinden silinir.</p>" +
-                    tablo(["Rapor", "Firma", "Yüklenme", "Motor", "Bulgular", "Ölçülemeyen", "Maskeli", "Silinme"], satirlar, "Tarama yok."), o)
+                    tablo(["Rapor", "Firma", "Yükleyen", "Yüklenme", "Motor", "Bulgular", "Ölçülemeyen", "Maskeli", "Silinme"], satirlar, "Tarama yok."), o)
 
     def _tarama(self, con, o, rid):
         if not Path(self.tarama_db).exists():

@@ -45,6 +45,7 @@ ROTALAR = [
     ("/api/tarama/yukle", "tarama/server.py", "Tarama dosyası yükleme (POST)"),
     ("/rapor/<token>/", "tarama/server.py", "Rapor sayfası (rastgele bağlantı)"),
     ("/rapor/<token>/sil", "tarama/server.py", "Raporu hemen silme (POST)"),
+    ("/rapor/<token>/dogrula", "tarama/server.py", "E-posta doğrulaması: raporu açar, hakkı harcar (POST, varsayılan kapalı)"),
     ("/api/tarama/saglik", "tarama/server.py", "Tarama sunucu sağlık denetimi"),
     ("/api/tarama/baglan", "tarama/server.py", "Doğrudan bağlantı formu ve isteği (varsayılan kapalı)"),
     ("/api/tarama/baglan/<token>", "tarama/server.py", "Parolayı alıp taramayı çalıştırma (POST, varsayılan kapalı)"),

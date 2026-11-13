@@ -1,0 +1,47 @@
+[Unit]
+Description=alig.tech giden e-posta (dogrulama baglantilari)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Web surecleri aga cikmaz; iletileri tarama.sqlite giden kutusuna yazar, bu servis gonderir.
+# SMTP parolasi depoda tutulmaz: /etc/alig/env icine ALIG_SMTP_PAROLA=... olarak elle yazilir.
+User={{ servis_kullanici }}
+Group={{ servis_kullanici }}
+EnvironmentFile=/etc/alig/env
+Environment=ALIG_SMTP_SUNUCU={{ smtp_sunucu }}
+Environment=ALIG_SMTP_PORT={{ smtp_port }}
+Environment=ALIG_SMTP_KULLANICI={{ smtp_kullanici }}
+Environment=ALIG_EPOSTA_GONDEREN={{ eposta_gonderen }}
+ExecStart=/usr/bin/python3 {{ kok_dizin }}/current/tarama/posta.py --db {{ veri_dizini }}/tarama.sqlite --surekli
+Restart=on-failure
+RestartSec=10
+# sertlestirme
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ veri_dizini }}
+InaccessiblePaths={{ yedek_dizini }}
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+# Disariya yalniz SMTP icin baglanir; ic aga ve yerel adreslere baglanmasi gerekmez.
+IPAddressDeny=localhost link-local multicast 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

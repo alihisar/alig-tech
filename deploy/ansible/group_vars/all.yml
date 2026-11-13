@@ -26,3 +26,11 @@ dogrudan_baglanti: false
 calistirici_kullanici: alig-calistirici
 # Kendi adres araliklarimiz: calistirici bu aglara baglanmayi reddeder. Ornek: ["203.0.113.0/24"]
 calistirici_yasak_aglar: []
+# E-posta dogrulamasi. false iken rapor baglantisi yuklemeden hemen sonra gosterilir ve e-posta adresi dogrulanmaz.
+# true icin: smtp_sunucu, eposta_gonderen dolu olmali ve /etc/alig/env icine ALIG_SMTP_PAROLA=... elle yazilmali.
+eposta_dogrulama: false
+smtp_sunucu: ""
+smtp_port: 587
+smtp_kullanici: ""
+eposta_gonderen: ""
+

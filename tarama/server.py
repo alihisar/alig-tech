@@ -16,19 +16,19 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import importlib.util  # noqa: E402
 
-from tarama import baglanti, calistirici, depo, hata, hedef, rapor, saklama, yukleme  # noqa: E402
+from tarama import baglanti, calistirici, depo, hata, hedef, posta, rapor, saklama, yukleme  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("alig_form_server", Path(__file__).resolve().parent.parent / "form" / "server.py")
 _form = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_form)
 RateLimiter = _form.RateLimiter
 
-TOKEN = re.compile(r"^/rapor/([A-Za-z0-9_\-]{43})/(sil)?$")
+TOKEN = re.compile(r"^/rapor/([A-Za-z0-9_\-]{43})/(sil|dogrula)?$")
 ISTEK = re.compile(r"^/api/tarama/baglan/([A-Za-z0-9_\-]{43})$")
 TARAMA_YUVASI = threading.BoundedSemaphore(2)   # ayni anda en cok iki dogrudan tarama
 KILIT = threading.Lock()  # sinir sayimi ve ekleme birlikte yapilsin
@@ -60,6 +60,10 @@ class H(BaseHTTPRequestHandler):
     hedef_dogrula = staticmethod(hedef.dogrula)
     tara = staticmethod(baglanti.tara)   # yalniz yerel gelistirme: calistirici_soketi yoksa surec ici
     calistirici_soketi = None            # uretimde zorunlu: tarama ayri calistirici surecinde kosar
+    eposta_dogrulama = False             # ALIG_EPOSTA_DOGRULAMA=1: rapor baglantisi yalniz e-postayla gider
+    site_adresi = ""                     # e-postadaki baglantinin koku (ALIG_SITE_ADRESI)
+    posta_adres_siniri = 3               # ayni adrese 24 saatte en cok posta
+    bekleyen_firma_siniri = 5            # bir firmada 24 saatte en cok dogrulanmamis rapor
     sys_version = ""
 
     def _send(self, kod, govde=b"", ctype="text/plain; charset=utf-8", extra=()):
@@ -100,10 +104,13 @@ class H(BaseHTTPRequestHandler):
         con = depo.baglan(self.db_yolu)
         try:
             r = depo.rapor_getir(con, m.group(1))
-            if not r:
-                return self._send(404, b"yok\n")
-            depo.denetim_ekle(con, "musteri", "rapor goruntulendi #%d" % r["id"], {"rapor": r["id"], "sonuc": "basarili"})
-            self._send(200, rapor.sayfa(r, r["dil"], m.group(1)).encode("utf-8"), "text/html; charset=utf-8")
+            if r:
+                depo.denetim_ekle(con, "musteri", "rapor goruntulendi #%d" % r["id"], {"rapor": r["id"], "sonuc": "basarili"})
+                return self._send(200, rapor.sayfa(r, r["dil"], m.group(1)).encode("utf-8"), "text/html; charset=utf-8")
+            b = depo.rapor_bekleyen_getir(con, m.group(1))
+            if b:  # e-postadaki baglanti: GET hicbir sey degistirmez, dogrulama dugmeyle (POST) yapilir
+                return self._send(200, hata.dogrulama_onay(b["dil"], m.group(1)).encode("utf-8"), "text/html; charset=utf-8")
+            self._send(404, b"yok\n")
         finally:
             con.close()
 
@@ -112,6 +119,8 @@ class H(BaseHTTPRequestHandler):
         m = TOKEN.match(yol)
         if m and m.group(2) == "sil":
             return self._sil(m.group(1))
+        if m and m.group(2) == "dogrula":
+            return self._dogrula(m.group(1))
         if self.dogrudan and yol == "/api/tarama/baglan":
             return self._baglan_baslat()
         mi = ISTEK.match(yol)
@@ -148,27 +157,85 @@ class H(BaseHTTPRequestHandler):
             tur, ayrinti = hata.dosya_hatasi(e.kod, e.ek, dil)
             return self._hata(422, tur, dil, ayrinti=ayrinti)
         anahtar = secrets.token_urlsafe(32)
+        eposta_n = eposta.strip().lower()
         con = depo.baglan(self.db_yolu)
         try:
-            firma = depo.firma_kaydet(con, depo.firma_anahtari(eposta), sirket, eposta, "tarama")
-            if firma["durum"] != "aktif":
-                depo.denetim_ekle(con, "sistem", "pasif firma yuklemesi reddedildi, firma #%d" % firma["id"], {"firma": firma["id"], "sonuc": "reddedildi", "neden": "pasif"})
-                return self._hata(403, "pasif", dil)
-            ozet = depo.belge_ozeti(belge)
-            with KILIT:
-                tekrar = depo.kullanim_tekrar(con, anahtar_s, ozet)  # ayni dosya: hak harcanmaz
-                asildi = not tekrar and depo.kullanim_say(con, anahtar_s) >= self.sirket_adet
-                if not asildi and not tekrar:
-                    depo.kullanim_ekle(con, anahtar_s, ozet)
-            if asildi:
-                depo.denetim_ekle(con, "sistem", "sirket siniri asildi, istek reddedildi", {"firma": firma["id"], "sonuc": "reddedildi", "neden": "sinir"})
-                return self._hata(429, "sinir", dil, extra=(("Retry-After", str(depo.SINIR_GUN * 86400)),))
-            depo.rapor_ekle(con, anahtar, belge["motor"], dil, belge, firma["id"])
-            depo.denetim_ekle(con, "musteri", "toplama dosyasi yuklendi, firma #%d, motor=%s, kontrol=%d%s" % (firma["id"], belge["motor"], len(belge["kontroller"]), ", ayni dosya (hak harcanmadi)" if tekrar else ""),
-                                   {"firma": firma["id"], "motor": belge["motor"], "sonuc": "basarili", "neden": "tekrar" if tekrar else None})
+            with depo.islem(con) as c:   # kayit, sinir sayimi, rapor ve denetim kaydi birlikte yazilir ya da hicbiri
+                sonuc = self._yukleme_isle(c, anahtar, anahtar_s, eposta, eposta_n, sirket, dil, belge)
         finally:
             con.close()
-        self._send(303, extra=(("Location", "/rapor/%s/" % anahtar),))
+        if sonuc[0] == "rapor":
+            return self._send(303, extra=(("Location", "/rapor/%s/" % anahtar),))
+        if sonuc[0] == "bekliyor":
+            return self._send(200, hata.dogrulama_gonderildi(dil, eposta_n, depo.BEKLEME_SAAT).encode("utf-8"), "text/html; charset=utf-8")
+        _, kod, tur, extra = sonuc
+        return self._hata(kod, tur, dil, extra=extra)
+
+    def _yukleme_isle(self, c, anahtar, anahtar_s, eposta, eposta_n, sirket, dil, belge):
+        """Acik islem icinde calisir. ("rapor",) | ("bekliyor",) | ("hata", kod, tur, ek_basliklar)"""
+        firma = depo.firma_kaydet(c, depo.firma_anahtari(eposta), sirket, eposta, "tarama")
+        if firma["durum"] != "aktif":
+            depo.denetim_ekle(c, "sistem", "pasif firma yuklemesi reddedildi, firma #%d" % firma["id"], {"firma": firma["id"], "sonuc": "reddedildi", "neden": "pasif"})
+            return ("hata", 403, "pasif", ())
+        ozet = depo.belge_ozeti(belge)
+        tekrar = depo.kullanim_tekrar(c, anahtar_s, ozet)  # ayni dosya: hak harcanmaz
+        if not tekrar and depo.kullanim_say(c, anahtar_s) >= self.sirket_adet:
+            depo.denetim_ekle(c, "sistem", "sirket siniri asildi, istek reddedildi", {"firma": firma["id"], "sonuc": "reddedildi", "neden": "sinir"})
+            return ("hata", 429, "sinir", (("Retry-After", str(depo.SINIR_GUN * 86400)),))
+        if self.eposta_dogrulama:
+            if depo.posta_say(c, eposta_n) >= self.posta_adres_siniri or depo.bekleyen_say(c, firma["id"]) >= self.bekleyen_firma_siniri:
+                depo.denetim_ekle(c, "sistem", "posta siniri, yukleme reddedildi, firma #%d" % firma["id"], {"firma": firma["id"], "sonuc": "reddedildi", "neden": "posta"})
+                return ("hata", 429, "posta", (("Retry-After", "86400"),))
+            depo.rapor_ekle(c, anahtar, belge["motor"], dil, belge, firma["id"], eposta_n, dogrulandi=False)
+            konu, metin = posta.dogrulama_iletisi(dil, "%s/rapor/%s/" % (self.site_adresi, anahtar))
+            depo.posta_ekle(c, eposta_n, konu, metin)
+            depo.denetim_ekle(c, "musteri", "toplama dosyasi yuklendi, e-posta dogrulamasi bekliyor, firma #%d, motor=%s" % (firma["id"], belge["motor"]),
+                              {"firma": firma["id"], "motor": belge["motor"], "sonuc": "bekliyor"})
+            return ("bekliyor",)
+        if not tekrar:
+            depo.kullanim_ekle(c, anahtar_s, ozet)
+        depo.rapor_ekle(c, anahtar, belge["motor"], dil, belge, firma["id"], eposta_n)
+        depo.denetim_ekle(c, "musteri", "toplama dosyasi yuklendi, firma #%d, motor=%s, kontrol=%d%s" % (firma["id"], belge["motor"], len(belge["kontroller"]), ", ayni dosya (hak harcanmadi)" if tekrar else ""),
+                          {"firma": firma["id"], "motor": belge["motor"], "sonuc": "basarili", "neden": "tekrar" if tekrar else None})
+        return ("rapor",)
+
+    def _dogrula(self, token):
+        """E-postadaki baglantidan gelen onay: hak burada harcanir, firma e-postasi dogrulanmis olur."""
+        con = depo.baglan(self.db_yolu)
+        try:
+            with depo.islem(con) as c:
+                sonuc = self._dogrula_isle(c, token)
+        finally:
+            con.close()
+        if sonuc[0] == "tamam":
+            return self._send(303, extra=(("Location", "/rapor/%s/" % token),))
+        if sonuc[0] == "yok":
+            return self._send(404, b"yok\n")
+        _, kod, tur, dil = sonuc
+        return self._hata(kod, tur, dil)
+
+    def _dogrula_isle(self, c, token):
+        if depo.rapor_getir(c, token):
+            return ("tamam",)   # zaten dogrulanmis: hak yeniden harcanmaz
+        b = depo.rapor_bekleyen_getir(c, token)
+        if not b:
+            return ("yok",)
+        firma = depo.firma_getir(c, b["firma_id"]) if b["firma_id"] else None
+        if not firma or firma["durum"] != "aktif":
+            return ("hata", 403, "pasif", b["dil"])
+        anahtar_s = depo.sirket_anahtari(b["eposta"])
+        ozet = depo.belge_ozeti(b["belge"])
+        tekrar = depo.kullanim_tekrar(c, anahtar_s, ozet)
+        if not tekrar and depo.kullanim_say(c, anahtar_s) >= self.sirket_adet:
+            depo.denetim_ekle(c, "sistem", "sirket siniri asildi, dogrulama reddedildi", {"firma": firma["id"], "rapor": b["id"], "sonuc": "reddedildi", "neden": "sinir"})
+            return ("hata", 429, "sinir", b["dil"])
+        if not tekrar:
+            depo.kullanim_ekle(c, anahtar_s, ozet)
+        depo.rapor_dogrula(c, b["id"])
+        depo.firma_eposta_dogrula(c, firma["id"], b["eposta"])
+        depo.denetim_ekle(c, "musteri", "e-posta dogrulandi, rapor #%d, firma #%d" % (b["id"], firma["id"]),
+                          {"firma": firma["id"], "rapor": b["id"], "sonuc": "basarili", "neden": "tekrar" if tekrar else None})
+        return ("tamam",)
 
     # ---- Kip B: dogrudan baglanti (docs/kip-b-tasarim.md) ----
     def _form(self, sinir=8192):
@@ -274,7 +341,7 @@ class H(BaseHTTPRequestHandler):
             if asildi:
                 return self._hata(429, "sinir", dil)
             anahtar = secrets.token_urlsafe(32)
-            depo.rapor_ekle(con, anahtar, belge["motor"], dil, belge, firma["id"])
+            depo.rapor_ekle(con, anahtar, belge["motor"], dil, belge, firma["id"], firma["eposta"])
             depo.istek_bitir(con, i["id"], "tamam")
             depo.denetim_ekle(con, "musteri", "dogrudan tarama tamamlandi, firma #%d, hedef=%s, kontrol=%d" % (firma["id"], h.ozet()[:16], len(belge["kontroller"])))
         finally:
@@ -312,6 +379,20 @@ def dogrudan_ayarla(ortam, H):
     return True
 
 
+def eposta_ayarla(ortam, H):
+    """ALIG_EPOSTA_DOGRULAMA=1 ise dogrulamayi acar; site adresi https degilse ValueError (yanlis ayarla acilmaz)."""
+    if ortam.get("ALIG_EPOSTA_DOGRULAMA") != "1":
+        H.eposta_dogrulama = False
+        return False
+    adres = (ortam.get("ALIG_SITE_ADRESI") or "").strip().rstrip("/")
+    u = urlparse(adres)
+    yerel = u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1")
+    if not ((u.scheme == "https" and u.netloc) or yerel) or u.path or u.query:
+        raise ValueError("ALIG_EPOSTA_DOGRULAMA=1 icin ALIG_SITE_ADRESI https://alan-adi biciminde olmali")
+    H.eposta_dogrulama, H.site_adresi = True, adres
+    return True
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=os.environ.get("ALIG_TARAMA_DB", "tarama.sqlite"))
@@ -326,7 +407,8 @@ def main(argv=None):
     try:
         depo.denetim_anahtari()
         saklama.dogrula()
-    except (depo.AnahtarHatasi, saklama.SaklamaHatasi) as ex:
+        eposta_ayarla(os.environ, H)
+    except (depo.AnahtarHatasi, saklama.SaklamaHatasi, ValueError) as ex:
         raise SystemExit("hata: %s" % ex)
     depo.baglan(a.db).close()
     print("dinliyor %s:%d" % (a.host, a.port), flush=True)

@@ -45,6 +45,8 @@ M = {
                    "Bilgileri denetleyip bir saat sonra yeni bir istek açın."),
         "mesgul": ("Şu an çok sayıda tarama çalışıyor", "Aynı anda çalışan tarama sayısı sınırına ulaşıldı.",
                    "Birkaç dakika sonra parolayı yeniden gönderin."),
+        "posta": ("Çok sayıda bağlantı gönderildi", "Bu adrese ya da şirketinize son 24 saatte çok sayıda rapor bağlantısı gönderildi. Bu yükleme kaydedilmedi.",
+                  "Gelen kutunuzu ve istenmeyen klasörünü kontrol edin ya da 24 saat sonra yeniden deneyin."),
     },
     "en": {
         "ust": "Health check", "ne": "What to do", "teknik": "Technical detail",
@@ -89,6 +91,8 @@ M = {
                    "Check the details and open a new request in an hour."),
         "mesgul": ("Many scans are running right now", "The limit on scans running at the same time has been reached.",
                    "Send the password again in a few minutes."),
+        "posta": ("Too many links sent", "Many report links were sent to this address or your company in the last 24 hours. This upload was not saved.",
+                  "Check your inbox and spam folder, or try again in 24 hours."),
     },
 }
 
@@ -120,7 +124,7 @@ def dosya_hatasi(kod, ek, dil):
     return tur, metin.replace("{ek}", str(ek)[:60])
 
 
-ILETISIM = {"pasif", "sinir", "buyuk", "izin"}
+ILETISIM = {"pasif", "sinir", "buyuk", "izin", "posta"}
 KILAVUZ = {"json", "bicim", "eski", "tur", "kanit", "super", "zaman", "baglanti"}
 DOGRUDAN = {"hedef", "baglanti", "istek_yok", "deneme", "zaman"}
 
@@ -211,3 +215,46 @@ def sayfa(tur, dil, ayrinti=None):
               '<h2>%s</h2><p>%s</p>%s<p>%s</p></article>') % (
         escape(m["ust"]), escape(baslik), escape(ne_oldu), escape(m["ne"]), escape(ne_yapmali), teknik, " ".join(baglar))
     return _kabuk(d, baslik, icerik)
+
+
+D = {
+    "tr": {"g_baslik": "E-postanızı kontrol edin",
+           "g_lead": "Raporun bağlantısını %s adresine gönderdik. Bağlantı %d saat geçerlidir.",
+           "g_ne": "E-postadaki bağlantıyı açın ve sayfadaki düğmeyle raporu açın. Ücretsiz tarama hakkınız bu adımda kullanılır. "
+                   "E-posta birkaç dakika içinde gelmezse istenmeyen klasörünü kontrol edin.",
+           "o_baslik": "Raporunuz hazır",
+           "o_lead": "E-posta adresinizi doğrulamak ve raporu açmak için düğmeye basın. Ücretsiz tarama hakkınız bu adımda kullanılır.",
+           "o_dugme": "E-postamı doğrula ve raporu aç",
+           "o_not": "Bu yüklemeyi siz yapmadıysanız sayfayı kapatın. Doğrulanmayan rapor kendiliğinden silinir."},
+    "en": {"g_baslik": "Check your email",
+           "g_lead": "We sent the link to your report to %s. The link is valid for %d hours.",
+           "g_ne": "Open the link in the email and open the report with the button on the page. Your free scan allowance is used at that step. "
+                   "If the email does not arrive in a few minutes, check your spam folder.",
+           "o_baslik": "Your report is ready",
+           "o_lead": "Press the button to confirm your email address and open the report. Your free scan allowance is used at this step.",
+           "o_dugme": "Confirm my email and open the report",
+           "o_not": "If you did not make this upload, close this page. A report that is not confirmed is deleted automatically."},
+}
+
+
+def dogrulama_gonderildi(dil, eposta, saat):
+    """Yukleme sonrasi: baglanti e-postayla gitti. Sayfada baglanti YOK."""
+    d = dil if dil in D else "tr"
+    t, kok = D[d], ("/en/" if d == "en" else "/")
+    icerik = ('<article class="wrap prose tarama-page"><p class="fine">%s</p><h1>%s</h1><p class="lead">%s</p><p>%s</p>'
+              '<p><a class="textlink" href="%starama-hazirlik/">%s</a></p></article>') % (
+        escape(M[d]["ust"]), escape(t["g_baslik"]), escape(t["g_lead"] % (eposta, saat)), escape(t["g_ne"]), kok, escape(M[d]["kilavuz"]))
+    return _kabuk(d, t["g_baslik"], icerik)
+
+
+def dogrulama_onay(dil, token):
+    """E-postadaki baglanti: GET hicbir sey degistirmez (e-posta tarayicilari baglantiyi kendiliginden acar);
+    dogrulama yalniz dugmeyle (POST) olur."""
+    d = dil if dil in D else "tr"
+    t = D[d]
+    icerik = ('<article class="wrap prose tarama-page"><p class="fine">%s</p><h1>%s</h1><p class="lead">%s</p>'
+              '<form method="post" action="/rapor/%s/dogrula"><p><button class="btn" type="submit">%s</button></p></form>'
+              '<p class="fine">%s</p></article>') % (
+        escape(M[d]["ust"]), escape(t["o_baslik"]), escape(t["o_lead"]), escape(token), escape(t["o_dugme"]), escape(t["o_not"]))
+    return _kabuk(d, t["o_baslik"], icerik)
+

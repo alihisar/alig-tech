@@ -485,11 +485,13 @@ class DepoTests(unittest.TestCase):
         self.assertEqual(depo.suresi_dolanlari_sil(c), 1)
 
 
-class SunucuTests(unittest.TestCase):
+class _SunucuTaban(unittest.TestCase):
+    H_EK = {}
+
     def setUp(self):
         self.db = str(Path(tempfile.mkdtemp()) / "s.sqlite")
         depo.baglan(self.db).close()
-        self.H = type("H", (tserver.H,), {"db_yolu": self.db, "sinir": tserver.RateLimiter(per_window=50)})
+        self.H = type("H", (tserver.H,), dict({"db_yolu": self.db, "sinir": tserver.RateLimiter(per_window=50)}, **self.H_EK))
         self.srv = ThreadingHTTPServer(("127.0.0.1", 0), self.H)
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
         self.addCleanup(self.srv.shutdown)
@@ -519,6 +521,14 @@ class SunucuTests(unittest.TestCase):
         r = c.getresponse()
         return r, r.read()
 
+    def post(self, yol):
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
+        c.request("POST", yol)
+        r = c.getresponse()
+        return r, r.read()
+
+
+class SunucuTests(_SunucuTaban):
     def test_yukle_rapor_sil_ve_denetim(self):
         r = self.yukle(json.dumps(temiz_belge()).encode())
         self.assertEqual(r.status, 303)
@@ -705,8 +715,11 @@ class SunucuTests(unittest.TestCase):
         firmalar = depo.firma_listele(con)
         self.assertEqual(len(firmalar), 1)  # ayni alan adi tek firma
         f = firmalar[0]
-        self.assertEqual((f["anahtar"], f["ad"], f["eposta"], f["durum"], f["rapor_sayisi"]), ("firma.com.tr", "Firma <b>AS</b>", "mehmet@firma.com.tr", "aktif", 2))
+        # dogrulanmamis ikinci yukleme kayitli e-postayi degistirmez; her raporda yukleyen adres ayri durur
+        self.assertEqual((f["anahtar"], f["ad"], f["eposta"], f["durum"], f["rapor_sayisi"]), ("firma.com.tr", "Firma <b>AS</b>", "ayse@firma.com.tr", "aktif", 2))
+        self.assertIsNone(f["eposta_dogrulama_utc"])
         self.assertEqual({r["firma_id"] for r in depo.rapor_listele(con)}, {f["id"]})
+        self.assertEqual(sorted(r["eposta"] for r in depo.rapor_listele(con)), ["ayse@firma.com.tr", "mehmet@firma.com.tr"])
 
     def test_sirket_adi_zorunlu(self):
         veri = json.dumps(temiz_belge()).encode()
@@ -761,6 +774,139 @@ class SunucuTests(unittest.TestCase):
         self.H.sirket_adet = 100
         kodlar = [self.yukle(b"{}").status for _ in range(3)]
         self.assertEqual(kodlar[-1], 429)
+
+
+def _baglanti(metin):
+    m = re.search(r"https://alig\.test/rapor/([A-Za-z0-9_\-]{43})/", metin)
+    return m.group(1) if m else None
+
+
+class EpostaDogrulamaTests(_SunucuTaban):
+    """ALIG_EPOSTA_DOGRULAMA=1: rapor baglantisi yalniz e-postayla gider; hak, e-postadaki baglantiyla dogrulayinca harcanir."""
+    H_EK = {"eposta_dogrulama": True, "site_adresi": "https://alig.test"}
+
+    def con(self):
+        return depo.baglan(self.db)
+
+    def postalar(self, alici=None):
+        q = "SELECT alici, konu, metin FROM posta" + (" WHERE alici=?" if alici else "") + " ORDER BY id"
+        return self.con().execute(q, (alici,) if alici else ()).fetchall()
+
+    def kullanim(self, eposta):
+        return depo.kullanim_say(self.con(), depo.sirket_anahtari(eposta))
+
+    def test_yukleme_baglanti_vermez_postaya_yazar(self):
+        r = self.yukle(farkli_belge(1), eposta="ali@ornek.com.tr")
+        self.assertEqual(r.status, 200)
+        self.assertIsNone(r.getheader("Location"))
+        self.assertIn("ali@ornek.com.tr", r.govde)
+        self.assertNotIn("/rapor/", r.govde)  # baglanti sayfada yok, yalniz e-postada
+        p = self.postalar()
+        self.assertEqual(len(p), 1)
+        self.assertEqual(p[0][0], "ali@ornek.com.tr")
+        self.assertIsNotNone(_baglanti(p[0][2]))
+        self.assertEqual(self.kullanim("ali@ornek.com.tr"), 0)  # hak henuz harcanmadi
+        self.assertEqual(self.con().execute("SELECT dogrulandi FROM rapor").fetchone()[0], 0)
+
+    def test_get_dogrulamaz_post_dogrular(self):
+        self.yukle(farkli_belge(1), eposta="ali@ornek.com.tr")
+        t = _baglanti(self.postalar()[0][2])
+        g, govde = self.get("/rapor/%s/" % t)  # e-posta tarayicilari baglantiyi kendiliginden acar: GET bir sey degistirmez
+        self.assertEqual(g.status, 200)
+        self.assertIn('action="/rapor/%s/dogrula"' % t, govde.decode())
+        self.assertNotIn("Sağlık taraması raporu", govde.decode())
+        self.assertEqual(self.kullanim("ali@ornek.com.tr"), 0)
+        r, _ = self.post("/rapor/%s/dogrula" % t)
+        self.assertEqual((r.status, r.getheader("Location")), (303, "/rapor/%s/" % t))
+        self.assertEqual(self.kullanim("ali@ornek.com.tr"), 1)
+        g, govde = self.get("/rapor/%s/" % t)
+        self.assertIn("Sağlık taraması raporu", govde.decode())
+        f = depo.firma_listele(self.con())[0]
+        self.assertIsNotNone(f["eposta_dogrulama_utc"])
+        self.assertEqual(f["eposta"], "ali@ornek.com.tr")
+        self.assertTrue(any("e-posta dogrulandi" in o[0] for o in self.con().execute("SELECT olay FROM denetim")))
+        r, _ = self.post("/rapor/%s/dogrula" % t)  # ikinci dogrulama hak harcamaz
+        self.assertEqual(r.status, 303)
+        self.assertEqual(self.kullanim("ali@ornek.com.tr"), 1)
+        self.assertIsNone(depo.denetim_dogrula(self.con()))
+
+    def test_kurban_adina_yukleme_hakki_tuketmez_posta_sinirli(self):
+        for n in range(3):
+            self.assertEqual(self.yukle(farkli_belge(n), eposta="ceo@kurban.com").status, 200)
+        r = self.yukle(farkli_belge(9), eposta="ceo@kurban.com")
+        self.assertEqual(r.status, 429)  # ayni adrese 24 saatte en cok 3 posta
+        self.assertEqual(len(self.postalar("ceo@kurban.com")), 3)
+        self.assertEqual(self.kullanim("dba@kurban.com"), 0)  # kurbanin hakki yerinde
+        self.assertEqual(self.yukle(farkli_belge(5), eposta="dba@kurban.com").status, 200)
+        t = _baglanti(self.postalar("dba@kurban.com")[0][2])
+        self.assertEqual(self.post("/rapor/%s/dogrula" % t)[0].status, 303)
+
+    def test_firma_basina_bekleyen_siniri(self):
+        for n, adres in enumerate(("a@cok.com", "b@cok.com", "c@cok.com", "d@cok.com", "e@cok.com")):
+            self.assertEqual(self.yukle(farkli_belge(n), eposta=adres).status, 200)
+        self.assertEqual(self.yukle(farkli_belge(7), eposta="f@cok.com").status, 429)
+
+    def test_dogrulanmamis_rapor_suresi_dolar(self):
+        self.yukle(farkli_belge(1))
+        t = _baglanti(self.postalar()[0][2])
+        c = self.con()
+        bitis = c.execute("SELECT bitis_utc, olusturma_utc FROM rapor").fetchone()
+        from datetime import datetime as _dt
+        sure = _dt.strptime(bitis[0], "%Y-%m-%dT%H:%M:%SZ") - _dt.strptime(bitis[1], "%Y-%m-%dT%H:%M:%SZ")
+        self.assertLessEqual(sure.total_seconds(), 24 * 3600)
+        c.execute("UPDATE rapor SET bitis_utc='2000-01-01T00:00:00Z'")
+        c.commit()
+        self.assertEqual(self.get("/rapor/%s/" % t)[0].status, 404)
+        self.assertEqual(self.post("/rapor/%s/dogrula" % t)[0].status, 404)
+
+    def test_sinir_doluysa_posta_gonderilmez(self):
+        c = self.con()
+        for _ in range(2):
+            depo.kullanim_ekle(c, depo.sirket_anahtari("x@dolu.com"))
+        self.assertEqual(self.yukle(farkli_belge(1), eposta="y@dolu.com").status, 429)
+        self.assertEqual(self.postalar(), [])
+
+    def test_sinir_dogrulama_aninda_denetlenir(self):
+        for n in range(3):
+            self.yukle(farkli_belge(n), eposta="a@uc.com")
+        t = [_baglanti(p[2]) for p in self.postalar()]
+        self.assertEqual([self.post("/rapor/%s/dogrula" % x)[0].status for x in t], [303, 303, 429])
+        self.assertEqual(self.get("/rapor/%s/" % t[2])[0].status, 200)  # hala onay sayfasi; rapor gosterilmez
+        self.assertNotIn("Sağlık taraması raporu", self.get("/rapor/%s/" % t[2])[1].decode())
+
+    def test_ayni_dosya_dogrulamada_hak_harcamaz(self):
+        self.yukle(farkli_belge(1), eposta="a@ayni.com")
+        self.yukle(farkli_belge(1), eposta="a@ayni.com")
+        t = [_baglanti(p[2]) for p in self.postalar()]
+        self.assertEqual([self.post("/rapor/%s/dogrula" % x)[0].status for x in t], [303, 303])
+        self.assertEqual(self.kullanim("a@ayni.com"), 1)
+
+    def test_bekleyen_rapor_silinebilir(self):
+        self.yukle(farkli_belge(1))
+        t = _baglanti(self.postalar()[0][2])
+        self.assertEqual(self.post("/rapor/%s/sil" % t)[0].status, 303)
+        self.assertEqual(self.get("/rapor/%s/" % t)[0].status, 404)
+
+    def test_ingilizce_posta_ve_sayfa(self):
+        r = self.yukle(farkli_belge(1), dil="en")
+        self.assertIn("Check your email", r.govde)
+        konu, metin = self.postalar()[0][1:]
+        self.assertIn("health check", konu.lower())
+        self.assertIn("24 hours", metin)
+
+
+class EpostaAyarTests(unittest.TestCase):
+    def test_acik_ama_site_adresi_yoksa_baslamaz(self):
+        H = type("H", (tserver.H,), {})
+        with self.assertRaises(ValueError):
+            tserver.eposta_ayarla({"ALIG_EPOSTA_DOGRULAMA": "1"}, H)
+        with self.assertRaises(ValueError):
+            tserver.eposta_ayarla({"ALIG_EPOSTA_DOGRULAMA": "1", "ALIG_SITE_ADRESI": "ftp://x"}, H)
+        self.assertTrue(tserver.eposta_ayarla({"ALIG_EPOSTA_DOGRULAMA": "1", "ALIG_SITE_ADRESI": "https://alig.tech/"}, H))
+        self.assertEqual((H.eposta_dogrulama, H.site_adresi), (True, "https://alig.tech"))
+        H2 = type("H2", (tserver.H,), {})
+        self.assertFalse(tserver.eposta_ayarla({}, H2))
+        self.assertFalse(H2.eposta_dogrulama)
 
 
 @unittest.skipUnless(os.environ.get("ALIG_TEST_PG_HOST"), "ALIG_TEST_PG_HOST yok: gercek PostgreSQL denemesi atlandi")

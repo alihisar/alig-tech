@@ -494,6 +494,19 @@ class YapilandirmaTests(unittest.TestCase):
             for ayar in ("NoNewPrivileges=true", "ProtectSystem=strict", "IPAddressDeny=any", "CapabilityBoundingSet=", "--host 127.0.0.1"):
                 self.assertIn(ayar, t, ad)
 
+    def test_posta_birimi_sertlestirilmis_ic_aga_kapali(self):
+        t = (self.SABLON / "servisler" / "templates" / "alig-posta.service.j2").read_text()
+        for ayar in ("NoNewPrivileges=true", "ProtectSystem=strict", "CapabilityBoundingSet=", "UMask=0077",
+                     "InaccessiblePaths={{ yedek_dizini }}", "IPAddressDeny=localhost link-local multicast 10.0.0.0/8"):
+            self.assertIn(ayar, t)
+        self.assertNotIn("Environment=ALIG_SMTP_PAROLA", t)  # parola sablonda degil, /etc/alig/env icinde
+        tarama = (self.SABLON / "servisler" / "templates" / "alig-tarama.service.j2").read_text()
+        self.assertIn("{% if eposta_dogrulama %}", tarama)
+        self.assertIn("IPAddressDeny=any", tarama)  # web sureci posta icin aga acilmaz
+
+    def test_eposta_dogrulamasi_varsayilan_kapali(self):
+        self.assertIs(hazirlik.yukle_degiskenler()["eposta_dogrulama"], False)
+
     def test_gorev_adlarinda_iki_nokta_ust_uste_yok(self):
         import re
         for yol in (ROOT / "deploy" / "ansible").rglob("*.yml"):
