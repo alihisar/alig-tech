@@ -324,6 +324,22 @@ class PanelTests(Taban):
         self.assertIn("Sağlık puanı", g)
         self.assertIn("%d/100" % p.genel, g)
 
+    def test_rapor_onceki_taramayla_karsilastirilir(self):
+        import test_gecmis
+        t = tdepo.baglan(self.tdb)
+        once = test_gecmis.belge(zaman="2026-11-01T00:00:00Z")
+        once["kontroller"]["pg_tls_parola"]["satirlar"][0]["ssl"] = "off"
+        tdepo.rapor_ekle(t, "k1", "postgresql", "tr", once, self.firma["id"])
+        tdepo.rapor_ekle(t, "k2", "postgresql", "tr", test_gecmis.belge(zaman="2026-11-05T00:00:00Z"), self.firma["id"])
+        rid = t.execute("SELECT max(id) FROM rapor").fetchone()[0]
+        t.close()
+        g = self.istek("GET", "/yonetim/taramalar/%d" % rid)[1]
+        self.assertIn("Önceki taramayla karşılaştırma", g)
+        self.assertIn("Çözüldü", g)
+        t = tdepo.baglan(self.tdb)
+        self.assertTrue(any("rapor goruntulendi #%d (karsilastirma #%d)" % (rid, rid - 1) == o for (o,) in t.execute("SELECT olay FROM denetim")))
+        self.assertNotIn("Önceki taramayla karşılaştırma", self.istek("GET", "/yonetim/taramalar/1")[1])   # kimliksiz eski rapor
+
     def test_sistem_sayfasi_puan_katsayilarini_gosterir(self):
         from tarama import puan
         g = self.istek("GET", "/yonetim/sistem")[1]

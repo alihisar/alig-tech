@@ -92,7 +92,7 @@ Veri koşulu: *tek satır* kaynakta tam bir satır beklenir; *en az bir satır* 
 | PG-SEC-006 | public şemasında CREATE yetkisi | Güvenlik | Orta | HIGH | `pg_public_create` (her veritabanında, en az bir satır) | `has_schema_privilege` | Hiçbir veritabanında PUBLIC rolü public şemasında nesne oluşturamıyor. |
 | PG-SEC-007 | Bağlantı günlüğü | Güvenlik | Düşük | HIGH | `pg_log_ayarlari` (en az bir satır) | `pg_settings` | log_connections ve log_disconnections açık. |
 
-Kural kaynağı olmayan bilgi denetimleri: `pg_sunucu_rolu`, `pg_hesap`, `pg_kapsam`, `pg_eklentiler`.
+Kural kaynağı olmayan bilgi denetimleri: `pg_sunucu_rolu`, `pg_kume_kimligi`, `pg_hesap`, `pg_kapsam`, `pg_eklentiler`.
 
 Yalnız birincil sunucuda değerlendirilen kurallar: PG-BACKUP-001, PG-MAINT-003, PG-MAINT-005. Yedek sunucuda tablo istatistikleri (ölü satır, indeks kullanımı) tutulmaz ve arşivlemeyi birincil yapar; bu kurallar yedekte Uygulanmaz olur. Sunucunun rolü `pg_sunucu_rolu` denetiminden okunur; okunamazsa bu kurallar Geçti olamaz.
 

@@ -201,7 +201,7 @@ KURALLAR = []
 kural = kanit.kayitci(KURALLAR, "postgresql")
 K = kanit.Kaynak
 # Kural kaynagi olmayan, raporda bilgi olarak kullanilan denetimler
-BILGI = ("pg_sunucu_rolu", "pg_hesap", "pg_kapsam", "pg_eklentiler")   # pg_hesap ve pg_sunucu_rolu sonucun tamligi icin (tarama/kanit.py)
+BILGI = ("pg_sunucu_rolu", "pg_kume_kimligi", "pg_hesap", "pg_kapsam", "pg_eklentiler")   # pg_hesap ve pg_sunucu_rolu sonucun tamligi icin (tarama/kanit.py)
 
 TLS_SURUMLERI = ("TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3")
 _ACIK, _KAPALI = {"on", "true", "yes", "1"}, {"off", "false", "no", "0"}

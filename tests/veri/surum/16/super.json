@@ -1,6 +1,6 @@
 {
  "format": "alig-toplayici/1",
- "katalog_sha256": "10a585c377602ea1c8be3aa00051bc51dcbea2454b583b1f25573ae68207582e",
+ "katalog_sha256": "bd29039b6f2f446f47665bf2849a8a421ea4ad8a46b2c29088f1ccb8fe8d7aa3",
  "kontroller": {
   "pg_arsiv": {
    "durum": "ok",
@@ -90,7 +90,7 @@
    "durum": "ok",
    "satirlar": [
     {
-     "bayt": 24002560,
+     "bayt": 23994368,
      "datname": "postgres",
      "dosya": 5,
      "sifirlama_utc": null
@@ -165,6 +165,14 @@
     }
    ]
   },
+  "pg_kume_kimligi": {
+   "durum": "ok",
+   "satirlar": [
+    {
+     "kume": "abb332a2a3a40d968bffaab14a05d892124b302414e41711386a95841cf886fc"
+    }
+   ]
+  },
   "pg_log_ayarlari": {
    "durum": "ok",
    "satirlar": [
@@ -234,7 +242,7 @@
     {
      "durum": "streaming",
      "gecikme_bayt": 6545408,
-     "gecikme_sn": 2.558617,
+     "gecikme_sn": 2.619875,
      "senkron": "async",
      "uygulama": "walreceiver"
     }
@@ -383,6 +391,6 @@
  },
  "maskeli": false,
  "motor": "postgresql",
- "olusturma_utc": "2026-11-13T17:03:03Z",
+ "olusturma_utc": "2026-11-13T17:40:41Z",
  "superuser": true
 }

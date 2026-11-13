@@ -527,6 +527,27 @@ def rapor_listele(con, limit=200, firma_id=None):
     return [_rapor(r) for r in con.execute("SELECT %s FROM rapor %s ORDER BY id DESC LIMIT ?" % (_RAPOR_KOLON, kosul), arg)]
 
 
+def onceki_rapor(con, rapor):
+    """Karsilastirma icin onceki rapor: ayni firmanin, ayni veritabani kimligine ait (tarama/gecmis.py), bu taramadan once
+    yapilmis en yeni dogrulanmis ve suresi dolmamis rapor; yoksa None. Ayni tarama zamani (ayni dosya) sayilmaz."""
+    from tarama import gecmis
+    k = gecmis.kimlik(rapor.get("belge")) if rapor.get("firma_id") is not None else None
+    t = rapor["belge"].get("olusturma_utc") if k else None
+    if not isinstance(t, str):
+        return None
+    en = None
+    for satir in con.execute("SELECT %s FROM rapor WHERE firma_id=? AND id<>? AND dogrulandi=1 AND bitis_utc>?" % _RAPOR_KOLON,
+                             (rapor["firma_id"], rapor.get("id", -1), simdi())):
+        try:
+            r = _rapor(satir)
+        except ValueError:   # bozuk kayit karsilastirmaya girmez, bu raporun acilmasini engellemez
+            continue
+        rt = r["belge"].get("olusturma_utc") if isinstance(r["belge"], dict) else None
+        if isinstance(rt, str) and rt < t and gecmis.kimlik(r["belge"]) == k and (en is None or rt > en["belge"]["olusturma_utc"]):
+            en = r
+    return en
+
+
 def rapor_getir_id(con, rid):
     return _rapor(con.execute("SELECT %s FROM rapor WHERE id=?" % _RAPOR_KOLON, (rid,)).fetchone())
 

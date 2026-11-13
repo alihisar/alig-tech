@@ -628,12 +628,17 @@ class H(BaseHTTPRequestHandler):
             r = tdepo.rapor_getir_id(tc, rid)
             if not r:
                 return self._sayfa("Bulunamadı", "<p>Rapor yok.</p>", o, 404)
-            tdepo.denetim_ekle(tc, "yonetici:" + o["ad"], "rapor goruntulendi #%d" % rid)  # musteri verisine erisim ayni zincirde
+            try:
+                onceki = tdepo.onceki_rapor(tc, r)
+            except Exception as ex:  # noqa: BLE001 - bozuk eski rapor bu raporun acilmasini engellemesin
+                print("UYARI: onceki rapor okunamadi #%d: %s" % (rid, type(ex).__name__), flush=True)
+                onceki = None
+            tdepo.denetim_ekle(tc, "yonetici:" + o["ad"], "rapor goruntulendi #%d%s" % (rid, " (karsilastirma #%d)" % onceki["id"] if onceki else ""))  # musteri verisine erisim ayni zincirde
         finally:
             tc.close()
         depo.denetim_ekle(con, o["ad"], "tarama raporu goruntulendi #%d" % rid)
         try:
-            govde, _, _ = trapor.govde(r, "tr", "", eylemler=False)
+            govde, _, _ = trapor.govde(r, "tr", "", eylemler=False, onceki=onceki)
         except Exception as ex:  # noqa: BLE001 - bozuk rapor silinebilsin diye sayfa yine acilir
             print("UYARI: rapor cizilemedi #%d: %s" % (rid, type(ex).__name__), flush=True)
             govde = "<article class=\"wrap prose report\"><h1>Rapor</h1><p class=\"err\">Bu rapor çizilemedi. Aşağıdaki düğmeyle silebilirsiniz.</p></article>"

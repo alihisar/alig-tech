@@ -12,6 +12,8 @@ Kaynak: `tarama/saklama.py` (tek yer). Süreler ortamdan ayarlanır: `ALIG_SAKLA
 | `talep` | 365 gün | form.sqlite, yonetim.sqlite | Oluşturulmasından sonra; durum notları da silinir, işlem yönetim zincirine yazılır |
 | `denetim` | süresiz | tüm zincirler | Silinmez: silme zinciri bozar. Zincir başı dışa aktarılarak korunur (`docs/runbook.md`) |
 
+Geçmiş karşılaştırması (`tarama/gecmis.py`) yeni veri saklamaz: yalnız saklama süresi dolmamış raporları okur. Rapor silinince ya da süresi dolunca o tarama karşılaştırmaya da girmez. Daha uzun geçmiş için özet saklama ayrı bir veri sınıfı ve hukuk onayı ister `[doldurulacak: karşılaştırma özeti saklama kararı]`.
+
 Sabit kalanlar: sınır penceresi 30 gün (iş kuralı, `depo.SINIR_GUN`); yönetim oturumu kullanım süresine göre dolar, parola değişince silinir.
 
 Silme günlük bakım işinde (`deploy/bakim.py`) çalışır; yedekten önce yapılır.

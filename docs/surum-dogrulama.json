@@ -80,6 +80,15 @@
        "durum": "ok",
        "satir": 2
       },
+      "pg_kume_kimligi": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "kume": "abb332a2a3a40d968bffaab14a05d892124b302414e41711386a95841cf886fc"
+       },
+       "durum": "ok",
+       "satir": 1
+      },
       "pg_log_ayarlari": {
        "atlanan": 0,
        "bos": 0,
@@ -262,6 +271,15 @@
        "bos": 0,
        "durum": "ok",
        "satir": 2
+      },
+      "pg_kume_kimligi": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "kume": "abb332a2a3a40d968bffaab14a05d892124b302414e41711386a95841cf886fc"
+       },
+       "durum": "ok",
+       "satir": 1
       },
       "pg_log_ayarlari": {
        "atlanan": 0,
@@ -451,6 +469,15 @@
        "durum": "ok",
        "satir": 2
       },
+      "pg_kume_kimligi": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "kume": "abb332a2a3a40d968bffaab14a05d892124b302414e41711386a95841cf886fc"
+       },
+       "durum": "ok",
+       "satir": 1
+      },
       "pg_log_ayarlari": {
        "atlanan": 0,
        "bos": 0,
@@ -634,6 +661,15 @@
        "durum": "ok",
        "satir": 2
       },
+      "pg_kume_kimligi": {
+       "atlanan": 0,
+       "bos": 0,
+       "deger": {
+        "kume": "abb332a2a3a40d968bffaab14a05d892124b302414e41711386a95841cf886fc"
+       },
+       "durum": "ok",
+       "satir": 1
+      },
       "pg_log_ayarlari": {
        "atlanan": 0,
        "bos": 0,
@@ -727,7 +763,7 @@
      }
     }
    },
-   "katalog_sha256": "10a585c377602ea1c8be3aa00051bc51dcbea2454b583b1f25573ae68207582e",
+   "katalog_sha256": "bd29039b6f2f446f47665bf2849a8a421ea4ad8a46b2c29088f1ccb8fe8d7aa3",
    "tam_surum": "PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit",
    "tarih": "2026-11-13"
   }

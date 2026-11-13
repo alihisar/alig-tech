@@ -14,6 +14,7 @@ Bütün sorguların gerçek sunucuda sınandığı sürümler: **16**. Sınanmay
 |---|---|---|---|---|
 | `pg_surum` | her sürüm | herkes | - | 16 |
 | `pg_sunucu_rolu` | her sürüm | herkes | - | 16 |
+| `pg_kume_kimligi` | 12 ve üstü | herkes | - | 16 |
 | `pg_hesap` | her sürüm | herkes | - | 16 |
 | `pg_kapsam` | 12 ve üstü | herkes | - | 16 |
 | `pg_xid_yasi` | 12 ve üstü | herkes | - | 16 |
@@ -40,7 +41,7 @@ Bütün sorguların gerçek sunucuda sınandığı sürümler: **16**. Sınanmay
 
 ## PostgreSQL 16 doğrulaması
 
-PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1), 2026-11-13. Katalog özeti `10a585c377602ea1`.
+PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1), 2026-11-13. Katalog özeti `bd29039b6f2f446f`.
 
 Geçici bir kümede senaryo nesneleri kuruldu (geçersiz indeks, birincilde ve yedekte etkin olmayan replikasyon slotu, ölü satır ve autovacuum'u kapatılmış tablo, sınıra yakın ve tarama hesabının okuyamadığı sequence, 10 MB üstü kullanılmamış indeks, boşta açık işlem, MD5 parolalı rol, bağlanma yetkisi olmayan veritabanı, PUBLIC'e CREATE verilmiş public şeması, geçici dosyaya yazan sıralama, pakette varsa pg_stat_statements). pg_basebackup ile akışlı bir yedek sunucu başlatıldı, yeniden oynatması duraklatılarak geride bırakıldı. Toplayıcı birincilde üç hesapla, yedekte pg_monitor hesabıyla çalıştırıldı.
 
@@ -48,6 +49,7 @@ Geçici bir kümede senaryo nesneleri kuruldu (geçersiz indeks, birincilde ve y
 |---|---|---|---|---|
 | `pg_surum` | 1 satır; surum_num: `160015` | 1 satır; surum_num: `160015` | 1 satır; surum_num: `160015` | 1 satır; surum_num: `160015` |
 | `pg_sunucu_rolu` | 1 satır; yedek: `hayır` | 1 satır; yedek: `hayır` | 1 satır; yedek: `hayır` | 1 satır; yedek: `evet` |
+| `pg_kume_kimligi` | 1 satır; kume: `abb332a2a3a40d968bffaab14a05d892124b302414e41711386a95841cf886fc` | 1 satır; kume: `abb332a2a3a40d968bffaab14a05d892124b302414e41711386a95841cf886fc` | 1 satır; kume: `abb332a2a3a40d968bffaab14a05d892124b302414e41711386a95841cf886fc` | 1 satır; kume: `abb332a2a3a40d968bffaab14a05d892124b302414e41711386a95841cf886fc` |
 | `pg_hesap` | 1 satır; pg_read_all_settings: `evet`, pg_read_all_stats: `evet`, super_kullanici: `hayır` | 1 satır; pg_read_all_settings: `hayır`, pg_read_all_stats: `hayır`, super_kullanici: `hayır` | 1 satır; pg_read_all_settings: `evet`, pg_read_all_stats: `evet`, super_kullanici: `evet` | 1 satır; pg_read_all_settings: `evet`, pg_read_all_stats: `evet`, super_kullanici: `hayır` |
 | `pg_kapsam` | 2 satır, 1 veritabanı atlandı | 2 satır, 1 veritabanı atlandı | 3 satır | 2 satır, 1 veritabanı atlandı |
 | `pg_xid_yasi` | 4 satır | 4 satır | 4 satır | 4 satır |

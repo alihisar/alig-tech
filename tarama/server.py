@@ -104,8 +104,10 @@ class H(BaseHTTPRequestHandler):
         try:
             r = depo.rapor_getir(con, m.group(1))
             if r:
-                depo.denetim_ekle(con, "musteri", "rapor goruntulendi #%d" % r["id"], {"rapor": r["id"], "sonuc": "basarili"})
-                return self._send(200, rapor.sayfa(r, r["dil"], m.group(1)).encode("utf-8"), "text/html; charset=utf-8")
+                onceki = depo.onceki_rapor(con, r)   # ayni firma ve veritabani kimligi: karsilastirma (tarama/gecmis.py)
+                depo.denetim_ekle(con, "musteri", "rapor goruntulendi #%d%s" % (r["id"], " (karsilastirma #%d)" % onceki["id"] if onceki else ""),
+                                  {"rapor": r["id"], "sonuc": "basarili"})
+                return self._send(200, rapor.sayfa(r, r["dil"], m.group(1), onceki=onceki).encode("utf-8"), "text/html; charset=utf-8")
             b = depo.rapor_bekleyen_getir(con, m.group(1))
             if b:  # e-postadaki baglanti: GET hicbir sey degistirmez, dogrulama dugmeyle (POST) yapilir
                 return self._send(200, hata.dogrulama_onay(b["dil"], m.group(1)).encode("utf-8"), "text/html; charset=utf-8")

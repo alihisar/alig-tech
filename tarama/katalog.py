@@ -31,6 +31,9 @@ PG = [
      "sql": "SELECT current_setting('server_version_num')::int AS surum_num"},
     {"id": "pg_sunucu_rolu", "en_az": 0, "yetki": "herkes", "kaynak": ["pg_is_in_recovery"], "kolonlar": ["yedek"], "maske": [],
      "sql": "SELECT pg_is_in_recovery() AS yedek"},
+    # Veritabani kimligi (gecmis karsilastirmasi, tarama/gecmis.py): kume tanimlayicisinin ozeti; ham deger sunucudan cikmaz.
+    {"id": "pg_kume_kimligi", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_control_system"], "kolonlar": ["kume"], "maske": [],
+     "sql": "SELECT encode(sha256(system_identifier::text::bytea), 'hex') AS kume FROM pg_control_system()"},
     {"id": "pg_hesap", "en_az": 0, "yetki": "herkes", "kaynak": ["pg_roles", "pg_has_role"],
      "kolonlar": ["super_kullanici", "pg_read_all_stats", "pg_read_all_settings"], "maske": [],
      "sql": "SELECT rolsuper AS super_kullanici, pg_has_role(current_user, 'pg_read_all_stats', 'USAGE') AS pg_read_all_stats, "

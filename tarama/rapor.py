@@ -1,7 +1,7 @@
 """Rapor HTML'i. Tum degerler html.escape ile yazilir; nesne adlari yalniz kanit listesinde gorunur."""
 from html import escape
 
-from tarama import kanit, katalog, kurallar, puan
+from tarama import gecmis, kanit, katalog, kurallar, puan
 
 M = {
     "tr": {"baslik": "Sağlık taraması raporu", "ozet": "Özet", "tarama": "Tarama zamanı (UTC)", "motor": "Motor",
@@ -54,7 +54,14 @@ M = {
            "kategori_b": ("Kategori", "Puan", "Kanıt kapsamı", "Kanıtı olan denetim"), "kat_yok": "uygulanmaz",
            "kayip_h": "Puanı düşüren denetimler", "kayip_b": ("Kural", "Denetim", "Durum", "Puan kaybı"),
            "kayip_ozet": "Bulgulardan %s puan, kanıt eksikliğinden %s puan kayıp.",
-           "tam": "Puanı düşüren denetim yok."},
+           "tam": "Puanı düşüren denetim yok.", "puan_yok_k": "hesaplanamadı",
+           "karsi": "Önceki taramayla karşılaştırma",
+           "karsi_a": "Önceki tarama: %s. Aynı sunucu: küme kimliği ve rolü aynı. İki tarama da bugünkü kurallar ve katsayılarla değerlendirildi.",
+           "karsi_katalog": "Önceki tarama toplayıcının eski sürümüyle yapıldı; o sürümde olmayan denetimler önceki taramada kanıtsız sayılır.",
+           "karsi_b": ("Kural", "Denetim", "Değişim", "Önce", "Şimdi"),
+           "karsi_d": {"NEW": "Yeni", "REGRESSED": "Kötüleşti", "PERSISTING": "Sürüyor", "RESOLVED": "Çözüldü", "UNKNOWN": "Bilinmiyor"},
+           "karsi_n": {"kanit_kayboldu": "bu taramada kanıt yetersiz: çözüldü sayılmaz", "onceki_kanit_yok": "önceki taramada kanıt yoktu: yeni mi bilinmiyor"},
+           "karsi_yok": "İki taramada da sorun çıkan denetim yok."},
     "en": {"baslik": "Health check report", "ozet": "Summary", "tarama": "Scan time (UTC)", "motor": "Engine",
            "surum": "Masked", "evet": "yes", "hayir": "no", "bulgu": "Findings", "yok": "No findings in this scan.",
            "kanit": "Evidence", "neden": "Why it matters", "oneri": "Proposal", "risk": "Risk of the proposal", "geri": "Rollback",
@@ -106,7 +113,14 @@ M = {
            "kategori_b": ("Category", "Score", "Evidence coverage", "Checks with evidence"), "kat_yok": "not applicable",
            "kayip_h": "Checks that lower the score", "kayip_b": ("Rule", "Check", "Status", "Points lost"),
            "kayip_ozet": "%s points lost to findings, %s points to missing evidence.",
-           "tam": "No check lowers the score."},
+           "tam": "No check lowers the score.", "puan_yok_k": "not calculated",
+           "karsi": "Comparison with the previous scan",
+           "karsi_a": "Previous scan: %s. Same server: same cluster identity and role. Both scans were evaluated with today's rules and coefficients.",
+           "karsi_katalog": "The previous scan was made with an older version of the collector; checks it did not have count as having no evidence in that scan.",
+           "karsi_b": ("Rule", "Check", "Change", "Before", "Now"),
+           "karsi_d": {"NEW": "New", "REGRESSED": "Regressed", "PERSISTING": "Persisting", "RESOLVED": "Resolved", "UNKNOWN": "Unknown"},
+           "karsi_n": {"kanit_kayboldu": "not enough evidence in this scan: not counted as resolved", "onceki_kanit_yok": "no evidence in the previous scan: unknown whether it is new"},
+           "karsi_yok": "No check had a problem in either scan."},
 }
 
 
@@ -243,7 +257,48 @@ def _puan(pn, sonuc, m, d):
     return "\n".join(p)
 
 
-def govde(rapor, dil, token, eylemler=True):
+def _fark(a, b):
+    f = b - a
+    return "+%d" % f if f > 0 else ("\u2212%d" % -f if f < 0 else "0")
+
+
+def _durum_metni(k, m):
+    """Karsilastirma tablosundaki onceki ya da simdiki durum: Uyari (orta), Alinamadi (yetki yok)..."""
+    if k["durum"] is None:
+        return "-"
+    ek = m["onem"][k["onem"]].lower() if k["onem"] else (m["nedenler"].get(k["neden"], k["neden"]) if k["neden"] else "")
+    return m["durum"][k["durum"]] + (" (%s)" % ek if ek else "")
+
+
+def _karsilastirma(c, m, d):
+    """Onceki taramayla karsilastirma (tarama/gecmis.py): puan ve kapsam degisimi, kural kural degisim tablosu."""
+    def puan_m(p):
+        return m["puan_yok_k"] if p.genel is None else "%d/100" % p.genel
+    op, yp = c.onceki_puan, c.yeni_puan
+    puan_d = "%s → %s" % (puan_m(op), puan_m(yp)) + (" (%s)" % _fark(op.genel, yp.genel) if op.genel is not None and yp.genel is not None else "")
+    kapsam_d = "%s → %s (%s)" % (m["yuzde"] % op.kapsam, m["yuzde"] % yp.kapsam, _fark(op.kapsam, yp.kapsam))
+    p = ["<h2>%s</h2><p>%s</p>" % (escape(m["karsi"]), escape(m["karsi_a"] % c.onceki_tarih))]
+    if c.katalog_farkli:
+        p.append("<p>%s</p>" % escape(m["karsi_katalog"]))
+    p.append("<dl class=\"facts\"><dt>%s</dt><dd>%s</dd><dt>%s</dt><dd>%s</dd></dl>" % (
+        escape(m["puan"]), escape(puan_d), escape(m["kapsam_e"]), escape(kapsam_d)))
+    if not c.kurallar:
+        p.append("<p>%s</p>" % escape(m["karsi_yok"]))
+        return "\n".join(p)
+    p.append("<p>%s</p>" % escape(", ".join("%s: %d" % (m["karsi_d"][x], n) for x, n in c.say().items() if n)))
+    satir = []
+    for x in c.kurallar:
+        degisim = m["karsi_d"][x["durum"]] + (": " + m["karsi_n"][x["neden"]] if x["neden"] else "")
+        hucre = (x["ad"][d], degisim, _durum_metni(x["onceki"], m), _durum_metni(x["yeni"], m))
+        satir.append("<tr><th scope=\"row\"><code>%s</code></th>%s</tr>" % (escape(x["kural"]), "".join(
+            "<td data-label=\"%s\">%s</td>" % (escape(b), escape(h)) for b, h in zip(m["karsi_b"][1:], hucre))))
+    p.append("<table class=\"tiers durumlar karsilastirma\"><thead><tr>%s</tr></thead><tbody>%s</tbody></table>" % (
+        "".join("<th scope=\"col\">%s</th>" % escape(b) for b in m["karsi_b"]), "".join(satir)))
+    return "\n".join(p)
+
+
+def govde(rapor, dil, token, eylemler=True, onceki=None):
+    """onceki: karsilastirilacak onceki rapor (depo.onceki_rapor) ya da None."""
     m = M[dil if dil in M else "tr"]
     d = dil if dil in M else "tr"
     belge = rapor["belge"]
@@ -263,7 +318,8 @@ def govde(rapor, dil, token, eylemler=True):
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["kapsam_e"]), escape(m["kapsam_d"] % (m["yuzde"] % pn.kapsam, pn.olculen, pn.uygulanabilir))),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["bulgu"]), escape(", ".join("%s: %d" % (m["onem"][o], n) for o, n in sayim.items() if n) or m["yok"])),
          "<dt>%s</dt><dd>%s</dd>" % (escape(m["denetimler"]), escape(", ".join("%s: %d" % (m["durum"][x], n) for x, n in durum_sayim.items() if n))),
-         _surum(sonuc, motor, m), _rol(sonuc, motor, m), _kapsam(belge, m), "</dl>", _puan(pn, sonuc, m, d), "<h2>%s</h2>" % escape(m["bulgu"]),
+         _surum(sonuc, motor, m), _rol(sonuc, motor, m), _kapsam(belge, m), "</dl>", _puan(pn, sonuc, m, d),
+         _karsilastirma(gecmis.karsilastir(onceki["belge"], belge), m, d) if onceki else "", "<h2>%s</h2>" % escape(m["bulgu"]),
          "" if bulgu else "<p>%s</p>" % escape(m["yok"])]
     for b in bulgu:
         p.append("<section class=\"finding-card sev-%s\"><h3>%s: %s</h3>" % (escape(b["onem"]), escape(m["onem"][b["onem"]]), escape(b["baslik"][d])))
@@ -290,9 +346,9 @@ def govde(rapor, dil, token, eylemler=True):
     return "\n".join(p), bulgu, olcul
 
 
-def sayfa(rapor, dil, token):
+def sayfa(rapor, dil, token, onceki=None):
     d = dil if dil in M else "tr"
-    icerik, _, _ = govde(rapor, d, token)
+    icerik, _, _ = govde(rapor, d, token, onceki=onceki)
     return ("<!doctype html>\n<html lang=\"%s\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
             "<meta name=\"robots\" content=\"noindex,nofollow\"><title>%s | alig.tech</title>"
             "<link rel=\"stylesheet\" href=\"/assets/base.css\"><link rel=\"stylesheet\" href=\"/assets/style.css\"></head><body>"

@@ -2,6 +2,10 @@
 
 ## Yayınlanmadı
 
+- Sağlık taraması: geçmiş karşılaştırması (`tarama/gecmis.py`). Toplayıcı küme tanımlayıcısının yalnız SHA-256 özetini
+  gönderir; aynı firmanın aynı sunucudan (aynı rol) yaptığı önceki tarama, saklama süresi dolmadıysa raporda
+  karşılaştırılır: önceki ve yeni puan, kapsam değişimi, her denetim için yeni, kötüleşen, süren, çözülen, bilinmeyen.
+  Önceki sorun bu taramada ölçülemiyorsa çözüldü sayılmaz. Panelde de görünür; görüntüleme denetim kaydına yazılır.
 - Sağlık taraması: altı yeni PostgreSQL kuralı: autovacuum ve track_counts, tablo düzeyinde kapatılmış autovacuum,
   multixact yaşı, replikasyon gecikmesi (süre ve bayt), pg_stat_statements, geçici dosyalar. Toplayıcı sunucunun
   birincil mi yedek mi olduğunu kaydeder; yedekte tablo istatistiğine ve arşivlemeye dayanan kurallar Uygulanmaz

@@ -335,6 +335,8 @@
   "hz_a3": "Evet, sorgular yedek sunucuda da çalışır (PostgreSQL 16'da sınandı). Ölü satır, kullanılmayan indeks ve arşivleme denetimleri yalnız birincil sunucuda anlamlıdır; yedekte raporda \"Uygulanmaz\" görünür. Tam sonuç için birincil sunucuyu tarayın.",
   "hz_q4": "Yükleme reddedildi.",
   "hz_a4": "Dosya 5 MB sınırını aşmış, elle değiştirilmiş ya da betiğin eski bir sürümüyle üretilmiş olabilir. Betiği yeniden indirip tekrar çalıştırın. 30 günde 2 tarama sınırı dolduysa bizimle iletişime geçin.",
+  "hz_q6": "Rapor önceki taramamla karşılaştırılıyor mu?",
+  "hz_a6": "Evet. Aynı şirketin aynı sunucudan yaptığı önceki tarama saklama süresi dolmadıysa, rapor puanı, kanıt kapsamını ve her denetimin değişimini (yeni, kötüleşen, süren, çözülen) gösterir. Sunucu, küme tanımlayıcısının özetiyle tanınır; tanımlayıcının kendisi sunucudan çıkmaz. Önceki taramada sorun olup bu taramada ölçülemeyen denetim çözüldü sayılmaz. Birincil ve yedek sunucular ayrı karşılaştırılır.",
   "hz_q5": "Sunucuda birden çok veritabanı var.",
   "hz_a5": "Hepsi taranır. Rapor, denetimlerin kaç veritabanında çalıştığını ve atlanan veritabanlarını nedenleriyle yazar. Tarama hesabının bağlanma yetkisi olmayan veritabanı atlanır.",
   "tarama_guide": "Başlamadan önce: hazırlık kılavuzu",
