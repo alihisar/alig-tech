@@ -17,6 +17,8 @@ Bu repoda hiçbir şey gerçek bir sunucuda çalıştırılmadı. Gerçek dağı
 | Sunucu denetim betiği mantığı (izin, anahtar, disk eşikleri) | DONE | `tests/test_deploy.py` `HazirlikTests` (geçici dizinde; gerçek sunucu kanıtı değil) |
 | Yedek betiği disk doluluk koruması | DONE | `tests/test_deploy.py` `BakimDiskTests` |
 | Yedekten geri yükleme mantığı | DONE | `tests/test_deploy.py` `GeriYuklemeTests` (geçici dizinde) |
+| Toplayıcının tüm veritabanlarını dolaşması | DONE | Yerel PostgreSQL 16 kümesinde: boşluklu adlı veritabanı tarandı, CONNECT yetkisi olmayan "yetki" ile atlandı (`GercekPgTests` ve elle çalıştırma; sunucu değil, müşteri tarafı betik) |
+| E-posta gönderimi (SMTP) | NOT_TESTED | Yalnız sahte SMTP nesnesiyle; gerçek sağlayıcı seçilmedi |
 
 ## 2. Kuru çalıştırma (hedef sunucu gerekir)
 
@@ -43,4 +45,5 @@ Bu repoda hiçbir şey gerçek bir sunucuda çalıştırılmadı. Gerçek dağı
 | Gerçek sunucuda günlük bakım ve yedek çalıştı | NOT_TESTED | `systemctl start alig-bakim` sonrası günlük |
 | Yedekten geri yükleme gerçek sunucuda denendi | NOT_TESTED | `docs/runbook.md` |
 | Kip B (yalnız açılacaksa) | NOT_TESTED | `docs/kip-b-tasarim.md` "canlıya almadan önce" |
+| E-posta doğrulaması (yalnız açılacaksa): `alig-posta` çalışıyor, ileti ulaşıyor, bağlantı doğruluyor | NOT_TESTED | `docs/runbook.md` "E-posta doğrulaması" |
 | Hukuki metinler, gerçek iletişim bilgileri | NOT_TESTED | Ali'den bekliyor |

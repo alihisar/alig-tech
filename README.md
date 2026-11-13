@@ -13,7 +13,8 @@ Bu dosyanın `<!-- oto:... -->` ile işaretli bölümleri `ci/uret_readme.py` ta
 - Yönetim panelinde firma yönetimi var: ad ve e-posta düz metin saklanır, aktif/pasif, not, tarama hakkı sıfırlama, silme.
 - Yayın dosyaları (Ansible, nginx, systemd) yazıldı. `yayin.yml`, `geri-al.yml` söz dizimi ve 6 systemd birimi doğrulandı; `site.yml` söz dizimi Ansible koleksiyonu ister, bu ortamda denenemedi. Gerçek sunucuda çalıştırılmadı. Katman katman durum: `docs/canli-kontrol-listesi.md`.
 - SQL Server taraması ön sürüm olarak kodlandı, gerçek sunucuda sınanmadı ve varsayılan olarak kapalı.
-- Açık işler: firma e-posta doğrulaması (gönderim yöntemi seçilmedi), toplayıcının tüm veritabanlarını dolaşması, SQL Server taramasının gerçek sunucuda sınanması, Kip B'nin açılması (kodlandı, kapalı), isteğe bağlı dil modeli özeti. Sıra ve durum: `docs/yol-haritasi.md`. Kaynak belge: `docs/master-prompt-v2.md`. Mevcut durum dökümü: `docs/faz0-analiz.md`. Son kod incelemesi: `docs/kod-inceleme.md`.
+- E-posta doğrulaması kodlandı ve varsayılan olarak kapalı: açmak için SMTP sağlayıcısı ve gönderen adres gerekir (`docs/runbook.md`). Toplayıcı bağlanabildiği tüm veritabanlarını tarar.
+- Açık işler: e-posta gönderim yönteminin seçilmesi, SQL Server taramasının gerçek sunucuda sınanması, Kip B'nin açılması (kodlandı, kapalı), isteğe bağlı dil modeli özeti. Sıra ve durum: `docs/yol-haritasi.md`. Kaynak belge: `docs/master-prompt-v2.md`. Mevcut durum dökümü: `docs/faz0-analiz.md`. Son kod incelemesi: `docs/kod-inceleme.md`.
 
 ## Yerelde çalıştırma
 

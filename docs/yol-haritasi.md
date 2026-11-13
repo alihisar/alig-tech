@@ -24,7 +24,7 @@ Sıra `docs/master-prompt-v2.md` belgesindeki önceliklere göredir (P0 önce). 
 | 12 | P1 | Katalog genişletme: replikasyon gecikmesi, wraparound ve freeze yaşı, autovacuum, `pg_stat_statements` erişilebilirliği, geçici dosyalar | Kural, test, gerçek PostgreSQL 16 denemesi | bekliyor |
 | 13 | P1 | Geçmiş karşılaştırması: NEW, PERSISTING, RESOLVED, REGRESSED, UNKNOWN; kaybolan kanıt çözülmüş sayılmaz | Veritabanı kimliği, karşılaştırma, test | bekliyor |
 | 14 | P1 | Rapor: yönetici özeti ve teknik rapor görünümleri, yazdırma düzeni | TR ve EN, kanıt ile yorum ayrı | bekliyor |
-| 15 | P1 | E-posta doğrulamasının gönderimden bağımsız kısmı: tek kullanımlık süreli kod, takılabilir gönderici | Gönderici yokken canlıda açılmaz | bekliyor |
+| 15 | P1 | E-posta doğrulamasının gönderimden bağımsız kısmı: tek kullanımlık süreli kod, takılabilir gönderici | Gönderici yokken canlıda açılmaz | **kod tamam, kapalı** (rapor bağlantısı yalnız e-postayla, giden kutusu + `alig-posta` servisi, SMTP yalnız TLS; açmak için SMTP sağlayıcısı ve gönderen adres Ali'den) |
 | 16 | P1 | Müşteri portalı 1: giriş, firma izolasyonu veri erişim katmanında, izolasyon testleri | Başka firmanın kaydına tahmin edilen kimlikle erişilemez | bekliyor |
 | 17 | P1 | Müşteri portalı 2: tarama geçmişi, rapor silme, hizmet talebi, kullanım hakkı, veri silme talebi | TR ve EN, test | bekliyor |
 | 18 | P1 | Ana sayfa: hizmet kartları, "nasıl çalışır", güvenlik yaklaşımı, SSS | Kanıtsız iddia yok, boyut bütçesi içinde | bekliyor |
@@ -33,18 +33,18 @@ Sıra `docs/master-prompt-v2.md` belgesindeki önceliklere göredir (P0 önce). 
 | 21 | P1 | İş kuyruğu: yalnızca doğrudan bağlantı için, SQLite tabanlı, ayrı işçi | Durum geçişleri idempotent, yeniden başlatmada toparlanır | bekliyor |
 | 22 | P2 | SQL Server: yetenek tablosu ve gerçek sunucu çıktısına göre düzeltme | Ali'nin gönderdiği `ok` / `ATLANDI` listesi | Ali'yi bekliyor |
 | 23 | P2 | LLM rapor özeti: varsayılan kapalı, kanıt üretemez, puanı değiştiremez | Sağlayıcı yokken rapor aynen çalışır | bekliyor |
-| 24 | P3 | Kip B kalanları: istek listesi panelde, sunucu sertifikası doğrulaması, `channel_binding=require`, yanıt süresini sabitleme, kılavuz bölümü | Ayrı kabul kapısı | bekliyor |
+| 24 | P3 | Kip B kalanları: istek listesi panelde, sunucu sertifikası doğrulaması, yanıt süresini sabitleme, kılavuz bölümü (`channel_binding=require` yapıldı) | Ayrı kabul kapısı | bekliyor |
 
 Kod incelemesinden (`docs/kod-inceleme.md`) gelen açık maddeler:
 
 | # | Öncelik | Madde | Bitti sayılır | Durum |
 | --- | --- | --- | --- | --- |
-| 25 | P1 | Toplayıcı bağlanabildiği tüm veritabanlarını dolaşsın; tablo, indeks ve sequence bulguları veritabanı adıyla (Y4) | Gerçek kümede iki veritabanı, ikisindeki bulgu da raporda | bekliyor |
-| 26 | P1 | Firma silmede iletişim taleplerini de silme seçeneği; KVKK silme talebi tek işlemde (O7) | Test, denetim kaydı | bekliyor |
-| 27 | P1 | Maskeli taramada eşleme dosyası yalnız müşteri tarafında yazılsın, yüklenmesin (O8) | Toplayıcı testi | bekliyor |
-| 28 | P2 | İş eylemi ve denetim kaydı aynı işlemde; firma eşitleme tek işlemde ve yalnız yeni talepler için (O10, O11) | Test | bekliyor |
-| 29 | P2 | Toplayıcı: bağlantı dizgisinde kaçış, şifresiz bağlantıda uyarı (D5, D6) | Test | bekliyor |
-| 30 | P2 | Küçükler: talep listesi sayfalama, firma kimliği yeniden kullanılmasın, tünel kipinde CSP, sınır metni sabitten, TOTP girişinde kilit (D7–D11) | Test | bekliyor |
+| 25 | P1 | Toplayıcı bağlanabildiği tüm veritabanlarını dolaşsın; tablo, indeks ve sequence bulguları veritabanı adıyla (Y4) | Gerçek kümede iki veritabanı, ikisindeki bulgu da raporda | **tamam** (en çok 50 veritabanı, atlananlar nedenleriyle; gerçek PostgreSQL 16'da boşluklu adlı ve yetkisiz veritabanıyla denendi) |
+| 26 | P1 | Firma silmede iletişim taleplerini de silme seçeneği; KVKK silme talebi tek işlemde (O7) | Test, denetim kaydı | **tamam** (firma silme formunda seçenek; önce talepler, sonra firma) |
+| 27 | P1 | Maskeli taramada eşleme dosyası yalnız müşteri tarafında yazılsın, yüklenmesin (O8) | Toplayıcı testi | **tamam** (`<çıktı>-maske.json`, 0600, yüklenirse reddedilir) |
+| 28 | P2 | İş eylemi ve denetim kaydı aynı işlemde; firma eşitleme tek işlemde ve yalnız yeni talepler için (O10, O11) | Test | **tamam** (`depo.islem`; çapraz dosya işlemleri sıralı: form.sqlite ile yonetim.sqlite tek işlemde olamaz) |
+| 29 | P2 | Toplayıcı: bağlantı dizgisinde kaçış, şifresiz bağlantıda uyarı (D5, D6) | Test | **tamam** |
+| 30 | P2 | Küçükler: talep listesi sayfalama, firma kimliği yeniden kullanılmasın, tünel kipinde CSP, sınır metni sabitten, TOTP girişinde kilit (D7–D11) | Test | **tamam** |
 
 ## Varsayılanla ilerleyenler (onay bekliyor, engellemiyor)
 

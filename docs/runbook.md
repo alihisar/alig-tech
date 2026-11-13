@@ -114,6 +114,31 @@ Firmalar sayfası, sağlık taraması yükleyen ve iletişim formu dolduran şir
 
 Paneldeki her işlem (giriş, talep ve rapor görüntüleme, durum değişikliği, silme) yönetim denetim zincirine yazılır; müşteri raporuna erişim ayrıca tarama zincirine `yonetici:<ad>` olarak düşer. `yonetim.sqlite` doğrulama anahtarlarını içerir: yedekleri bu yüzden 0600 izinlidir, başka yere kopyalarken şifreleyin.
 
+## E-posta doğrulaması (varsayılan kapalı)
+
+Kapalıyken rapor bağlantısı yüklemeden hemen sonra gösterilir ve yazılan e-posta adresi doğrulanmaz; panelde firmalar "doğrulanmamış" görünür. Açıkken:
+
+- Yükleme sonrası sayfa yalnız "e-postanızı kontrol edin" der; rapor bağlantısı yalnız e-postayla gider ve 24 saat geçerlidir.
+- Bağlantıyı açmak (GET) hiçbir şey değiştirmez; e-posta güvenlik tarayıcıları bağlantıyı kendiliğinden açar. Ücretsiz hak, sayfadaki düğmeyle (POST) doğrulayınca harcanır ve firmanın e-postası doğrulanmış olur.
+- Aynı adrese 24 saatte en çok 3, bir firmaya en çok 5 bekleyen bağlantı gönderilir.
+- Web süreci ağa çıkmaz: ileti `tarama.sqlite` içindeki giden kutusuna yazılır, `alig-posta` servisi gönderir. Gönderilen iletinin metni (bağlantı) hemen silinir; kayıt 7 gün sonra silinir.
+
+Açmak için (Ansible `group_vars/all.yml`):
+
+```yaml
+eposta_dogrulama: true
+smtp_sunucu: smtp.saglayici.com   # 587: STARTTLS zorunlu, 465: doğrudan TLS; şifresiz SMTP desteklenmez
+smtp_port: 587
+smtp_kullanici: kullanici-adi
+eposta_gonderen: tarama@alig.tech
+```
+
+SMTP parolası depoya girmez: sunucuda `/etc/alig/env` dosyasına `ALIG_SMTP_PAROLA=...` satırını elle ekleyin, sonra `ansible-playbook site.yml` ve `yayin.yml`. Denetim: `python3 /srv/alig/current/deploy/hazirlik.py sunucu` (`alig-posta` çalışıyor mu, parola tanımlı mı). Gönderilemeyen iletiler: `sqlite3 /var/lib/alig/tarama.sqlite "SELECT id, durum, deneme, son_hata FROM posta ORDER BY id DESC LIMIT 20"`; 5 başarısız denemeden sonra ileti "basarisiz" olur ve metni silinir.
+
+Yerelde denemek: `ALIG_EPOSTA_DOGRULAMA=1 python3 yerel.py`, iletileri okumak için `ALIG_POSTA_DIZINI=yerel-posta python3 tarama/posta.py --db yerel-tarama.sqlite` (iletiler `.eml` olarak yazılır).
+
+**Durum:** gönderim sahte SMTP nesnesiyle sınandı (STARTTLS girişten önce, STARTTLS yoksa parola gönderilmez, 465'te doğrudan TLS). Gerçek bir SMTP sunucusuyla denenmedi.
+
 ## Sorun giderme
 
 | Belirti | Bak |

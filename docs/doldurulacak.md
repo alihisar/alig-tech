@@ -29,6 +29,7 @@ Diğer açık kararlar (metinde değil, yapılandırmada):
 - `pg_kullanilmayan_indeks`: 10 MB ustu ve idx_scan=0: dusuk (istatistik sifirlanmis olabilir)
 - PostgreSQL destek sonu tarihleri (`tarama/kurallar.py` `PG_EOL`): her yıl postgresql.org/support/versioning ile doğrulayın.
 - Hukuki metinler: sağlık taraması kullanım koşulları, KVKK eki, veri konumu ve saklama sağlayıcısı, e-posta doğrulama ve gönderim yöntemi.
+- E-posta doğrulamasını açmak için: SMTP sağlayıcısı (587 STARTTLS ya da 465 TLS), kullanıcı adı ve parolası, gönderen adres (`deploy/ansible/group_vars/all.yml` ve `/etc/alig/env`). Kod hazır, varsayılan kapalı.
 
 ## Firma kaydı (KVKK metnine girmeli)
 

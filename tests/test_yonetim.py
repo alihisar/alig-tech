@@ -481,28 +481,40 @@ class IslemTests(Taban):
 
     def test_ayni_dogrulama_kodu_es_zamanli_iki_giriste_bir_kez_gecer(self):
         import threading as th
+        from unittest import mock
         kod = self.kod(1)   # setUp girisi su anki kodu kullandi; bir sonraki pencerenin kodu
         b, sonuc = th.Barrier(2), []
+        gercek = guvenlik.totp_dogrula
+
+        def yavas(*a, **k):   # sayaci okuma ile yazma arasindaki pencereyi genislet: yaris kilitsiz kodda kesin gorunur
+            time.sleep(0.3)
+            return gercek(*a, **k)
 
         def gir():
             c = depo.baglan(self.ydb)
             b.wait()
             sonuc.append(depo.giris(c, "ali", PAROLA, kod, "198.51.100.%d" % len(sonuc))[0] is not None)
             c.close()
-        ts = [th.Thread(target=gir) for _ in range(2)]
-        [t.start() for t in ts]
-        [t.join() for t in ts]
+        with mock.patch.object(guvenlik, "totp_dogrula", side_effect=yavas):
+            ts = [th.Thread(target=gir) for _ in range(2)]
+            [t.start() for t in ts]
+            [t.join() for t in ts]
         self.assertEqual(sorted(sonuc), [False, True])
 
     def test_firma_esitleme_yalniz_yeni_talepleri_isler(self):
         from unittest import mock
+        f = sqlite3.connect(self.fdb)
+        f.executemany("INSERT INTO contact VALUES(?,?,?,?,?,?,?,?)",
+                      [(20 + i, "2026-11-11T10:00:%02dZ" % i, "K", "S%d" % i, "k@s%d.com" % i, "pg", "m", "h") for i in range(5)])
+        f.commit()
+        f.close()
         self.istek("GET", "/yonetim/firmalar")
         gercek = tdepo.firma_kaydet
         with mock.patch.object(server.tdepo, "firma_kaydet", side_effect=gercek) as say:
             self.istek("GET", "/yonetim/firmalar")
             self.assertLessEqual(say.call_count, 1)   # yalniz son saniyedeki talep yeniden bakilir
         f = sqlite3.connect(self.fdb)
-        f.execute("INSERT INTO contact VALUES(7,'2999-01-01T00:00:00Z','Yeni','Yeni AS','x@yeni.com','pg','m','h')")
+        f.execute("INSERT INTO contact VALUES(97,'2999-01-01T00:00:00Z','Yeni','Yeni AS','x@yeni.com','pg','m','h')")
         f.commit()
         f.close()
         self.istek("GET", "/yonetim/firmalar")
