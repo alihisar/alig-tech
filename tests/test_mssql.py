@@ -52,8 +52,12 @@ def temiz_mssql():
     k["ms_checkdb"]["satirlar"] = [{"veritabani": "satis", "gun": 3}]
     k["ms_db_ayar"]["satirlar"] = [{"veritabani": "satis", "kimlik": 5, "auto_shrink": 0, "auto_close": 0, "sayfa_dogrulama": "CHECKSUM", "durum": "ONLINE", "trustworthy": 0}]
     k["ms_sunucu_ayar"]["satirlar"] = [{"ad": "xp_cmdshell", "deger": 0}, {"ad": "max server memory (MB)", "deger": 24000},
-                                       {"ad": "cost threshold for parallelism", "deger": 50}]
+                                       {"ad": "cost threshold for parallelism", "deger": 50}, {"ad": "max degree of parallelism", "deger": 8},
+                                       {"ad": "Ad Hoc Distributed Queries", "deger": 0}, {"ad": "cross db ownership chaining", "deger": 0},
+                                       {"ad": "remote admin connections", "deger": 0}, {"ad": "backup compression default", "deger": 1},
+                                       {"ad": "clr enabled", "deger": 0}]
     k["ms_sa"]["satirlar"] = [{"devre_disi": 1, "adi_sa": 1}]
+    k["ms_sysadmin"]["satirlar"] = [{"giris": "sa", "tur": "SQL_LOGIN", "devre_disi": 1}]   # sa her zaman uyedir; bos liste "gorunmedi" demek
     k["ms_parola_politikasi"]["satirlar"] = [{"sayi": 0}]
     k["ms_tempdb"]["satirlar"] = [{"veri_dosyasi": 8, "cpu": 16}]
     k["ms_sifreleme"]["satirlar"] = [{"toplam": 12, "sifreli": 12}]
@@ -270,7 +274,7 @@ class KuralTests(unittest.TestCase):
         d["kontroller"]["ms_yedek"] = {"durum": "hata", "neden": "yetki"}
         del d["kontroller"]["ms_ag"]
         bulgu, olcul = kurallar.degerlendir(d)
-        self.assertEqual(sorted(olcul), [("ms_ag", "calistirilmadi"), ("ms_yedek", "yetki")])
+        self.assertEqual(sorted(olcul), [("MS-BACKUP-001", "yetki"), ("MS-HA-002", "calistirilmadi")])
 
     def test_her_sablon_iki_dilde_ve_nesne_adi_tasimaz(self):
         for ad, t in kurallar_mssql.T.items():

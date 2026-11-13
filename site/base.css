@@ -83,6 +83,9 @@ h1{font-family:var(--font-head);font-size:var(--fs-h1);font-weight:var(--w-h1);l
   .tiers th,.tiers td{padding:.15rem 0;border:0}
   .tiers td::before{content:attr(data-label) ": ";color:var(--muted)}
 }
+/* rapordaki denetim durumu tablosu: kural kimligi bolunmez, ayar adlari gerekirse alt cizgide kirilir */
+.durumlar th code{white-space:nowrap;word-break:normal}
+.durumlar td code{word-break:normal;overflow-wrap:anywhere}
 
 /* guvenlik */
 .facts{display:grid;max-width:60rem;border-top:1px solid var(--line)}

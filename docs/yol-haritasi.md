@@ -18,7 +18,7 @@ Sıra `docs/master-prompt-v2.md` belgesindeki önceliklere göredir (P0 önce). 
 | 6 | P0 | Yedekten geri yükleme: `deploy/bakim.py geri-yukle`, bütünlük denetimi, test, runbook | Yedek alınır, bozulur, geri yüklenir, zincir sağlam | **tamam** (`bakim.py geri-yukle`, kuru çalıştırma, doğrulama, önceki dosya korunur; gerçek sunucuda denenmedi) |
 | 7 | P0 | Kimlik doğrulama eksikleri: yeni IP'den girişin denetim kaydı, denetim kaydında yapısal alanlar (firma, hedef, sonuç) | Testler | **tamam** (yeni IP'den giriş uyarısı, `alanlar` sütunu özete dahil: firma, hedef, sonuc, neden, ip_ozeti; düz IP yazılmaz; panelde Alanlar sütunu) |
 | 8 | P0 | Canlıya alma doğrulama raporu: sözdizimi, kuru çalıştırma ve gerçek dağıtımı ayrı gösteren denetim listesi; servis kullanıcıları, izinler, disk doluluk denetimi | `docs/runbook.md` güncel, her satır DONE ya da NOT_TESTED | **tamam** (`deploy/hazirlik.py yerel/sunucu`, bakımda disk koruması, `docs/canli-kontrol-listesi.md`; gerçek sunucu satırları NOT_TESTED) |
-| 9 | P1 | Ortak kanıt modeli ve durumlar: kural kimliği, kategori, PASS, FAIL, WARNING, UNKNOWN, NOT_APPLICABLE, UNAVAILABLE, güven düzeyi, kaynak | Her denetim bir durum üretir, veri yokken PASS çıkmaz | bekliyor |
+| 9 | P1 | Ortak kanıt modeli ve durumlar: kural kimliği, kategori, PASS, FAIL, WARNING, UNKNOWN, NOT_APPLICABLE, UNAVAILABLE, güven düzeyi, kaynak | Her denetim bir durum üretir, veri yokken PASS çıkmaz | **tamam** (`tarama/kanit.py`; PostgreSQL 17, SQL Server 20 kural, kalıcı kimlik; raporda durum tablosu TR/EN; kural listesi `docs/kural-katalogu.md` üretilir; eski motorla 20 000 rastgele belgede bulgular aynı; gerçek PostgreSQL 16 çıktısında denendi) |
 | 10 | P1 | Sürüm yetenek matrisi PostgreSQL 12–18: denetim başına desteklenen sürüm ve gereken yetki; desteklenmeyen sürümde sorgu çalışmaz | Matris, toplayıcı sürüme göre atlar, test | bekliyor |
 | 11 | P1 | Sağlık puanı ve kanıt kapsamı: 0–100, kategori bazında, katsayılar yapılandırılabilir | Bilinmeyen durum puanı yükseltmez, test | bekliyor |
 | 12 | P1 | Katalog genişletme: replikasyon gecikmesi, wraparound ve freeze yaşı, autovacuum, `pg_stat_statements` erişilebilirliği, geçici dosyalar | Kural, test, gerçek PostgreSQL 16 denemesi | bekliyor |
@@ -58,6 +58,10 @@ Kod incelemesinden (`docs/kod-inceleme.md`) gelen açık maddeler:
 | Kip B sınırları | İstek 30 dk, 3 deneme, saatte 5 istek, aynı anda 2 tarama | `tarama/depo.py` `ISTEK_*`, `tarama/calistirici.py` |
 | Kip B kimlik | E-posta doğrulaması yerine yönetici izni | panel, firma ayrıntısı |
 | Doğrudan bağlantı ve SQL Server | Kapalı | `ALIG_DOGRUDAN`, `ALIG_MSSQL` |
+| Kanıt modeli: önemden duruma eşleme | Kritik ve yüksek FAIL; orta, düşük ve bilgi WARNING | `tarama/kanit.py` `BULGU_DURUMU` |
+| Kanıt modeli: kural kategorisi ve güven düzeyi | Kural başına seçildi, liste `docs/kural-katalogu.md` | kural tanımı (`tarama/kurallar.py`, `tarama/kurallar_mssql.py`) |
+| Kısmi veritabanı kapsamı | Bir veritabanı bile taranmadıysa veritabanı başına kurallar UNKNOWN (bulgu varsa FAIL/WARNING). Yönetilen hizmetlerin iç veritabanları (ör. bağlanılamayan sistem veritabanı) da sayılır | `tarama/kanit.py` `_tam_kapsam` |
+| Arşivleme açık ama başarılı arşiv kaydı yok | UNKNOWN (arşivlemenin çalıştığına dair kanıt yok) | `tarama/kurallar.py` PG-BACKUP-001 |
 
 ## Engelleyen kararlar (Ali)
 

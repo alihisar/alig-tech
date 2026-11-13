@@ -1,9 +1,12 @@
-"""SQL Server toplama dosyasindan bulgu uretir (ON SURUM: gercek sunucuda sinanmadi). Dil modeli yok.
+"""SQL Server kurallari (ON SURUM: gercek sunucuda sinanmadi, kanit guveni en cok MEDIUM). Dil modeli yok.
 
+Her kural kalici bir kimlikle (MS-SEC-001 gibi) kayitlidir ve PostgreSQL ile ayni kanit kaydini uretir (tarama/kanit.py).
 Esikler: BELGE = Microsoft belgesinde yazili, MUHENDISLIK = kendi secimimiz (docs/doldurulacak.md'de listeli).
-Nesne adlari baslik/aciklama metnine girmez; yalniz kanit listesinde, kacisli olarak gosterilir.
+Nesne adlari baslik/aciklama metnine ya da gozleme girmez; yalniz kanit listesinde, kacisli olarak gosterilir.
 """
 from datetime import datetime, timezone
+
+from tarama import kanit
 
 # Genisletilmis destegin son gunu (learn.microsoft.com/lifecycle). BELGE: tarihleri her yil dogrulayin.
 # Anahtar: ProductMajorVersion (13 = SQL Server 2016, 14 = 2017, 15 = 2019, 16 = 2022, 17 = 2025).
@@ -131,164 +134,317 @@ T = {
         oneri=_t("Mümkünse yalnızca Windows kimlik doğrulamasına geçin; SQL girişlerini azaltın.", "Where possible move to Windows authentication only and reduce SQL logins."),
         risk=_t("Orta. SQL girişi kullanan uygulamalar etkilenir, servis yeniden başlatılır.", "Medium. Applications using SQL logins are affected and the service restarts."),
         geri=_t("Kip eski değerine döndürülür.", "Set the mode back to its previous value."), is_="orta"),
+    "ms_sysadmin_ile_tarama": dict(
+        baslik=_t("Tarama sysadmin üyesi bir girişle çalıştırılmış", "The scan was run with a sysadmin login"),
+        neden=_t("Tarama için gereken yetki yalnızca VIEW SERVER STATE ve VIEW ANY DEFINITION'dır.", "The scan only needs VIEW SERVER STATE and VIEW ANY DEFINITION."),
+        oneri=_t("Sonraki taramayı ayrı, düşük yetkili bir girişle çalıştırın.", "Run the next scan with a separate low-privilege login."),
+        risk=_t("Yok.", "None."), geri=_t("Uygulanmaz.", "Not applicable."), is_="kucuk"),
 }
 
 
-def _f(kontrol, sablon, onem, kanit):
+def _f(kontrol, sablon, onem, kanit_):
     t = T[sablon]
     return {"kontrol": kontrol, "sablon": sablon, "onem": onem, "baslik": t["baslik"], "neden": t["neden"],
-            "oneri": t["oneri"], "risk": t["risk"], "geri_alma": t["geri"], "is": t["is_"], "kanit": kanit}
+            "oneri": t["oneri"], "risk": t["risk"], "geri_alma": t["geri"], "is": t["is_"], "kanit": kanit_}
 
 
-def _parse_utc(s):
-    try:
-        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    except (TypeError, ValueError):
-        return None
+# Kolon turleri. Yuklemede SQL Server icin tur denetlenmez (gercek sunucu ciktisi sinanmadi); kural motoru turu
+# uymayan satiri degerlendirmeye almaz ve sonucu kismi sayar (tarama/kanit.py).
+_M, _T = "metin", "tamsayi"
+TURLER = {
+    "ms_surum": {"ana_surum": _T, "surum": _M, "motor_turu": _T},
+    "ms_yedek": {"veritabani": _M, "kurtarma_modeli": _M, "tam_saat": _T, "log_saat": _T},
+    "ms_checkdb": {"veritabani": _M, "gun": _T},
+    "ms_db_ayar": {"veritabani": _M, "kimlik": _T, "auto_shrink": _T, "auto_close": _T, "sayfa_dogrulama": _M, "durum": _M, "trustworthy": _T},
+    "ms_sunucu_ayar": {"ad": _M, "deger": _T},
+    "ms_sa": {"devre_disi": _T, "adi_sa": _T},
+    "ms_sysadmin": {"giris": _M, "tur": _M, "devre_disi": _T},
+    "ms_parola_politikasi": {"sayi": _T},
+    "ms_tempdb": {"veri_dosyasi": _T, "cpu": _T},
+    "ms_ag": {"grup": _M, "replika": _M, "saglik": _M, "rol": _M, "baglanti": _M},
+    "ms_dosya_buyume": {"veritabani": _M, "dosya": _M, "tur": _M},
+    "ms_sifreleme": {"toplam": _T, "sifreli": _T},
+    "ms_acik_islem": {"giris": _M, "sure_sn": _T},
+    "ms_kimlik": {"yalniz_windows": _T},
+}
+
+KURALLAR = []
+kural = kanit.kayitci(KURALLAR, "mssql")
+K = kanit.Kaynak
+BILGI = ()
+TEHLIKELI_AYARLAR = ("xp_cmdshell", "Ad Hoc Distributed Queries", "cross db ownership chaining")
 
 
-def _sayi(v):
-    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+def _ayar(r, ad):
+    """sys.configurations degeri; satir yoksa ya da deger bos ise Belirsiz."""
+    for x in r:
+        if x["ad"] == ad and x.get("deger") is not None:
+            return x["deger"]
+    raise kanit.Belirsiz("eksik_veri")
 
 
-def degerlendir(doc):
-    """(bulgular, olculemeyenler). olculemeyen = [(kontrol_id, neden)]"""
-    bulgu, olcul = [], []
-    k = doc["kontroller"]
-    taranan = _parse_utc(doc.get("olusturma_utc")) or datetime.now(timezone.utc)
+# Kural sirasi bulgularin ayni onemdeki sirasidir; kimlikler kalicidir, yeni kural yeni numara alir.
 
-    def rows(cid):
-        e = k.get(cid)
-        if e is None:
-            olcul.append((cid, "calistirilmadi"))
-            return None
-        if e["durum"] != "ok":
-            olcul.append((cid, e.get("neden", "hata")))
-            return None
-        return e["satirlar"]
+@kural("MS-MAINT-001", "bakim", "HIGH", [K("ms_surum", "tek", ("ana_surum", "motor_turu"))],
+       _t("Sürüm desteği", "Version support"),
+       _t("Genişletilmiş destek en az 90 gün daha sürüyor.", "Extended support lasts at least 90 more days."))
+def _surum(r, g):
+    s = r[0]
+    if s["motor_turu"] in (5, 8):   # Azure SQL Database ve Managed Instance: surum yonetilen hizmette
+        raise kanit.Uygulanmaz("yonetilen_hizmet")
+    ana = s["ana_surum"]
+    ad = MSSQL_AD.get(ana, str(ana))
+    g.gozle(surum=ad)
+    eol = MSSQL_EOL.get(ana)
+    if eol is None and ana < min(MSSQL_EOL):
+        return [_f("ms_surum", "ms_surum_eol", "yuksek", {"surum": ad, "destek_sonu": "gecmis"})]
+    if eol:
+        gun = (datetime.strptime(eol, "%Y-%m-%d").replace(tzinfo=timezone.utc) - g.taranan).days
+        if gun < 0:
+            return [_f("ms_surum", "ms_surum_eol", "yuksek", {"surum": ad, "destek_sonu": eol})]
+        if gun <= 90:
+            return [_f("ms_surum", "ms_surum_eol", "orta", {"surum": ad, "destek_sonu": eol, "kalan_gun": gun})]
+    return []
 
-    r = rows("ms_surum")
-    if r and _sayi(r[0].get("ana_surum")) is not None and r[0].get("motor_turu") not in (5, 8):
-        ana = int(r[0]["ana_surum"])
-        eol = MSSQL_EOL.get(ana)
-        ad = MSSQL_AD.get(ana, str(ana))
-        if eol is None and ana < min(MSSQL_EOL):
-            bulgu.append(_f("ms_surum", "ms_surum_eol", "yuksek", {"surum": ad, "destek_sonu": "gecmis"}))
-        elif eol:
-            gun = (datetime.strptime(eol, "%Y-%m-%d").replace(tzinfo=timezone.utc) - taranan).days
-            if gun < 0:
-                bulgu.append(_f("ms_surum", "ms_surum_eol", "yuksek", {"surum": ad, "destek_sonu": eol}))
-            elif gun <= 90:
-                bulgu.append(_f("ms_surum", "ms_surum_eol", "orta", {"surum": ad, "destek_sonu": eol, "kalan_gun": gun}))
 
-    r = rows("ms_yedek")
-    if r:
-        tam = [x for x in r if _sayi(x.get("tam_saat")) is None or x["tam_saat"] > 168]
-        log = [x for x in r if x.get("kurtarma_modeli") in ("FULL", "BULK_LOGGED") and (_sayi(x.get("log_saat")) is None or x["log_saat"] > 24)]
-        if tam or log:
-            bulgu.append(_f("ms_yedek", "ms_yedek", "yuksek",
-                            {"tam_yedegi_eksik_ya_da_eski": len(tam), "log_yedegi_eksik_ya_da_eski": len(log),
-                             "nesneler": sorted({str(x.get("veritabani")) for x in tam + log})[:10],
-                             "esik_tam_saat": 168, "esik_log_saat": 24}))
+@kural("MS-BACKUP-001", "yedek", "MEDIUM", [K("ms_yedek", "en_az_bir", ("kurtarma_modeli",))],
+       _t("Yedek geçmişi", "Backup history"),
+       _t("Bu sunucunun msdb kaydına göre her veritabanının son 7 günde tam yedeği, tam ya da toplu kayıtlı kurtarma "
+          "modelindekilerin son 24 saatte log yedeği var.",
+          "According to msdb on this server, every database has a full backup in the last 7 days, and those in full or "
+          "bulk-logged recovery a log backup in the last 24 hours."))
+def _yedek(r, g):
+    tam = [x for x in r if x.get("tam_saat") is None or x["tam_saat"] > 168]
+    log = [x for x in r if x["kurtarma_modeli"] in ("FULL", "BULK_LOGGED") and (x.get("log_saat") is None or x["log_saat"] > 24)]
+    if not (tam or log):
+        return []
+    return [_f("ms_yedek", "ms_yedek", "yuksek",
+               {"tam_yedegi_eksik_ya_da_eski": len(tam), "log_yedegi_eksik_ya_da_eski": len(log),
+                "nesneler": sorted({str(x.get("veritabani")) for x in tam + log})[:10],
+                "esik_tam_saat": 168, "esik_log_saat": 24})]
 
-    r = rows("ms_checkdb")
-    if r:
-        eski = [x for x in r if _sayi(x.get("gun")) is not None and x["gun"] > 14]
-        if eski:
-            bulgu.append(_f("ms_checkdb", "ms_checkdb", "orta",
-                            {"veritabani_sayisi": len(eski), "hic_calismamis": sum(1 for x in eski if x["gun"] > 36500),
-                             "nesneler": [str(x.get("veritabani")) for x in eski[:10]], "esik_gun": 14}))
 
-    r = rows("ms_db_ayar")
-    if r:
-        kapali = [x for x in r if x.get("durum") not in (None, "ONLINE")]
-        if kapali:
-            bulgu.append(_f("ms_db_ayar", "ms_db_durum", "yuksek",
-                            {"veritabani_sayisi": len(kapali), "nesneler": [str(x.get("veritabani")) for x in kapali[:10]],
-                             "durumlar": sorted({str(x.get("durum")) for x in kapali})}))
-        dogrulama = [x for x in r if x.get("sayfa_dogrulama") not in (None, "CHECKSUM")]
-        if dogrulama:
-            bulgu.append(_f("ms_db_ayar", "ms_sayfa_dogrulama", "yuksek",
-                            {"veritabani_sayisi": len(dogrulama), "nesneler": [str(x.get("veritabani")) for x in dogrulama[:10]]}))
-        oto = [x for x in r if x.get("auto_shrink") == 1 or x.get("auto_close") == 1]
-        if oto:
-            bulgu.append(_f("ms_db_ayar", "ms_auto", "orta",
-                            {"auto_shrink": sum(1 for x in oto if x.get("auto_shrink") == 1),
-                             "auto_close": sum(1 for x in oto if x.get("auto_close") == 1),
-                             "nesneler": [str(x.get("veritabani")) for x in oto[:10]]}))
-        guven = [x for x in r if x.get("trustworthy") == 1 and x.get("kimlik") != 4]  # msdb varsayilan olarak aciktir
-        if guven:
-            bulgu.append(_f("ms_db_ayar", "ms_trustworthy", "orta",
-                            {"veritabani_sayisi": len(guven), "nesneler": [str(x.get("veritabani")) for x in guven[:10]]}))
+@kural("MS-MAINT-002", "bakim", "HIGH", [K("ms_checkdb", "en_az_bir", ("gun",))],
+       _t("Bütünlük denetimi (CHECKDB)", "Integrity check (CHECKDB)"),
+       _t("Her veritabanında son başarılı CHECKDB 14 günden yeni.", "In every database the last successful CHECKDB is less than 14 days old."))
+def _checkdb(r, g):
+    eski = [x for x in r if x["gun"] > 14]
+    if not eski:
+        return []
+    return [_f("ms_checkdb", "ms_checkdb", "orta",
+               {"veritabani_sayisi": len(eski), "hic_calismamis": sum(1 for x in eski if x["gun"] > 36500),
+                "nesneler": [str(x.get("veritabani")) for x in eski[:10]], "esik_gun": 14})]
 
-    r = rows("ms_sunucu_ayar")
-    if r:
-        ayar = {str(x.get("ad")): x.get("deger") for x in r}
-        acik = [a for a in ("xp_cmdshell", "Ad Hoc Distributed Queries", "cross db ownership chaining") if ayar.get(a) == 1]
-        if acik:
-            bulgu.append(_f("ms_sunucu_ayar", "ms_tehlikeli_ayar", "yuksek" if "xp_cmdshell" in acik else "orta", {"acik_ayarlar": acik}))
-        if ayar.get("max server memory (MB)") == 2147483647:
-            bulgu.append(_f("ms_sunucu_ayar", "ms_bellek", "orta", {"max_server_memory_mb": 2147483647, "anlami": "varsayilan, sinirsiz"}))
-        if ayar.get("cost threshold for parallelism") == 5:
-            bulgu.append(_f("ms_sunucu_ayar", "ms_paralellik", "dusuk", {"cost_threshold_for_parallelism": 5}))
 
-    r = rows("ms_sa")
-    if r and r[0].get("devre_disi") == 0:
-        bulgu.append(_f("ms_sa", "ms_sa", "orta", {"etkin": True, "adi_degistirilmis": r[0].get("adi_sa") == 0}))
+@kural("MS-HA-001", "ha_dr", "HIGH", [K("ms_db_ayar", "en_az_bir", ("durum",))],
+       _t("Veritabanı durumu", "Database state"),
+       _t("Bütün veritabanları ONLINE.", "All databases are ONLINE."))
+def _db_durum(r, g):
+    kapali = [x for x in r if x["durum"] != "ONLINE"]
+    if not kapali:
+        return []
+    return [_f("ms_db_ayar", "ms_db_durum", "yuksek",
+               {"veritabani_sayisi": len(kapali), "nesneler": [str(x.get("veritabani")) for x in kapali[:10]],
+                "durumlar": sorted({str(x["durum"]) for x in kapali})})]
 
-    r = rows("ms_sysadmin")
-    if r:
-        etkin = [x for x in r if x.get("devre_disi") != 1]
-        if etkin:
-            bulgu.append(_f("ms_sysadmin", "ms_sysadmin", "bilgi",
-                            {"uye_sayisi": len(etkin), "nesneler": [str(x.get("giris")) for x in etkin[:20]]}))
 
-    r = rows("ms_parola_politikasi")
-    if r and (_sayi(r[0].get("sayi")) or 0) > 0:
-        bulgu.append(_f("ms_parola_politikasi", "ms_parola_politikasi", "orta", {"giris_sayisi": r[0]["sayi"]}))
+@kural("MS-CONFIG-001", "konfigurasyon", "HIGH", [K("ms_db_ayar", "en_az_bir", ("sayfa_dogrulama",))],
+       _t("Sayfa doğrulama", "Page verification"),
+       _t("Bütün veritabanlarında PAGE_VERIFY CHECKSUM.", "PAGE_VERIFY is CHECKSUM in all databases."))
+def _sayfa_dogrulama(r, g):
+    dogrulama = [x for x in r if x["sayfa_dogrulama"] != "CHECKSUM"]
+    if not dogrulama:
+        return []
+    return [_f("ms_db_ayar", "ms_sayfa_dogrulama", "yuksek",
+               {"veritabani_sayisi": len(dogrulama), "nesneler": [str(x.get("veritabani")) for x in dogrulama[:10]]})]
 
-    r = rows("ms_tempdb")
-    if r and r[0].get("veri_dosyasi") == 1 and (_sayi(r[0].get("cpu")) or 0) > 1:
-        bulgu.append(_f("ms_tempdb", "ms_tempdb", "orta", {"veri_dosyasi": 1, "cpu": r[0]["cpu"]}))
 
-    r = rows("ms_ag")
-    if r:
-        kotu = [x for x in r if x.get("saglik") != "HEALTHY" or x.get("baglanti") != "CONNECTED"]
-        if kotu:
-            bulgu.append(_f("ms_ag", "ms_ag", "yuksek",
-                            {"replika_sayisi": len(kotu), "nesneler": ["%s / %s" % (x.get("grup"), x.get("replika")) for x in kotu[:10]],
-                             "durumlar": sorted({"%s, %s" % (x.get("saglik"), x.get("baglanti")) for x in kotu})}))
+@kural("MS-CONFIG-002", "konfigurasyon", "HIGH", [K("ms_db_ayar", "en_az_bir")],
+       _t("AUTO_SHRINK ve AUTO_CLOSE", "AUTO_SHRINK and AUTO_CLOSE"),
+       _t("Hiçbir veritabanında AUTO_SHRINK ya da AUTO_CLOSE açık değil.", "No database has AUTO_SHRINK or AUTO_CLOSE on."))
+def _auto(r, g):
+    oto = [x for x in r if x.get("auto_shrink") == 1 or x.get("auto_close") == 1]
+    if any(x.get("auto_shrink") not in (0, 1) or x.get("auto_close") not in (0, 1) for x in r if x not in oto):
+        g.kismi("eksik_veri")
+    if not oto:
+        return []
+    return [_f("ms_db_ayar", "ms_auto", "orta",
+               {"auto_shrink": sum(1 for x in oto if x.get("auto_shrink") == 1),
+                "auto_close": sum(1 for x in oto if x.get("auto_close") == 1),
+                "nesneler": [str(x.get("veritabani")) for x in oto[:10]]})]
 
-    r = rows("ms_dosya_buyume")
-    if r:
-        bulgu.append(_f("ms_dosya_buyume", "ms_dosya_buyume", "dusuk",
-                        {"dosya_sayisi": len(r), "nesneler": ["%s / %s" % (x.get("veritabani"), x.get("dosya")) for x in r[:10]]}))
 
-    r = rows("ms_sifreleme")
-    if r:
-        toplam, sifreli = _sayi(r[0].get("toplam")) or 0, _sayi(r[0].get("sifreli")) or 0
-        if toplam > sifreli:
-            bulgu.append(_f("ms_sifreleme", "ms_sifreleme", "orta", {"tcp_baglanti": toplam, "sifreli": sifreli, "sifresiz": toplam - sifreli}))
+@kural("MS-SEC-001", "guvenlik", "HIGH", [K("ms_db_ayar", "en_az_bir", ("trustworthy",))],
+       _t("TRUSTWORTHY", "TRUSTWORTHY"),
+       _t("msdb dışında TRUSTWORTHY açık veritabanı yok.", "No database other than msdb has TRUSTWORTHY on."))
+def _trustworthy(r, g):
+    guven = [x for x in r if x["trustworthy"] == 1 and x.get("kimlik") != 4]  # msdb varsayilan olarak aciktir
+    if not guven:
+        return []
+    return [_f("ms_db_ayar", "ms_trustworthy", "orta",
+               {"veritabani_sayisi": len(guven), "nesneler": [str(x.get("veritabani")) for x in guven[:10]]})]
 
-    r = rows("ms_acik_islem")
-    if r:
-        uzun = [x for x in r if (_sayi(x.get("sure_sn")) or 0) >= 600]
-        if uzun:
-            en = max(x["sure_sn"] for x in uzun)
-            bulgu.append(_f("ms_acik_islem", "ms_acik_islem", "yuksek" if en >= 3600 else "orta",
-                            {"oturum_sayisi": len(uzun), "en_uzun_sn": en, "esik_orta_sn": 600, "esik_yuksek_sn": 3600}))
 
-    r = rows("ms_kimlik")
-    if r and r[0].get("yalniz_windows") == 0:
-        bulgu.append(_f("ms_kimlik", "ms_kimlik", "dusuk", {"yalniz_windows": False}))
+@kural("MS-SEC-002", "guvenlik", "HIGH", [K("ms_sunucu_ayar", "en_az_bir", ("ad",))],
+       _t("Saldırı yüzeyini büyüten ayarlar", "Settings that widen the attack surface"),
+       _t("xp_cmdshell, Ad Hoc Distributed Queries ve cross db ownership chaining kapalı.",
+          "xp_cmdshell, Ad Hoc Distributed Queries and cross db ownership chaining are off."))
+def _tehlikeli_ayar(r, g):
+    deger = {x["ad"]: x.get("deger") for x in r}
+    g.gozle({a: deger.get(a) for a in TEHLIKELI_AYARLAR})
+    acik = [a for a in TEHLIKELI_AYARLAR if deger.get(a) == 1]
+    if acik:
+        return [_f("ms_sunucu_ayar", "ms_tehlikeli_ayar", "yuksek" if "xp_cmdshell" in acik else "orta", {"acik_ayarlar": acik})]
+    if any(deger.get(a) != 0 for a in TEHLIKELI_AYARLAR):
+        raise kanit.Belirsiz("eksik_veri")
+    return []
 
-    if doc.get("superuser"):
-        bulgu.append({"kontrol": "toplayici", "sablon": "ms_sysadmin_ile_tarama", "onem": "orta",
-                      "baslik": _t("Tarama sysadmin üyesi bir girişle çalıştırılmış", "The scan was run with a sysadmin login"),
-                      "neden": _t("Tarama için gereken yetki yalnızca VIEW SERVER STATE ve VIEW ANY DEFINITION'dır.", "The scan only needs VIEW SERVER STATE and VIEW ANY DEFINITION."),
-                      "oneri": _t("Sonraki taramayı ayrı, düşük yetkili bir girişle çalıştırın.", "Run the next scan with a separate low-privilege login."),
-                      "risk": _t("Yok.", "None."), "geri_alma": _t("Uygulanmaz.", "Not applicable."), "is": "kucuk", "kanit": {"sysadmin": True}})
 
-    sira = {o: i for i, o in enumerate(("kritik", "yuksek", "orta", "dusuk", "bilgi"))}
-    bulgu.sort(key=lambda b: sira[b["onem"]])
-    return bulgu, olcul
+@kural("MS-CONFIG-003", "konfigurasyon", "HIGH", [K("ms_sunucu_ayar", "en_az_bir", ("ad",))],
+       _t("En yüksek sunucu belleği", "Max server memory"),
+       _t("max server memory varsayılan (sınırsız) değerde değil.", "max server memory is not at the default (unlimited) value."))
+def _bellek(r, g):
+    v = _ayar(r, "max server memory (MB)")
+    g.gozle(max_server_memory_mb=v)
+    if v == 2147483647:
+        return [_f("ms_sunucu_ayar", "ms_bellek", "orta", {"max_server_memory_mb": 2147483647, "anlami": "varsayilan, sinirsiz"})]
+    return []
+
+
+@kural("MS-PERF-001", "performans", "HIGH", [K("ms_sunucu_ayar", "en_az_bir", ("ad",))],
+       _t("Paralellik maliyet eşiği", "Cost threshold for parallelism"),
+       _t("cost threshold for parallelism varsayılan 5 değerinde değil.", "cost threshold for parallelism is not at the default of 5."))
+def _paralellik(r, g):
+    v = _ayar(r, "cost threshold for parallelism")
+    g.gozle(cost_threshold_for_parallelism=v)
+    if v == 5:
+        return [_f("ms_sunucu_ayar", "ms_paralellik", "dusuk", {"cost_threshold_for_parallelism": 5})]
+    return []
+
+
+@kural("MS-SEC-003", "guvenlik", "HIGH", [K("ms_sa", "tek", ("devre_disi",))],
+       _t("sa girişi", "The sa login"),
+       _t("sa girişi devre dışı.", "The sa login is disabled."))
+def _sa(r, g):
+    s = r[0]
+    if s["devre_disi"] not in (0, 1):
+        raise kanit.Belirsiz("gecersiz_veri")
+    g.gozle(sa_devre_disi=s["devre_disi"] == 1)
+    if s["devre_disi"] == 0:
+        return [_f("ms_sa", "ms_sa", "orta", {"etkin": True, "adi_degistirilmis": s.get("adi_sa") == 0})]
+    return []
+
+
+@kural("MS-SEC-004", "guvenlik", "HIGH", [K("ms_sysadmin", "en_az_bir", ("devre_disi",))],
+       _t("sysadmin üyeleri", "sysadmin members"),
+       _t("sysadmin rolünün etkin üyesi yok; varsa liste gözden geçirilir.", "The sysadmin role has no enabled members; if it has, the list is reviewed."))
+def _sysadmin(r, g):
+    etkin = [x for x in r if x["devre_disi"] != 1]
+    g.gozle(etkin_uye=len(etkin))
+    if not etkin:
+        return []
+    return [_f("ms_sysadmin", "ms_sysadmin", "bilgi", {"uye_sayisi": len(etkin), "nesneler": [str(x.get("giris")) for x in etkin[:20]]})]
+
+
+@kural("MS-SEC-005", "guvenlik", "HIGH", [K("ms_parola_politikasi", "tek", ("sayi",))],
+       _t("Parola politikası", "Password policy"),
+       _t("Etkin SQL girişlerinin hepsinde CHECK_POLICY açık.", "CHECK_POLICY is on for every enabled SQL login."))
+def _parola_politikasi(r, g):
+    sayi = r[0]["sayi"]
+    if sayi < 0:
+        raise kanit.Belirsiz("gecersiz_veri")
+    g.gozle(politikasiz_giris=sayi)
+    if sayi > 0:
+        return [_f("ms_parola_politikasi", "ms_parola_politikasi", "orta", {"giris_sayisi": sayi})]
+    return []
+
+
+@kural("MS-PERF-002", "performans", "HIGH", [K("ms_tempdb", "tek", ("veri_dosyasi", "cpu"))],
+       _t("tempdb veri dosyaları", "tempdb data files"),
+       _t("Çok çekirdekli sunucuda tempdb birden çok veri dosyasıyla çalışıyor.", "On a multi-core server tempdb has more than one data file."))
+def _tempdb(r, g):
+    dosya, cpu = r[0]["veri_dosyasi"], r[0]["cpu"]
+    if dosya < 1 or cpu < 1:
+        raise kanit.Belirsiz("gecersiz_veri")
+    g.gozle(veri_dosyasi=dosya, cpu=cpu)
+    if dosya == 1 and cpu > 1:
+        return [_f("ms_tempdb", "ms_tempdb", "orta", {"veri_dosyasi": 1, "cpu": cpu})]
+    return []
+
+
+@kural("MS-HA-002", "ha_dr", "HIGH", [K("ms_ag")],
+       _t("Always On replikaları", "Always On replicas"),
+       _t("Bütün replikalar HEALTHY ve CONNECTED.", "All replicas are HEALTHY and CONNECTED."))
+def _ag(r, g):
+    if not r:
+        raise kanit.Uygulanmaz("ag_yok")
+    kotu = [x for x in r if x.get("saglik") not in (None, "HEALTHY") or x.get("baglanti") not in (None, "CONNECTED")]
+    if any(x.get("saglik") is None or x.get("baglanti") is None for x in r if x not in kotu):
+        g.kismi("eksik_veri")
+    g.gozle(replika=len(r))
+    if not kotu:
+        return []
+    return [_f("ms_ag", "ms_ag", "yuksek",
+               {"replika_sayisi": len(kotu), "nesneler": ["%s / %s" % (x.get("grup"), x.get("replika")) for x in kotu[:10]],
+                "durumlar": sorted({"%s, %s" % (x.get("saglik"), x.get("baglanti")) for x in kotu})})]
+
+
+@kural("MS-CONFIG-004", "konfigurasyon", "HIGH", [K("ms_dosya_buyume")],
+       _t("Dosya büyüme ayarı", "File growth setting"),
+       _t("Yüzde ile büyüyen veri ya da log dosyası yok.", "No data or log file grows by percentage."))
+def _dosya_buyume(r, g):
+    if not r:
+        return []
+    return [_f("ms_dosya_buyume", "ms_dosya_buyume", "dusuk",
+               {"dosya_sayisi": len(r), "nesneler": ["%s / %s" % (x.get("veritabani"), x.get("dosya")) for x in r[:10]]})]
+
+
+@kural("MS-SEC-006", "guvenlik", "MEDIUM", [K("ms_sifreleme", "tek", ("toplam", "sifreli"))],
+       _t("Bağlantı şifrelemesi", "Connection encryption"),
+       _t("Tarama anındaki TCP bağlantılarının hepsi şifreli.", "All TCP connections at scan time are encrypted."))
+def _sifreleme(r, g):
+    toplam, sifreli = r[0]["toplam"], r[0]["sifreli"]
+    if toplam < 0 or sifreli < 0 or sifreli > toplam:
+        raise kanit.Belirsiz("gecersiz_veri")
+    g.gozle(tcp_baglanti=toplam, sifreli=sifreli)
+    if toplam == 0:
+        raise kanit.Uygulanmaz("tcp_baglanti_yok")
+    if toplam > sifreli:
+        return [_f("ms_sifreleme", "ms_sifreleme", "orta", {"tcp_baglanti": toplam, "sifreli": sifreli, "sifresiz": toplam - sifreli})]
+    return []
+
+
+@kural("MS-PERF-003", "performans", "MEDIUM", [K("ms_acik_islem", "herhangi", ("sure_sn",))],
+       _t("Uzun açık işlemler", "Long open transactions"),
+       _t("Tarama anında 10 dakikadan uzun süredir açık kullanıcı işlemi yok.", "At scan time no user transaction has been open for more than 10 minutes."))
+def _acik_islem(r, g):
+    uzun = [x for x in r if x["sure_sn"] >= 600]
+    if not uzun:
+        return []
+    en = max(x["sure_sn"] for x in uzun)
+    return [_f("ms_acik_islem", "ms_acik_islem", "yuksek" if en >= 3600 else "orta",
+               {"oturum_sayisi": len(uzun), "en_uzun_sn": en, "esik_orta_sn": 600, "esik_yuksek_sn": 3600})]
+
+
+@kural("MS-SEC-007", "guvenlik", "HIGH", [K("ms_kimlik", "tek", ("yalniz_windows",))],
+       _t("Kimlik doğrulama kipi", "Authentication mode"),
+       _t("Yalnızca Windows kimlik doğrulaması açık.", "Only Windows authentication is enabled."))
+def _kimlik(r, g):
+    v = r[0]["yalniz_windows"]
+    if v not in (0, 1):
+        raise kanit.Belirsiz("gecersiz_veri")
+    g.gozle(yalniz_windows=v == 1)
+    if v == 0:
+        return [_f("ms_kimlik", "ms_kimlik", "dusuk", {"yalniz_windows": False})]
+    return []
+
+
+@kural("MS-SEC-008", "guvenlik", "HIGH", [K(kanit.TOPLAYICI, "tek", ("superuser",))],
+       _t("Taramanın hesabı", "Scan account"),
+       _t("Tarama sysadmin üyesi olmayan bir girişle çalıştırıldı.", "The scan ran with a login that is not a sysadmin member."),
+       kaynak=("IS_SRVROLEMEMBER('sysadmin')",))
+def _tarama_hesabi(r, g):
+    g.gozle(sysadmin=r[0]["superuser"])
+    if r[0]["superuser"] is True:
+        return [_f(kanit.TOPLAYICI, "ms_sysadmin_ile_tarama", "orta", {"sysadmin": True})]
+    return []

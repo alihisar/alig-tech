@@ -57,6 +57,9 @@ def temiz_belge():
     k["pg_kapsam"]["satirlar"] = [{"veritabani": "postgres", "veritabani_sayisi": 1}]
     k["pg_log_ayarlari"]["satirlar"] = [{"name": "log_connections", "setting": "on"}, {"name": "log_disconnections", "setting": "on"}]
     k["pg_md5_roller"]["satirlar"] = [{"sayi": 0}]
+    # Gercek sunucuda her zaman satir donen sorgular: bos donmeleri "veri yok" demektir, temiz degil (tarama/kanit.py)
+    k["pg_xid_yasi"]["satirlar"] = [{"datname": "postgres", "yas": 1000, "mxid_yas": 1, "freeze_max_age": 200000000}]
+    k["pg_sequence_gorunurluk"]["satirlar"] = [{"veritabani": "postgres", "toplam": 0, "okunamayan": 0}]
     return {"format": katalog.FORMAT, "motor": katalog.MOTOR, "katalog_sha256": uret_toplayici.katalog_ozeti(),
             "olusturma_utc": "2026-11-10T12:00:00Z", "maskeli": False, "superuser": False, "kontroller": k}
 
@@ -108,7 +111,7 @@ class BozukDegerTests(unittest.TestCase):
         b = temiz_belge()
         b["kontroller"]["pg_surum"] = {"durum": "ok", "satirlar": [{"surum_num": "abc"}]}
         bulgu, olcul = kurallar.degerlendir(b)
-        self.assertIn(("pg_surum", "gecersiz_veri"), olcul)
+        self.assertIn(("PG-MAINT-001", "gecersiz_veri"), olcul)
         self.assertFalse(any(x["kontrol"] == "pg_surum" for x in bulgu))
 
     def test_yukleme_tur_disi_degeri_reddeder(self):
@@ -166,9 +169,9 @@ class BozukDegerTests(unittest.TestCase):
         b = temiz_belge()
         b["kontroller"]["pg_sequence_gorunurluk"] = {"durum": "ok", "satirlar": [{"toplam": 5, "okunamayan": 3}]}
         _, olcul = kurallar.degerlendir(b)
-        self.assertIn(("pg_sequence", "kismi_yetki"), olcul)
+        self.assertIn(("PG-CAP-002", "kismi_yetki"), olcul)
         b["kontroller"]["pg_sequence_gorunurluk"] = {"durum": "ok", "satirlar": [{"toplam": 5, "okunamayan": 0}]}
-        self.assertNotIn(("pg_sequence", "kismi_yetki"), kurallar.degerlendir(b)[1])
+        self.assertNotIn(("PG-CAP-002", "kismi_yetki"), kurallar.degerlendir(b)[1])
         html = rapor.sayfa({"belge": b | {"kontroller": dict(b["kontroller"], pg_sequence_gorunurluk={"durum": "ok", "satirlar": [{"toplam": 5, "okunamayan": 3}]})},
                             "bitis_utc": "2026-12-01T00:00:00Z", "dil": "tr"}, "tr", "t")
         self.assertIn("kısmen ölçüldü", html)
@@ -252,25 +255,27 @@ class VeritabaniKapsamTests(unittest.TestCase):
         b = temiz_belge()
         b["kontroller"]["pg_olu_satir"] = {"durum": "ok", "satirlar": [], "atlanan": [{"veritabani": "arsiv", "neden": "yetki"}]}
         _, olcul = kurallar.degerlendir(b)
-        self.assertIn(("pg_olu_satir", "kismi_veritabani"), olcul)
+        self.assertIn(("PG-MAINT-003", "kismi_veritabani"), olcul)
 
-    def test_ortak_atlanan_veritabani_her_denetimde_tekrarlanmaz(self):
+    def test_ortak_atlanan_veritabani_kurallari_bilinmiyor_yapar(self):
         b = temiz_belge()
         at = [{"veritabani": "arsiv", "neden": "yetki"}]
         b["kontroller"]["pg_kapsam"] = {"durum": "ok", "satirlar": [{"veritabani": "postgres", "veritabani_sayisi": 2}], "atlanan": list(at)}
         b["kontroller"]["pg_olu_satir"] = {"durum": "ok", "satirlar": [], "atlanan": list(at)}
         b["kontroller"]["pg_gecersiz_indeks"] = {"durum": "ok", "satirlar": [], "atlanan": at + [{"veritabani": "postgres", "neden": "yetki"}]}
         _, olcul = kurallar.degerlendir(b)
-        self.assertNotIn(("pg_olu_satir", "kismi_veritabani"), olcul)        # kapsam bolumunde yaziliyor
-        self.assertNotIn(("pg_kapsam", "kismi_veritabani"), olcul)
-        self.assertIn(("pg_gecersiz_indeks", "kismi_veritabani"), olcul)     # bu denetime ozgu atlama
+        # Taranmayan veritabani temiz sayilmaz: veritabani basina her kural bilinmiyor (atlananlar raporun kapsam
+        # bolumunde bir kez listelenir). Gecmis karsilastirmasinda kaybolan kanit cozulmus sayilmasin diye.
+        vt = [k.kimlik for k in kurallar.KURALLAR if any(katalog.PG_BY_ID.get(x.kontrol, {}).get("kapsam") == "veritabani" for x in k.kaynaklar)]
+        self.assertEqual(sorted(x for x in olcul if x[1] == "kismi_veritabani"), sorted((k, "kismi_veritabani") for k in vt))
+        self.assertEqual(len(olcul), len(vt))
 
     def test_okunamayan_sequence_veritabanlari_toplanir(self):
         b = temiz_belge()
         b["kontroller"]["pg_sequence_gorunurluk"] = {"durum": "ok", "satirlar": [
             self.satir("pg_sequence_gorunurluk", veritabani="a", toplam=3, okunamayan=0),
             self.satir("pg_sequence_gorunurluk", veritabani="b", toplam=2, okunamayan=1)]}
-        self.assertIn(("pg_sequence", "kismi_yetki"), kurallar.degerlendir(b)[1])
+        self.assertIn(("PG-CAP-002", "kismi_yetki"), kurallar.degerlendir(b)[1])
 
 
 SAHTE_PSQL_TOPLAYICI = r'''#!/usr/bin/env python3
@@ -459,14 +464,14 @@ class KuralTests(unittest.TestCase):
         d = temiz_belge()
         d["kontroller"]["pg_md5_roller"] = {"durum": "hata", "neden": "yetki"}
         b, o = kurallar.degerlendir(d)
-        self.assertEqual(o, [("pg_md5_roller", "yetki")])
+        self.assertEqual(o, [("PG-SEC-003", "yetki")])
         self.assertFalse(any(x["sablon"] == "pg_parola_md5" for x in b))
 
     def test_superuser_bulgusu(self):
         d = temiz_belge()
         d["superuser"] = True
         b, _ = kurallar.degerlendir(d)
-        self.assertTrue(any(x["sablon"] == "pg_super" for x in b))
+        self.assertTrue(any(x["sablon"] == "pg_tarama_super" for x in b))
 
     def test_surum_destek_sonu_yaklasiyor(self):
         d = temiz_belge()
@@ -538,9 +543,10 @@ class RaporTests(unittest.TestCase):
         d["kontroller"]["pg_md5_roller"] = {"durum": "hata", "neden": "yetki"}
         tr = rapor.sayfa(self._rapor(d), "tr", "T" * 43)
         en = rapor.sayfa(self._rapor(d, "en"), "en", "T" * 43)
-        self.assertIn("Ölçülemeyenler", tr)
-        self.assertIn("Not measured", en)
-        self.assertIn("pg_md5_roller", tr)
+        self.assertIn("Denetim sonuçları", tr)
+        self.assertIn("Check results", en)
+        self.assertIn("PG-SEC-003", tr)
+        self.assertIn("yetki yok", tr)
 
 
 class DepoTests(unittest.TestCase):
