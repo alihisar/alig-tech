@@ -1,66 +1,66 @@
-# alig.tech tasarım notları
+# alig.tech design notes
 
-## Referanslar (yalnızca ilke; hiçbir şey kopyalanmadı)
+## References (principles only; nothing was copied)
 
-Üç site incelendi. Not: sayfalar araçla işaretleme düzeyinde okundu, tarayıcıda
-render edilmiş hâli görülmedi; renk ve boşluk çıkarımları kesin değil.
+Three sites were examined. Note: the pages were read at the markup level with a tool,
+the rendered result was not seen in a browser; inferences about colour and spacing are not certain.
 
-| Site | Alınan ilke |
+| Site | Principle taken |
 | --- | --- |
-| Tailscale | Hero seyrek, gezinme ve alt bilgi yoğun. Tek doygun vurgu rengi, geri kalanı nötr. |
-| Linear | Pazarlama metni seyrek, ürün görüntüsü yoğun; yoğunluk bilinçli değişiyor. Vurgu rengi yalnızca durum göstergelerinde. |
-| PostgreSQL | İçerik aciliyet sırasıyla dizili, tarihler ve sürümler tek satırda, süs yok. Güveni sadelik veriyor. |
+| Tailscale | Sparse hero, dense navigation and footer. A single saturated accent colour, the rest neutral. |
+| Linear | Sparse marketing text, dense product imagery; the density changes deliberately. The accent colour only in status indicators. |
+| PostgreSQL | Content is ordered by urgency, dates and versions on a single line, no decoration. Trust comes from simplicity. |
 
-Çıkan sonuç: ürünü hemen göster (hero'da çalışan bir konsol), yoğunluğu
-yukarıdan aşağı artır, vurgu rengini anlama bağla.
+Resulting conclusion: show the product immediately (a working console in the hero), increase the density
+from top to bottom, tie the accent colour to meaning.
 
-## Tasarım planı (kodlamadan önce yazıldı, sonra gözden geçirildi)
+## Design plan (written before coding, reviewed afterwards)
 
-### İlk taslakta fark edilen ve değiştirilen varsayılanlar
+### Defaults noticed in the first draft and changed
 
-| İlk akla gelen | Neden değişti | Yerine |
+| What came to mind first | Why it changed | Instead |
 | --- | --- | --- |
-| Açık yön: krem zemin, yüksek kontrastlı serif, toprak rengi vurgu | Üretilmiş sitelerde en sık görülen kalıp | Soğuk beyaz zemin, lacivert mürekkep, vurgu yalnızca "insan onayı" anlamında |
-| Koyu yön: siyaha yakın zemin, tek parlak yeşil vurgu | Aynı şekilde kalıp | Lacivert-arduvaz zemin, aynı anlamsal kehribar |
-| Hero: büyük rakam + gradyan | Konuya özgü değil | Çalışan örnek küme: lideri durdur, ajanın bulgusunu ve hash zincirli kaydı izle |
-| Üç eşit kart ızgarası | Her içeriği aynı kalıba sokuyor | Satır ve tablolar; içerik neyse biçim o |
-| Küçük harfli etiket üstte, nokta ile ayrılmış meta, ok işareti | Şablon kalıbı | Kullanılmadı |
-| Her etikette monospace | Şablon kalıbı | Monospace yalnızca gerçek terminal çıktısında |
+| Light direction: cream background, high-contrast serif, earth-tone accent | The most common pattern in generated sites | Cool white background, navy ink, the accent only meaning "human approval" |
+| Dark direction: near-black background, a single bright green accent | A pattern in the same way | Navy-slate background, the same semantic amber |
+| Hero: a big number + gradient | Not specific to the subject | A working example cluster: stop the leader, watch the agent's finding and the hash-chained record |
+| A grid of three equal cards | Forces all content into the same mould | Rows and tables; the form is whatever the content is |
+| A small lowercase label above, dot-separated meta, an arrow mark | A template pattern | Not used |
+| Monospace on every label | A template pattern | Monospace only in real terminal output |
 
-### Ortak ilkeler
+### Shared principles
 
-- Kehribar (#f2b441) tek vurgu ve tek anlamı var: bir insanın karar vermesi
-  gerekiyor (onay düğmesi, akıştaki onay adımı, CTA). Başka yerde kullanılmaz.
-- Durum renkleri (yeşil/kırmızı) yalnızca konsol çıktısında, anlam taşıdığı yerde.
-- Bu sayfanın akılda kalacak tek öğesi hero konsolu. Geri kalanı sakin.
-- Hareket yalnızca kullanıcının eylemine yanıt: lideri durdurunca olay akışı
-  sırayla belirir. Kaydırınca beliren animasyon yok. `prefers-reduced-motion`
-  açıkken akış anında tamamlanır.
-- Gradyan, cam efekti, bulanıklık, gölge, emoji, büyük harf dönüşümü yok
-  (`ci/check_banned.py` bunları denetler).
-- Metin: ilk çoğul kişi, somut, kısa.
+- Amber (#f2b441) is the single accent and has a single meaning: a human
+  has to make a decision (an approval button, the approval step in the flow, the CTA). It is not used elsewhere.
+- Status colours (green/red) only in the console output, where they carry meaning.
+- The single memorable element of this page is the hero console. The rest is calm.
+- Motion only in response to the user's action: when the leader is stopped, the event flow
+  appears in order. There is no animation that appears on scrolling. With `prefers-reduced-motion`
+  on, the flow completes instantly.
+- No gradients, glass effects, blur, shadows, emoji or uppercase transformation
+  (`ci/check_banned.py` checks these).
+- Copy: first person plural, concrete, short.
 
-### Yön A: Konsol (koyu)
+### Direction A: Console (dark)
 
-- Renk: zemin #1b2433, yüzey #243044, çizgi #3a4a63, metin #e4e9f1,
-  ikincil metin #9aa8bf, vurgu #f2b441.
-- Yazı: Schibsted Grotesk (başlık ve gövde, tek aile), Red Hat Mono (yalnızca konsol).
-- Yerleşim: sola hizalı; hero'da metin solda, konsol sağda (5/7). Bölüm
-  başlıkları içeriğin üstünde. Hizmetler ve kademeler tablo satırı.
-- Köşe: 4 px düğme ve alan, 8 px konsol. Gölge yok.
+- Colour: background #1b2433, surface #243044, line #3a4a63, text #e4e9f1,
+  secondary text #9aa8bf, accent #f2b441.
+- Type: Schibsted Grotesk (headings and body, a single family), Red Hat Mono (console only).
+- Layout: left-aligned; in the hero, text on the left, console on the right (5/7). Section
+  headings above the content. Services and tiers as table rows.
+- Corners: 4 px for buttons and fields, 8 px for the console. No shadows.
 
-### Yön B: Rapor (açık)
+### Direction B: Report (light)
 
-- Renk: zemin #ffffff, mürekkep #16233b (lacivert), ikincil #4d5b73,
-  çizgi #cfd6e0, vurgu #f2b441 (zemin olarak, lacivert metinle).
-- Yazı: Source Serif 4 (başlık ve gövde), Red Hat Mono (yalnızca konsol).
-- Yerleşim: denetim raporu düzeni. Başlık tam genişlikte üstte, konsol altında
-  tam genişlikte bir "şekil". Bölüm başlıkları sol kenar sütununda (yapışkan),
-  içerik sağda. Bağlantılar lacivert, kehribar alt çizgili.
-- Köşe: yok, 1 px çizgi.
+- Colour: background #ffffff, ink #16233b (navy), secondary #4d5b73,
+  line #cfd6e0, accent #f2b441 (as a background, with navy text).
+- Type: Source Serif 4 (headings and body), Red Hat Mono (console only).
+- Layout: audit report layout. The heading on top at full width, the console below
+  at full width as a "figure". Section headings in a left margin column (sticky),
+  content on the right. Links navy, with an amber underline.
+- Corners: none, 1 px lines.
 
-## Logo ve favicon
+## Logo and favicon
 
-- Yazı logosu: "alig.tech", yönün kendi yazı tipiyle, tek ağırlık.
-- Favicon 1 (`site/assets/favicon.svg`): bir lider, iki yedek (küme).
-- Favicon 2 (`site/assets/favicon-alt.svg`): üç log satırı, ilki kehribar.
+- Wordmark: "alig.tech", in the direction's own typeface, a single weight.
+- Favicon 1 (`site/assets/favicon.svg`): one leader, two standbys (a cluster).
+- Favicon 2 (`site/assets/favicon-alt.svg`): three log lines, the first amber.

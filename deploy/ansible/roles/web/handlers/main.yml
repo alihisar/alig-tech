@@ -1,4 +1,4 @@
 ---
-- name: nginx yeniden yukle
+- name: nginx reload
   ansible.builtin.shell: nginx -t && systemctl reload nginx
   changed_when: true

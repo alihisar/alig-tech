@@ -1,11 +1,11 @@
 [Unit]
-Description=alig.tech giden e-posta (dogrulama baglantilari)
+Description=alig.tech outgoing e-mail (verification links)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-# Web surecleri aga cikmaz; iletileri tarama.sqlite giden kutusuna yazar, bu servis gonderir.
-# SMTP parolasi depoda tutulmaz: /etc/alig/env icine ALIG_SMTP_PAROLA=... olarak elle yazilir.
+# The web processes do not reach the network; they write messages to the tarama.sqlite outbox, and this service sends them.
+# The SMTP password is not kept in the repository: it is written by hand into /etc/alig/env as ALIG_SMTP_PAROLA=...
 User={{ servis_kullanici }}
 Group={{ servis_kullanici }}
 EnvironmentFile=/etc/alig/env
@@ -16,7 +16,7 @@ Environment=ALIG_EPOSTA_GONDEREN={{ eposta_gonderen }}
 ExecStart=/usr/bin/python3 {{ kok_dizin }}/current/tarama/posta.py --db {{ veri_dizini }}/tarama.sqlite --surekli
 Restart=on-failure
 RestartSec=10
-# sertlestirme
+# hardening
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths={{ veri_dizini }}
@@ -39,7 +39,7 @@ CapabilityBoundingSet=
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
-# Disariya yalniz SMTP icin baglanir; ic aga ve yerel adreslere baglanmasi gerekmez.
+# It connects outward only for SMTP; it does not need to connect to the internal network or local addresses.
 IPAddressDeny=localhost link-local multicast 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7
 UMask=0077
 

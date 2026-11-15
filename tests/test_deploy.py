@@ -405,7 +405,7 @@ class HazirlikTests(unittest.TestCase):
 
     def test_kontrol_listesi_yalniz_done_ya_da_not_tested(self):
         metin = (ROOT / "docs" / "canli-kontrol-listesi.md").read_text(encoding="utf-8")
-        satirlar = [x for x in metin.splitlines() if x.startswith("| ") and not x.startswith(("| Madde", "| ---"))]
+        satirlar = [x for x in metin.splitlines() if x.startswith("| ") and not x.startswith(("| Item", "| ---"))]
         self.assertGreater(len(satirlar), 20)
         for x in satirlar:
             durum = x.split("|")[2].strip()
@@ -510,7 +510,7 @@ class YapilandirmaTests(unittest.TestCase):
         self.assertIn("{% if musteri_portali %}", birim)
         self.assertIn("ALIG_PORTAL=1", birim)
         gorev = (self.SABLON / "servisler" / "tasks" / "main.yml").read_text()
-        self.assertIn("musteri_portali: true icin eposta_dogrulama: true olmali", gorev)
+        self.assertIn("for musteri_portali: true, eposta_dogrulama: true is required", gorev)
 
     def test_hsts_her_konumda(self):
         self.assertIn("Strict-Transport-Security", (self.SABLON / "web" / "templates" / "alig-basliklar.conf.j2").read_text())

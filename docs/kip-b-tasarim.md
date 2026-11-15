@@ -1,68 +1,68 @@
-# Kip B (doğrudan bağlantı): tasarım ve tehdit modeli
+# Mode B (direct connection, "Kip B"): design and threat model
 
-Durum: PostgreSQL için ilk dilim kodlandı, **varsayılan olarak kapalı** (`ALIG_DOGRUDAN=1` ile açılır). Canlıya alınmadı.
+Status: the first slice is coded for PostgreSQL and is **off by default** (enabled with `ALIG_DOGRUDAN=1`). It has not gone live.
 
-| Parça | Yer | Durum |
+| Part | Location | Status |
 | --- | --- | --- |
-| Hedef doğrulaması (iç ağa yönlendirme, DNS rebinding) | `tarama/hedef.py`, `tests/test_hedef.py` | Kodlandı |
-| Tarama (sahiplik kanıtı, süper kullanıcı reddi, TLS, sabit katalog) | `tarama/baglanti.py`, `tests/test_baglanti.py` | Kodlandı; gerçek PostgreSQL 16 + TLS ile elle sınandı |
-| İstek akışı ve sayfalar | `tarama/server.py` (`/api/tarama/baglan`), `tarama/hata.py` | Kodlandı |
-| Firma izni | Yönetim paneli, firma ayrıntısı: "Doğrudan bağlantı izni ver" | Kodlandı |
-| İstek listesi (panel, salt okuma) | `yonetim/server.py` `/yonetim/kip-b`, `tarama/depo.py` `istek_listele`, `tests/test_yonetim.py` `KipBPanelTests` | Kodlandı |
-| Sunucu sertifikası doğrulaması (`verify-full`, müşteri CA'sı) | `tarama/baglanti.py` `ca_dogrula`, `tests/test_baglanti.py`, `tests/test_baglanti_tls.py` | Kodlandı; PostgreSQL 16 + TLS ile sınandı |
-| Yanıt süresi sabitleme | `tarama/server.py` `SABIT_RED_SN`, `SABIT_BAGLANTI_SN` | Kodlandı; sahte saatle sınandı |
-| Müşteri kılavuzu | `site/pages/tarama-hazirlik.html`, `docs/runbook.md` | Yazıldı; sabit çıkış IP adresi `[doldurulacak]` |
-| Ayrı çalıştırıcı süreci ve systemd birimi | `tarama/calistirici.py`, `tests/test_calistirici.py`, `alig-calistirici.service.j2` | Kodlandı; gerçek sunucuda systemd altında sınanmadı |
-| SQL Server | yok | **Yazılmadı** (kanıt yöntemi belirsiz) |
+| Target validation (redirection to the internal network, DNS rebinding) | `tarama/hedef.py`, `tests/test_hedef.py` | Coded |
+| Scan (ownership proof, superuser rejection, TLS, fixed catalog) | `tarama/baglanti.py`, `tests/test_baglanti.py` | Coded; tried by hand with real PostgreSQL 16 + TLS |
+| Request flow and pages | `tarama/server.py` (`/api/tarama/baglan`), `tarama/hata.py` | Coded |
+| Company permission | Admin panel, company detail: "Doğrudan bağlantı izni ver" (grant direct connection permission) | Coded |
+| Request list (panel, read-only) | `yonetim/server.py` `/yonetim/kip-b`, `tarama/depo.py` `istek_listele`, `tests/test_yonetim.py` `KipBPanelTests` | Coded |
+| Server certificate verification (`verify-full`, customer CA) | `tarama/baglanti.py` `ca_dogrula`, `tests/test_baglanti.py`, `tests/test_baglanti_tls.py` | Coded; tested with PostgreSQL 16 + TLS |
+| Response time pinning | `tarama/server.py` `SABIT_RED_SN`, `SABIT_BAGLANTI_SN` | Coded; tested with a fake clock |
+| Customer guide | `site/pages/tarama-hazirlik.html`, `docs/runbook.md` | Written; the fixed egress IP address is `[doldurulacak]` (to be filled in) |
+| Separate runner process and systemd unit | `tarama/calistirici.py`, `tests/test_calistirici.py`, `alig-calistirici.service.j2` | Coded; not tested on a real server under systemd |
+| SQL Server | none | **Not written** (the proof method is unclear) |
 
-## Tasarımdan sapmalar ve açık kalanlar
+## Deviations from the design and what remains open
 
-- **Çalıştırıcı gerçek sunucuda denenmedi.** Tarama artık ayrı bir süreçte (`alig-calistirici`) koşar: ayrı kullanıcı, veri dizinine ve servis sırlarına erişim yok, iç ağ systemd düzeyinde de yasak. Web süreci parolayı yerel soketten bellekte iletir ve dışarıya bağlanamaz. Canlı başlatıcı (`tarama/server.py`) çalıştırıcı soketi olmadan özelliği açmaz. Birim dosyası, soket izinleri ve `SupplementaryGroups` ayarı gerçek bir systemd üzerinde sınanmadı; `ansible-lint` ve birim testleri geçti. İş kuyruğu yok: istek tarama bitene kadar açık kalır.
-- **E-posta doğrulaması yerine yönetici izni.** Gönderim yöntemi seçilmediği için firma kimliği e-postayla doğrulanmıyor. Onun yerine doğrudan bağlantı yalnızca yöneticinin panelden izin verdiği firmalara açık. İzinli bir firmanın e-posta adresini bilen biri onun adına istek açabilir; kendi yönetmediği bir veritabanını yine taratamaz (sahiplik kanıtı gerekir), ama firmanın tarama hakkını harcayabilir.
-- **Sunucu sertifikası doğrulaması isteğe bağlı.** Varsayılan (müşteri CA vermezse) değişmedi: `sslmode=require` ile şifreli, sertifika denetlenmez. `channel_binding=require` her durumda zorunlu: sunucu SCRAM-SHA-256 ile kimliğini TLS kanalına bağlamak zorunda, parola düz ya da MD5 ile gönderilmez ve araya giren biri kimlik doğrulamayı aktaramaz. Bedeli: `md5` ya da `password` yöntemiyle doğrulanan hesapla Kip B çalışmaz (hata sayfası SCRAM'ı söyler). Müşteri parola adımında kendi CA'sını PEM olarak yapıştırırsa `sslmode=verify-full` ve geçici `sslrootcert` kullanılır: PEM boyut (16 KiB), blok sayısı (5), karakter kümesi ve DER başlangıcı doğrulanır, özel anahtar ve ek metin reddedilir; dosya 0600 gecici dizinde durur ve iş bitince silinir; CA saklanmaz; geçersiz CA sessizce zayıf moda düşmez, hata verir ve deneme hakkı harcamaz. `sslrootcert` yolu da `GUVENLI_AD` benzeri kati kalıptan geçer. Eksik: CA'yı kalıcı saklayıp zamanlanmış taramada kullanma yok (parola da saklanmadığı için), sertifika iptal listesi (CRL) denetimi yok, PG18 sınanmadı.
-- **Hedef adresi saklanıyor.** Sunucu adı ve IP, istek kaydında en çok bir gün durur (taramayı çalıştırmak için gerekir). Denetim kaydına yalnızca özeti yazılır. Parola hiçbir yerde saklanmaz.
-- **Port tarama zamanlaması (kısmen kapatıldı).** Hata iletisi tek tiptir ve hedef reddi (iç adres, kötü ad ya da port, DNS hatası) en az 6 sn, bağlantı hatası (ulaşılamayan port, yanlış parola) en az 12 sn sonra aynı sayfayla yanıtlanır. Bunlar alt sınırdır: DNS çözümü ya da bağlantı bu süreyi aşarsa ek bekleme olmaz ve çok yavaş yanıt hâlâ ayırt edilir (çözücüye ayrı bir zaman aşımı konmadı). Sahiplik kanıtı hatası ve süper kullanıcı reddi bağlantı kurulduktan sonra oluştuğu için ayrı sayfa ve süre verir; bunları ancak geçerli parolayı bilen görür. Yalnızca izinli firmalar istek açabildiği ve saatte 5 istek sınırı olduğu için etkisi sınırlıdır. Bekleyen istek bir iş parçacığı tutar.
-- **Tarama eşzamanlıdır.** İstek, tarama bitene kadar (en çok yaklaşık 2 dakika) açık kalır. Aynı anda en çok iki tarama çalışır.
+- **The runner was not tried on a real server.** The scan now runs in a separate process (`alig-calistirici`): a separate user, no access to the data directory and the service secrets, and the internal network is also forbidden at the systemd level. The web process passes the password in memory over a local socket and cannot connect outward. The live launcher (`tarama/server.py`) does not enable the feature without the runner socket. The unit file, the socket permissions and the `SupplementaryGroups` setting have not been tested on a real systemd; `ansible-lint` and the unit tests passed. There is no job queue: the request stays open until the scan finishes.
+- **Administrator permission instead of e-mail verification.** Because a sending method has not been chosen, the company identity is not verified by e-mail. Instead, direct connection is open only to companies the administrator has permitted from the panel. Someone who knows the e-mail address of a permitted company can open a request in its name; they still cannot scan a database they do not manage (an ownership proof is required), but they can spend the company's scan allowance.
+- **Server certificate verification is optional.** The default (if the customer does not give a CA) is unchanged: encrypted with `sslmode=require`, the certificate is not checked. `channel_binding=require` is mandatory in every case: the server must bind its identity to the TLS channel with SCRAM-SHA-256, so the password is not sent in plain or with MD5 and a man in the middle cannot relay the authentication. The cost: Mode B does not work with an account authenticated by the `md5` or `password` method (the error page mentions SCRAM). If the customer pastes their own CA as PEM in the password step, `sslmode=verify-full` and a temporary `sslrootcert` are used: the PEM size (16 KiB), block count (5), character set and DER start are validated, a private key and extra text are rejected; the file sits in a 0600 temporary directory and is deleted when the job ends; the CA is not stored; an invalid CA does not silently fall to the weak mode, it gives an error and does not spend the attempt allowance. The `sslrootcert` path also goes through a strict pattern similar to `GUVENLI_AD`. Missing: storing the CA permanently and using it in a scheduled scan (the password is not stored either), certificate revocation list (CRL) checking, and PG18 was not tested.
+- **The target address is stored.** The server name and IP stay in the request record for at most one day (needed to run the scan). Only its digest is written to the audit record. The password is stored nowhere.
+- **Port scan timing (partly closed).** The error message is uniform, and a target rejection (internal address, bad name or port, DNS error) is answered after at least 6 s and a connection error (unreachable port, wrong password) after at least 12 s with the same page. These are lower bounds: if DNS resolution or the connection exceeds this time there is no extra wait and a very slow response can still be distinguished (a separate timeout was not placed on the resolver). The ownership proof error and the superuser rejection occur after the connection is established, so they give a separate page and duration; only someone who knows a valid password sees them. Since only permitted companies can open requests and there is a limit of 5 requests per hour, the effect is limited. A waiting request holds a thread.
+- **The scan is synchronous.** The request stays open until the scan finishes (about 2 minutes at most). At most two scans run at the same time.
 
-## Kip A ile farkı
+## Difference from Mode A
 
-Kip A'da müşteri betiği kendi ağında çalıştırır, alig.tech hiçbir veritabanına bağlanmaz. Kip B'de müşteri bağlantı bilgisi verir ve tarama alig.tech sunucusundan çalışır. Bu, iki yeni risk getirir: sunucumuz dışarıya bağlantı açan bir araca dönüşür ve müşterinin kimlik bilgisi bir süre bizde durur.
+In Mode A the customer runs the script on their own network and alig.tech does not connect to any database. In Mode B the customer gives the connection details and the scan runs from the alig.tech server. This brings two new risks: our server turns into a tool that opens connections outward, and the customer's credential sits with us for a while.
 
-## Önerilen akış
+## Proposed flow
 
-1. Müşteri firma kaydıyla giriş yapar (e-posta doğrulaması zorunlu; bugün yok).
-2. Sunucu adresi, port, veritabanı ve tarama hesabının adını yazar. Parola en son adımda, tek seferlik istenir.
-3. Sunucu adresi doğrulanır (aşağıdaki SSRF önlemleri) ve müşteriye bir sahiplik kanıtı görevi verilir.
-4. Kanıt doğrulanınca tarama, web sürecinden ayrı bir çalıştırıcıda Kip A ile aynı sabit sorgu kataloğuyla çalışır.
-5. Parola taramadan hemen sonra bellekten silinir, diske yazılmaz. Rapor Kip A ile aynı yoldan üretilir.
+1. The customer logs in with a company record (e-mail verification mandatory; none today).
+2. They enter the server address, port, database and the name of the scan account. The password is requested at the last step, once.
+3. The server address is validated (the SSRF measures below) and the customer is given an ownership proof task.
+4. When the proof is verified, the scan runs in a runner separate from the web process, with the same fixed query catalog as Mode A.
+5. The password is erased from memory right after the scan and is not written to disk. The report is produced by the same path as Mode A.
 
-## Tehdit modeli
+## Threat model
 
-| Tehdit | Önlem | Sınama |
+| Threat | Measure | Test |
 | --- | --- | --- |
-| SSRF: müşteri iç ağımızdaki ya da bulut meta veri servisindeki bir adresi yazar | Ad çözülür, çıkan **her** adres denetlenir: özel (RFC 1918), geri döngü, bağlantı-yerel, CGNAT, çok noktaya yayın, IPv6 eşdeğerleri ve kendi adres aralığımız reddedilir. Yalnızca izinli portlar (varsayılan 5432, 1433 ve müşterinin yazdığı 1024 üstü port) | `test_ic_ve_ozel_adresler_reddedilir`, `test_ipv4_tasiyan_ipv6_bicimleri_reddedilir`, `test_alisilmadik_sayisal_yazimlar_reddedilir`, `test_portlar` |
-| DNS rebinding: ad denetimde açık adrese, bağlantıda iç adrese çözülür | Ad bir kez çözülür, bağlantı **çözülen IP'ye** açılır; TLS sunucu adı ayrıca verilir. Yeniden çözümleme yok | `test_rebinding_ikinci_cozumleme_olmaz`, `test_bir_kayit_bile_icse_tumu_reddedilir` |
-| Yönlendirme ve vekil üzerinden atlatma | Yalnızca ham TCP üzerinden veritabanı protokolü; HTTP istemcisi kullanılmaz, ortam vekil değişkenleri yok sayılır | Çalıştırıcı ortamının denetimi |
-| Başkasının veritabanını taratma | Sahiplik kanıtı: müşteri, tarama hesabına bizim verdiğimiz rastgele değeri taşıyan bir yorum ekler (`COMMENT ON ROLE alig_hc IS 'alig-kanit-<rastgele>'`); tarama önce bunu okur, uyuşmazsa hiçbir sorgu çalışmaz | Kanıtsız ve yanlış kanıtlı bağlantı testleri |
-| Port tarama ve hizmet keşfi aracı olarak kötüye kullanım | Hata iletisi tek tiptir ("bağlanılamadı") ve süre alt sınıra sabitlenir (6 sn hedef reddi, 12 sn bağlantı hatası); firma başına ve hedef başına deneme sınırı; yalnızca izinli firma | Sahte saatli süre ve ileti testleri (`test_hedef_red_nedenleri_ayni_sure_ve_govde`, `test_baglanti_hatalari_ayni_sure_ve_govde`) |
-| Parolanın sızması | Parola yalnızca bellekte, tek tarama boyunca; günlüklere, denetim kaydına, hata iletilerine ve süreç argümanlarına girmez. İstek gövdesi günlüklenmez | Günlük ve denetim kaydında parola araması yapan test |
-| Parolanın ağda okunması | Bağlantı TLS ister (`sslmode=require` en az, `channel_binding=require`). Sertifika doğrulaması müşteri CA'sı verirse `verify-full` | `test_baglanti_tls.py` (PG16: doğru CA başarılı, yabancı CA ve uyuşmayan ad başarısız), CA PEM ve `sslrootcert` kaçış testleri |
-| Müşteri veritabanında yazma ya da uzun kilit | Kip A ile aynı: sabit katalog, salt okunur oturum, 15 sn sorgu ve 2 sn kilit sınırı, tek bağlantı. Süper kullanıcıyla tarama reddedilir (Kip A'da yalnızca uyarılıyor) | Mevcut katalog testleri ve süper kullanıcı reddi testi |
-| Kötü niyetli sunucunun bize zarar vermesi | Sunucudan gelen her değer Kip A'daki yükleme doğrulamasından geçer (katı şema, boyut ve tür sınırı). Çalıştırıcı ayrı kullanıcı, ayrı systemd birimi, dosya sistemine yazma yok, toplam süre ve yanıt boyutu sınırlı | Dev yanıt ve bozuk tür testleri |
-| Çalıştırıcının ele geçirilmesi | Çalıştırıcı web sürecinden ve veritabanlarımızdan ayrıdır; iş kuyruğundan yalnızca iş okur, sonucu doğrulanmış JSON olarak geri yazar | Birim dosyası sertleştirme denetimi |
-| Hizmet engelleme | Aynı anda sınırlı sayıda tarama, firma başına günlük sınır, kuyruk uzunluğu sınırı | Sınır testleri |
-| İnkâr ve iz | Kim, ne zaman, hangi hedef özetine (adresin SHA-256'sı) tarama başlattı denetim zincirine yazılır; adresin kendisi ve parola yazılmaz | Zincir testi |
+| SSRF: the customer enters an address in our internal network or on the cloud metadata service | The name is resolved and **every** resulting address is checked: private (RFC 1918), loopback, link-local, CGNAT, multicast, IPv6 equivalents and our own address range are rejected. Only allowed ports (default 5432, 1433 and a port above 1024 entered by the customer) | `test_ic_ve_ozel_adresler_reddedilir`, `test_ipv4_tasiyan_ipv6_bicimleri_reddedilir`, `test_alisilmadik_sayisal_yazimlar_reddedilir`, `test_portlar` |
+| DNS rebinding: the name resolves to a public address at check time and to an internal address at connection time | The name is resolved once and the connection is opened **to the resolved IP**; the TLS server name is given separately. No re-resolution | `test_rebinding_ikinci_cozumleme_olmaz`, `test_bir_kayit_bile_icse_tumu_reddedilir` |
+| Bypass through redirects and proxies | Only the database protocol over raw TCP; no HTTP client is used, environment proxy variables are ignored | Check of the runner environment |
+| Scanning someone else's database | Ownership proof: the customer adds a comment carrying a random value we give to the scan account (`COMMENT ON ROLE alig_hc IS 'alig-kanit-<random>'`); the scan reads this first and if it does not match no query runs | Tests for connections without proof and with wrong proof |
+| Abuse as a port scanning and service discovery tool | The error message is uniform ("could not connect") and the duration is pinned to a lower bound (6 s target rejection, 12 s connection error); a per-company and per-target attempt limit; only permitted companies | Tests of duration and message with a fake clock (`test_hedef_red_nedenleri_ayni_sure_ve_govde`, `test_baglanti_hatalari_ayni_sure_ve_govde`) |
+| Password leak | The password lives only in memory, for a single scan; it does not enter logs, the audit record, error messages or process arguments. The request body is not logged | A test that searches the log and the audit record for the password |
+| Password read on the network | The connection requires TLS (at least `sslmode=require`, `channel_binding=require`). If the customer gives a CA, certificate verification is `verify-full` | `test_baglanti_tls.py` (PG16: the correct CA succeeds, a foreign CA and a mismatched name fail), CA PEM and `sslrootcert` escaping tests |
+| Writes or long locks on the customer database | Same as Mode A: fixed catalog, read-only session, 15 s query and 2 s lock limit, a single connection. A scan with a superuser is rejected (only a warning in Mode A) | Existing catalog tests and the superuser rejection test |
+| A malicious server harming us | Every value coming from the server goes through the same upload validation as Mode A (strict schema, size and type limits). The runner has a separate user, a separate systemd unit, no filesystem writes, and limited total time and response size | Tests for huge responses and malformed types |
+| Compromise of the runner | The runner is separate from the web process and our databases; it only reads jobs from the job queue and writes the result back as validated JSON | Hardening check of the unit file |
+| Denial of service | A limited number of concurrent scans, a daily per-company limit, a queue length limit | Limit tests |
+| Repudiation and traceability | Who started a scan, when, and for which target digest (SHA-256 of the address) is written to the audit chain; the address itself and the password are not written | Chain test |
 
-## Bilinen sınırlar
+## Known limits
 
-- Müşteri veritabanını internete açmak zorunda kalır ya da çıkış adresimize izin verir. Çoğu kurum için Kip A daha uygundur; Kip B küçük ekipler içindir.
-- Sahiplik kanıtı, tarama hesabında yorum yazabilen birinin onayını gösterir; kurumun onayını göstermez. Sözleşme ve yetki beyanı yine gerekir.
-- SQL Server için eşdeğer kanıt yöntemi belirlenmedi (giriş üzerinde yorum yok).
+- The customer has to expose their database to the internet or allow our egress address. For most organisations Mode A is more suitable; Mode B is for small teams.
+- The ownership proof shows the approval of someone who can write a comment on the scan account; it does not show the approval of the organisation. A contract and an authority declaration are still needed.
+- An equivalent proof method for SQL Server has not been determined (there is no comment on a login).
 
-## Karar bekleyenler
+## Pending decisions
 
-1. ~~Kip B yapılacak mı?~~ Yanıt: evet, ilk dilim kodlandı (kapalı).
-2. **Sabit çıkış IP adresi:** Müşterinin güvenlik duvarında izin verebilmesi için gerekir; barındırma seçimine bağlı.
-3. **E-posta gönderim yöntemi:** Firma doğrulaması olmadan Kip B açılmaz.
-4. ~~Parola saklanacak mı?~~ Uygulanan: saklanmaz, her taramada yeniden sorulur. Zamanlanmış tarama istenirse şifreli saklama ve anahtar yönetimi ayrı bir tasarım ister.
-5. **Hukuki metin:** Müşterinin bize bağlantı yetkisi verdiğini gösteren onay metni.
+1. ~~Will Mode B be built?~~ Answer: yes, the first slice is coded (off).
+2. **Fixed egress IP address:** Needed so the customer can allow it in their firewall; depends on the hosting choice.
+3. **E-mail sending method:** Mode B is not opened without company verification.
+4. ~~Will the password be stored?~~ Implemented: it is not stored, it is asked again on each scan. If a scheduled scan is wanted, encrypted storage and key management need a separate design.
+5. **Legal text:** The consent text showing that the customer gave us authority to connect.

@@ -1,4 +1,4 @@
 ---
-- name: systemd yeniden yukle
+- name: systemd reload
   ansible.builtin.systemd:
     daemon_reload: true

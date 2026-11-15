@@ -811,7 +811,7 @@ class SurecDepoTests(unittest.TestCase):
     def test_saklama_politikasi_notun_firmayla_silindigini_yazar(self):
         from tarama import saklama
         self.assertIn("ticari surec", saklama.SINIFLAR["firma"][3])
-        self.assertIn("süreç", (ROOT / "docs" / "saklama-politikasi.md").read_text(encoding="utf-8"))
+        self.assertIn("business process", (ROOT / "docs" / "saklama-politikasi.md").read_text(encoding="utf-8"))
 
 
 class SurecPanelTests(Taban):

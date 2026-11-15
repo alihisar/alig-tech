@@ -1,44 +1,44 @@
-# SQL Server sağlık taraması (ön sürüm)
+# SQL Server health scan (preview)
 
-Durum: kod ve testler hazır, **gerçek bir SQL Server üzerinde sınanmadı**. Bu yüzden genel sayfada yayımlanmaz ve sunucu bu dosyaları yalnızca açıkça etkinleştirilirse kabul eder.
+Status: the code and tests are ready, **not tested on a real SQL Server**. For this reason it is not published on the public page, and the server accepts these files only if explicitly enabled.
 
-## Neler var
+## What exists
 
-| Parça | Yer |
+| Part | Location |
 | --- | --- |
-| Sorgu kataloğu (14 denetim, yalnızca `SELECT`) | `tarama/katalog.py` içinde `MSSQL` |
-| Toplayıcı betik (`sqlcmd` kullanır) | `tarama/onsurum/alig-toplayici-mssql.py` (şablon: `tarama/toplayici/sablon_mssql.py`) |
-| Çalışan sorguların listesi | `tarama/onsurum/sorgu-katalogu-mssql.txt` |
-| Tarama girişi açma ve kaldırma | `tarama/onsurum/alig-giris-mssql.sql`, `alig-giris-mssql-kaldir.sql` |
-| Kurallar ve bulgu metinleri (TR, EN) | `tarama/kurallar_mssql.py` |
-| Testler (sahte `sqlcmd` ile) | `tests/test_mssql.py` |
+| Query catalog (14 checks, `SELECT` only) | `MSSQL` in `tarama/katalog.py` |
+| Collector script (uses `sqlcmd`) | `tarama/onsurum/alig-toplayici-mssql.py` (template: `tarama/toplayici/sablon_mssql.py`) |
+| List of the queries that run | `tarama/onsurum/sorgu-katalogu-mssql.txt` |
+| Creating and removing the scan login | `tarama/onsurum/alig-giris-mssql.sql`, `alig-giris-mssql-kaldir.sql` |
+| Rules and finding texts (TR, EN) | `tarama/kurallar_mssql.py` |
+| Tests (with a fake `sqlcmd`) | `tests/test_mssql.py` |
 
-## Gereksinimler
+## Requirements
 
-- SQL Server 2016 ya da üstü (`FOR JSON` gerekir).
-- `sqlcmd` istemcisi ve Python 3.9 ya da üstü.
-- Yalnızca `VIEW SERVER STATE` ve `VIEW ANY DEFINITION` yetkili `alig_hc` girişi. Hiçbir veritabanında kullanıcı açılmaz.
+- SQL Server 2016 or later (`FOR JSON` is required).
+- The `sqlcmd` client and Python 3.9 or later.
+- An `alig_hc` login with only `VIEW SERVER STATE` and `VIEW ANY DEFINITION` privileges. No user is created in any database.
 
-## Gerçek sunucuda sınama adımları
+## Steps for testing on a real server
 
-1. Girişi açın (parola ortam değişkeninden okunur, komut satırına yazılmaz):
-   `export ALIG_PAROLA='...' ; sqlcmd -S <sunucu> -E -i tarama/onsurum/alig-giris-mssql.sql`
-2. Betiği çalıştırın:
-   `SQLCMDPASSWORD='...' python3 tarama/onsurum/alig-toplayici-mssql.py --sunucu <sunucu>,1433 --kullanici alig_hc --sifrele --maskele`
-3. Ekrandaki listede her denetimin `ok` ya da `ATLANDI (neden)` olduğuna bakın. `ATLANDI (desteklenmiyor)` ya da `ATLANDI (hata)` görülen her denetim bir düzeltme adayıdır.
-4. `alig-toplama-mssql.json` dosyasını açıp değerlerin sunucudaki gerçek durumla uyuştuğunu denetleyin.
-5. Yerelde `python3 yerel.py` çalıştırıp dosyayı tarama sayfasından yükleyin (yerelde SQL Server açıktır) ve raporu okuyun.
-6. Girişi kaldırın: `sqlcmd -S <sunucu> -E -i tarama/onsurum/alig-giris-mssql-kaldir.sql`
+1. Create the login (the password is read from an environment variable, not written on the command line):
+   `export ALIG_PAROLA='...' ; sqlcmd -S <server> -E -i tarama/onsurum/alig-giris-mssql.sql`
+2. Run the script:
+   `SQLCMDPASSWORD='...' python3 tarama/onsurum/alig-toplayici-mssql.py --sunucu <server>,1433 --kullanici alig_hc --sifrele --maskele`
+3. In the list on the screen, check that each check is `ok` or `ATLANDI (reason)` (skipped). Every check showing `ATLANDI (desteklenmiyor)` (unsupported) or `ATLANDI (hata)` (error) is a candidate for a fix.
+4. Open the `alig-toplama-mssql.json` file and check that the values match the real state on the server.
+5. Run `python3 yerel.py` locally and upload the file from the scan page (SQL Server is enabled locally) and read the report.
+6. Remove the login: `sqlcmd -S <server> -E -i tarama/onsurum/alig-giris-mssql-kaldir.sql`
 
-## Sınanması gereken belirsizlikler
+## Uncertainties that must be tested
 
-- `sqlcmd` çıktısı: betik `-y 0` kullanır ve çıktıda ilk `[` ile son `]` arasını JSON sayar. ODBC tabanlı `sqlcmd` ile yeni `go-sqlcmd` aynı davranmayabilir.
-- `msdb.dbo.backupset` okuması: giriş `msdb` içinde yalnızca `guest` üzerinden okur. Sıkılaştırılmış sunucularda `yetki` hatası verebilir.
-- Yedek başka bir replikada alınıyorsa `ms_yedek` yanlış alarm üretir.
-- `LastGoodCheckDbTime` özelliği olmayan yapılarda `ms_checkdb` boş döner ve bulgu üretmez.
-- `ms_sifreleme` yalnızca tarama anındaki TCP bağlantılarına bakar.
-- Azure SQL Database ve Managed Instance için sürüm kuralı atlanır; diğer denetimler bu ortamlarda denenmedi.
+- `sqlcmd` output: the script uses `-y 0` and counts what is between the first `[` and the last `]` in the output as JSON. The ODBC-based `sqlcmd` and the new `go-sqlcmd` may not behave the same.
+- Reading `msdb.dbo.backupset`: the login reads in `msdb` only through `guest`. On hardened servers it may give a `yetki` (privilege) error.
+- If backups are taken on another replica, `ms_yedek` produces a false alarm.
+- In builds without the `LastGoodCheckDbTime` property, `ms_checkdb` returns empty and produces no finding.
+- `ms_sifreleme` looks only at the TCP connections at the moment of the scan.
+- For Azure SQL Database and Managed Instance the version rule is skipped; the other checks were not tried in these environments.
 
-## Canlıda açma
+## Turning it on in production
 
-Sınama tamamlanınca: tarama servisinde `ALIG_MSSQL=1` ortam değişkeni, ardından betiğin ve giriş dosyalarının `site/assets` altına taşınması, tarama ve hazırlık sayfalarına SQL Server adımlarının eklenmesi. Bunlar bilerek yapılmadı.
+When testing is complete: the `ALIG_MSSQL=1` environment variable on the scan service, then moving the script and the login files under `site/assets`, and adding the SQL Server steps to the scan and preparation pages. These were deliberately not done.

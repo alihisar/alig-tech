@@ -1,29 +1,29 @@
-# Veri sınıfları ve saklama politikası
+# Data classes and retention policy
 
-Kaynak: `tarama/saklama.py` (tek yer). Süreler ortamdan ayarlanır: `ALIG_SAKLAMA_<SINIF>_GUN` (`/etc/alig/env`). `0` ya da `suresiz` yalnız suresiz seçilebilen sınıflarda geçerlidir; geçersiz değerde servisler ve bakım işi açık hata ile durur, sessizce varsayılana dönmez.
+Source: `tarama/saklama.py` (the single place). The periods are set from the environment: `ALIG_SAKLAMA_<CLASS>_GUN` (`/etc/alig/env`). `0` or `suresiz` (indefinite) is valid only for classes that can be set to indefinite; with an invalid value the services and the maintenance job stop with an explicit error and do not silently fall back to the default.
 
-**Varsayılan süreler hukuken onaylanmış değerler değildir.** Hukuk onayı gelene kadar taslaktır `[doldurulacak: saklama sürelerinin hukuki onayı]`.
+**The default periods are not legally approved values.** Until legal approval arrives they are a draft `[doldurulacak: saklama sürelerinin hukuki onayı]` (to be filled in: legal approval of the retention periods).
 
-| Sınıf | Varsayılan | Nerede | Ne zaman silinir |
+| Class | Default | Where | When it is deleted |
 | --- | --- | --- | --- |
-| `rapor` | 30 gün | tarama.sqlite | Oluşturulurken bitiş tarihi yazılır; günlük bakım ve müşteri/yönetici silme düğmesi siler |
-| `baglanti_istegi` | 1 gün | tarama.sqlite | Süresi dolan Kip B isteği (parola hiç saklanmaz) |
-| `firma` | 365 gün | tarama.sqlite | Son etkinlikten sonra ve etkin raporu yoksa; silme `sistem` olarak denetime yazılır, firma adı ve e-postası denetime yazılmaz. Ticari süreç durumu ve notu (yönetim paneli) firma satırında durur ve firma kaydıyla birlikte silinir (elle silme ve saklama süresi); not kişisel veri içerebilir, denetim zincirine yazılmaz |
-| `talep` | 365 gün | form.sqlite, yonetim.sqlite | Oluşturulmasından sonra; durum notları da silinir, işlem yönetim zincirine yazılır |
-| `denetim` | süresiz | tüm zincirler | Silinmez: silme zinciri bozar. Zincir başı dışa aktarılarak korunur (`docs/runbook.md`) |
+| `rapor` (report) | 30 days | tarama.sqlite | The end date is written at creation; the daily maintenance and the customer/administrator delete button delete it |
+| `baglanti_istegi` (connection request) | 1 day | tarama.sqlite | A Mode B request whose time has expired (the password is never stored) |
+| `firma` (company) | 365 days | tarama.sqlite | After the last activity and if it has no active report; the deletion is written to the audit as `sistem` (system), the company name and e-mail are not written to the audit. The business process status and note (admin panel) stay in the company row and are deleted together with the company record (manual deletion and retention period); the note may contain personal data and is not written to the audit chain |
+| `talep` (request) | 365 days | form.sqlite, yonetim.sqlite | After its creation; status notes are deleted too, the action is written to the admin chain |
+| `denetim` (audit) | indefinite | all chains | It is not deleted: deletion breaks the chain. It is protected by exporting the chain head (`docs/runbook.md`) |
 
-Geçmiş karşılaştırması (`tarama/gecmis.py`) yeni veri saklamaz: yalnız saklama süresi dolmamış raporları okur. Rapor silinince ya da süresi dolunca o tarama karşılaştırmaya da girmez. Daha uzun geçmiş için özet saklama ayrı bir veri sınıfı ve hukuk onayı ister `[doldurulacak: karşılaştırma özeti saklama kararı]`.
+History comparison (`tarama/gecmis.py`) does not store new data: it only reads reports whose retention period has not expired. When a report is deleted or expires, that scan also drops out of the comparison. For a longer history, keeping a summary is a separate data class and needs legal approval `[doldurulacak: karşılaştırma özeti saklama kararı]` (to be filled in: decision to keep the comparison summary).
 
-Müşteri portalı (`ALIG_PORTAL`, varsayılan kapalı) yeni veri sınıfı ekler: portal hesabı (e-posta, scrypt parola özeti, dil). Hesap, firma silinince (yukarıdaki `firma` süresi) birlikte silinir; doğrulanmamış hesap isteği ve doğrulama kodu 24 saatte, oturum bostayken 30 dakikada (en çok 8 saat), giriş denemesi 1 günde silinir (`tarama/portal_depo.py`, günlük bakımda `temizle`). Hizmet talebi (konu, mesaj) ve hesap/veri silme talebi de portal hesabıyla birlikte, firma silinince silinir. Kullanıcı silme talebini portaldan kaydeder; kimlik doğrulaması ve silme yönetici işlemidir (panelde Portal talepleri, ardından firma sayfasında Firmayı sil) ve denetim zincirine yazılır; talep içeriği zincire yazılmaz. Hesapların ayrı bir saklama süresi hukuk onayı ister `[doldurulacak: portal hesabı saklama süresi]`.
+The customer portal (`ALIG_PORTAL`, off by default) adds a new data class: the portal account (e-mail, scrypt password digest, language). The account is deleted together with the company when the company is deleted (the `firma` period above); an unverified account request and verification code are deleted after 24 hours, a session after 30 minutes when idle (at most 8 hours), a login attempt after 1 day (`tarama/portal_depo.py`, `temizle` in the daily maintenance). A service request (subject, message) and an account/data deletion request are also deleted together with the portal account, when the company is deleted. The user records the deletion request from the portal; identity verification and deletion are an administrator action (Portal talepleri in the panel, then Firmayı sil on the company page) and are written to the audit chain; the content of the request is not written to the chain. A separate retention period for accounts needs legal approval `[doldurulacak: portal hesabı saklama süresi]` (to be filled in: portal account retention period).
 
-Sabit kalanlar: sınır penceresi 30 gün (iş kuralı, `depo.SINIR_GUN`); yönetim oturumu kullanım süresine göre dolar, parola değişince silinir.
+What stays fixed: the limit window is 30 days (a business rule, `depo.SINIR_GUN`); an admin session expires by usage time and is deleted when the password changes.
 
-Silme günlük bakım işinde (`deploy/bakim.py`) çalışır; yedekten önce yapılır.
+Deletion runs in the daily maintenance job (`deploy/bakim.py`); it is done before the backup.
 
-## Yedeklerden silme
+## Deletion from backups
 
-Silinen veri, silme anından önce alınmış yedeklerde durur. Yedekler 14 adet tutulur (günlük yedekte yaklaşık 14 gün), eski yedekler otomatik silinir. Yani bir kayıt, saklama süresi artı en fazla yaklaşık 14 gün sonra yedeklerden de kaybolur. Bunun müşteriye söylenecek hâli ve yedeklerin uzak kopyası için ayrı süre `[doldurulacak: uzak yedek hedefi ve süresi]` kararı bekliyor. Silme talebi geldiğinde yedeklerdeki kopya için ayrıca işlem yapılmaz; yedeklerin sona ermesi beklenir. Bu, aydınlatma metninde yazılmalıdır.
+Deleted data stays in backups taken before the moment of deletion. 14 backups are kept (about 14 days with daily backups), and old backups are deleted automatically. So a record also disappears from the backups after the retention period plus at most about 14 days. How this is to be told to the customer, and a separate period for the remote copy of the backups, await a decision `[doldurulacak: uzak yedek hedefi ve süresi]` (to be filled in: remote backup target and period). When a deletion request arrives, no separate action is taken for the copy in the backups; the backups are allowed to expire. This must be stated in the privacy notice.
 
-## Doğrulama
+## Verification
 
-Testler: `tests/test_deploy.py` (`SaklamaTests`). Gerçek sunucuda zamanlanmış bakım çalıştırılmadı; yalnız birim testleri ve geçici dizinde bakım betiği denendi.
+Tests: `tests/test_deploy.py` (`SaklamaTests`). The scheduled maintenance was not run on a real server; only unit tests and the maintenance script in a temporary directory were tried.

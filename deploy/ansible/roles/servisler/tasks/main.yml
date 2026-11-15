@@ -1,12 +1,12 @@
 ---
-- name: Servis kullanicisi
+- name: Service user
   ansible.builtin.user:
     name: "{{ servis_kullanici }}"
     system: true
     shell: /usr/sbin/nologin
     create_home: false
 
-- name: Dizinler
+- name: Directories
   ansible.builtin.file:
     path: "{{ item.yol }}"
     state: directory
@@ -21,25 +21,25 @@
     - { yol: "{{ yedek_dizini }}", sahip: "{{ servis_kullanici }}", grup: "{{ servis_kullanici }}", mod: "0700" }
     - { yol: /etc/alig, sahip: root, grup: "{{ servis_kullanici }}", mod: "0750" }
 
-- name: Gizli tuz (yalniz ilk kurulumda uretilir, depoya girmez)
+- name: Secret salt (generated only on first installation, does not enter the repository)
   ansible.builtin.shell: |
     umask 077
     printf 'ALIG_FORM_SALT=%s\n' "$(openssl rand -hex 32)" > /etc/alig/env
   args:
     creates: /etc/alig/env
-- name: Denetim zinciri anahtari (yoksa eklenir, mevcut anahtar degismez)
+- name: Audit chain key (added if missing, an existing key does not change)
   ansible.builtin.shell: |
     umask 077
     grep -q '^ALIG_DENETIM_ANAHTARI=' /etc/alig/env || printf 'ALIG_DENETIM_ANAHTARI=%s\n' "$(openssl rand -hex 32)" >> /etc/alig/env
   changed_when: false
-- name: Ortam dosyasi izinleri
+- name: Environment file permissions
   ansible.builtin.file:
     path: /etc/alig/env
     owner: root
     group: "{{ servis_kullanici }}"
     mode: "0640"
 
-- name: systemd birimleri
+- name: systemd units
   ansible.builtin.template:
     src: "{{ item }}.j2"
     dest: "/etc/systemd/system/{{ item }}"
@@ -52,9 +52,9 @@
     - alig-bakim.timer
     - alig-izleme.service
     - alig-izleme.timer
-  notify: systemd yeniden yukle
+  notify: systemd reload
 
-- name: Calistirici kullanicisi (Kip B)
+- name: Runner user (Mode B)
   ansible.builtin.user:
     name: "{{ calistirici_kullanici }}"
     system: true
@@ -62,69 +62,69 @@
     create_home: false
   when: dogrudan_baglanti
 
-- name: Calistirici birimi (Kip B)
+- name: Runner unit (Mode B)
   ansible.builtin.template:
     src: alig-calistirici.service.j2
     dest: /etc/systemd/system/alig-calistirici.service
     mode: "0644"
   when: dogrudan_baglanti
-  notify: systemd yeniden yukle
+  notify: systemd reload
 
-- name: Kip B kapaliyken calistirici birimi kaldirilir
+- name: While Mode B is off, the runner unit is removed
   ansible.builtin.file:
     path: /etc/systemd/system/alig-calistirici.service
     state: absent
   when: not dogrudan_baglanti
-  notify: systemd yeniden yukle
+  notify: systemd reload
 
-- name: E-posta dogrulamasi ayarlari eksiksiz
+- name: E-mail verification settings are complete
   ansible.builtin.assert:
     that:
       - smtp_sunucu | length > 0
       - "'@' in eposta_gonderen"
-    fail_msg: "eposta_dogrulama: true icin smtp_sunucu ve eposta_gonderen doldurulmali"
+    fail_msg: "for eposta_dogrulama: true, smtp_sunucu and eposta_gonderen must be filled in"
   when: eposta_dogrulama
 
-- name: Musteri portali yalniz e-posta dogrulamasiyla acilir
+- name: The customer portal opens only together with e-mail verification
   ansible.builtin.assert:
     that:
       - eposta_dogrulama
-    fail_msg: "musteri_portali: true icin eposta_dogrulama: true olmali"
+    fail_msg: "for musteri_portali: true, eposta_dogrulama: true is required"
   when: musteri_portali
 
-- name: Posta birimi (e-posta dogrulamasi)
+- name: Mail unit (e-mail verification)
   ansible.builtin.template:
     src: alig-posta.service.j2
     dest: /etc/systemd/system/alig-posta.service
     mode: "0644"
   when: eposta_dogrulama
-  notify: systemd yeniden yukle
+  notify: systemd reload
 
-- name: E-posta dogrulamasi kapaliyken posta birimi kaldirilir
+- name: While e-mail verification is off, the mail unit is removed
   ansible.builtin.file:
     path: /etc/systemd/system/alig-posta.service
     state: absent
   when: not eposta_dogrulama
-  notify: systemd yeniden yukle
+  notify: systemd reload
 
-- name: Zamanlayicilari etkinlestir
+- name: Enable the timers
   ansible.builtin.systemd:
     name: "{{ item }}"
     enabled: true
     state: started
     daemon_reload: true
   loop: [alig-bakim.timer, alig-izleme.timer]
-  # alig-form ve alig-tarama ilk yayindan sonra baslar (kod henuz yok)
+  # alig-form and alig-tarama start after the first release (the code is not there yet)
 
-- name: Uyari birimi, varsayilan sistem gunlugune kritik kayit
+- name: Alert unit, a critical entry in the system log by default
   ansible.builtin.copy:
     dest: /etc/systemd/system/alig-uyari.service
     mode: "0644"
     content: |
       [Unit]
-      Description=alig.tech izleme basarisiz
+      Description=alig.tech monitoring failed
       [Service]
       Type=oneshot
-      # [doldurulacak: bildirim yontemi]  ornek: e-posta ya da mesaj kanali komutu
-      ExecStart=/usr/bin/logger -p user.crit "alig-izleme basarisiz: journalctl -u alig-izleme"
-  notify: systemd yeniden yukle
+      # [doldurulacak: bildirim yontemi]  example: an e-mail or message channel command (to be filled in: notification method)
+      ExecStart=/usr/bin/logger -p user.crit "alig-izleme failed: journalctl -u alig-izleme"
+  notify: systemd reload

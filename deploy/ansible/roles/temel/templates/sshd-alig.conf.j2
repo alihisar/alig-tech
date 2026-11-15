@@ -1,4 +1,4 @@
-# alig.tech: Ansible tarafindan yonetilir
+# alig.tech: managed by Ansible
 Port {{ ssh_port }}
 PermitRootLogin no
 PasswordAuthentication no
@@ -9,7 +9,7 @@ MaxAuthTries 3
 LoginGraceTime 30
 X11Forwarding no
 AllowAgentForwarding no
-# Yalniz yonetim paneline yerel tunel (ssh -L 8092:127.0.0.1:8092)
+# Only a local tunnel to the admin panel (ssh -L 8092:127.0.0.1:8092)
 AllowTcpForwarding local
 PermitOpen 127.0.0.1:{{ yonetim_portu }}
 ClientAliveInterval 300

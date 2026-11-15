@@ -770,11 +770,11 @@ class BelgeTests(unittest.TestCase):
         m = self.okut("kod-inceleme.md")
         self.assertIn("ALIG-SEC-001", m)
         bolum = m[m.index("ALIG-SEC-001"):]
-        for alan in ("**BULGU:**", "**KANIT:**", "**RİSK:**", "**ÖNERİ:**"):
+        for alan in ("**FINDING:**", "**EVIDENCE:**", "**RISK:**", "**RECOMMENDATION:**"):
             self.assertIn(alan, bolum)
-        self.assertRegex(bolum, r"TOTP sırrı")
+        self.assertRegex(bolum, r"TOTP secret")
         self.assertIn("SEC-K1", bolum)
-        for secenek in ("systemd-creds", "0700", "disk şifreleme"):
+        for secenek in ("systemd-creds", "0700", "disk encryption"):
             self.assertIn(secenek, bolum)
 
     def test_karar_satiri_sec_k1(self):
@@ -787,9 +787,9 @@ class BelgeTests(unittest.TestCase):
 
     def test_runbook_dogrulama_cihazi_kaybi_proseduru(self):
         m = self.okut("runbook.md")
-        self.assertIn("Doğrulama cihazı kaybı", m)
-        bolum = m[m.index("Doğrulama cihazı kaybı"):]
-        for ifade in ("totp-yenile", "parola", "liste", "15 dakika", "denetim"):
+        self.assertIn("Verification device loss", m)
+        bolum = m[m.index("Verification device loss"):]
+        for ifade in ("totp-yenile", "parola", "liste", "15 minutes", "audit"):
             self.assertIn(ifade, bolum)
 
 

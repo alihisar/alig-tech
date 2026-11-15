@@ -1,274 +1,275 @@
-# Kod incelemesi (2026-11-13)
+# Code review (2026-11-13)
 
-Kapsam: tüm depo (form, tarama, yönetim, depo ve göçler, kural motoru, rapor, Kip B, toplayıcı, bakım ve dağıtım betikleri, CI, istemci JS, Ansible şablonları). Yöntem: düşmanca okuma, `kod-disiplini/kontrol.py`, `ruff`, `mypy`, çalışan sunuculara karşı sondalar, gerçek PostgreSQL 16 kümesine karşı toplayıcı çalıştırma, güvenlik testlerine mutasyon denemesi (koruma kaldırılınca test kırmızıya düşüyor mu).
+Scope: the whole repository (form, scan, admin, storage and migrations, rule engine, report, Mode B, collector, maintenance and deployment scripts, CI, client JS, Ansible templates). Method: adversarial reading, `kod-disiplini/kontrol.py`, `ruff`, `mypy`, probes against running servers, running the collector against a real PostgreSQL 16 cluster, and mutation testing of the security tests (does a test go red when the protection is removed).
 
-Seviyeler etkiye göredir: **KRİTİK** kesinti, veri kaybı ya da yetkisiz erişim; **YÜKSEK** yanlış sonuç ya da zayıflayan koruma; **ORTA** belirli koşulda kırılma ya da bakım maliyeti; **DÜŞÜK** tutarlılık ve okunabilirlik.
+Severity levels reflect impact: **CRITICAL** outage, data loss or unauthorised access; **HIGH** wrong result or weakened protection; **MEDIUM** breakage under specific conditions or maintenance cost; **LOW** consistency and readability.
 
-## Özet
+## Summary
 
-| Seviye | Bulunan | Düzeltildi | Açık |
+| Severity | Found | Fixed | Open |
 | --- | --- | --- | --- |
-| KRİTİK | 1 | 1 | 0 |
-| YÜKSEK | 5 | 5 | 0 (Y5'in kodu hazır, açılması SMTP sağlayıcısı seçimini bekliyor) |
-| ORTA | 12 | 12 | 0 (O12 hızlandırıldı; çapraz dosya işlemleri sıralı kaldı, aşağıda) |
-| DÜŞÜK | 12 | 11 | 0 (D12 yanlış pozitif, açık sayılmadı) |
+| CRITICAL | 1 | 1 | 0 |
+| HIGH | 5 | 5 | 0 (the code for Y5 is ready; enabling it waits for the SMTP provider choice) |
+| MEDIUM | 12 | 12 | 0 (O12 was sped up; cross-file operations stayed sequential, see below) |
+| LOW | 12 | 11 | 0 (D12 is a false positive, not counted as open) |
 
-İlk tur (aynı gün): KRİTİK ve ilk üç YÜKSEK bulgu ile altı ORTA bulgu düzeltildi. İkinci tur ("Bulguları düzelt"): kalan tüm bulgular düzeltildi; ayrıntı "İkinci tur" bölümünde.
+First round (same day): the CRITICAL finding, the first three HIGH findings and six MEDIUM findings were fixed. Second round ("Fix the findings"): all remaining findings were fixed; details in the "Second round" section.
 
-Canlıya çıkışı engelleyen kod bulgusu kalmadı. Engelleyen kararlar kodun dışında: e-posta doğrulamasını açmak için SMTP sağlayıcısı ve gönderen adres; sunucu, hukuki metinler (`docs/yol-haritasi.md`).
+No code finding blocks going live. The blocking decisions are outside the code: for e-mail verification, an SMTP provider and a sender address; the server and the legal texts (`docs/yol-haritasi.md`).
 
-Mutasyon denemesi: mevcut 14 güvenlik korumasından 13'ü kaldırıldığında testler kırmızıya düştü; statik dosya yol denetimi kaldırıldığında hiçbir test düşmedi (D1, düzeltildi). Bu incelemede eklenen her düzeltme için de aynı deneme yapıldı (sonuç en altta).
+Mutation testing: of the 14 existing security protections, tests went red when 13 were removed; when the static file path check was removed no test failed (D1, fixed). The same trial was run for every fix added in this review (result at the bottom).
 
-## KRİTİK
+## CRITICAL
 
-### K1 `tarama/kurallar.py` — türü yanlış tek bir yükleme raporu ve yönetim panelini 30 gün düşürüyordu — DÜZELTİLDİ
+### K1 `tarama/kurallar.py` — a single upload report with a wrong type could take down the admin panel for 30 days — FIXED
 
-- **BULGU:** Yükleme denetimi kolon adlarını ve değerin skaler olduğunu denetliyordu, türünü ve kolonun varlığını denetlemiyordu. Kural motoru `r[0]["surum_num"] // 10000`, `kullanilan / ust` gibi işlemlerde türe güveniyordu.
-- **KANIT:** Sonda: kimliksiz yükleme `303`; ardından müşteri raporu, `/yonetim/`, `/yonetim/taramalar`, `/yonetim/taramalar/1`, `/yonetim/firmalar/1` bağlantıyı kopardı (`TypeError`, `KeyError`). İnceleme anındaki 16 PostgreSQL denetiminin 8'i bozuk değerle çöküyordu.
-- **RİSK:** E-posta doğrulaması olmadığından herkes tek bir dosyayla yönetim panelinin ana sayfalarını rapor süresi (30 gün) boyunca kullanılamaz hâle getirebilirdi; bozuk raporu panelden bulup silmek de mümkün değildi.
-- **DÜZELTME:** (1) `tarama/yukleme.py` `TURLER`: her PostgreSQL kolonu için tür; tür dışı değer, eksik kolon ve sonsuz sayı (`1e999`) yüklemede reddedilir. (2) Kural motorunda her denetim yalıtıldı: veri hatası o denetimi "değer biçimi geçersiz" ile ölçülemeyen sayar, rapor düşmez. (3) Panelde rapor başına kalkan: beklenmeyen bir hata bile sayfayı düşürmez, bozuk rapor silinebilir. Testler: `BozukDegerTests`, `test_zehirli_rapor_paneli_dusurmez`, `test_beklenmeyen_kural_hatasi_paneli_dusurmez`. Gerçek PostgreSQL 16 çıktısı yeni tür denetiminden geçti.
+- **FINDING:** The upload check validated the column names and that the value was a scalar, but not its type or whether the column was present. The rule engine trusted the type in operations such as `r[0]["surum_num"] // 10000` and `kullanilan / ust`.
+- **EVIDENCE:** Probe: an unauthenticated upload returned `303`; afterwards the customer report, `/yonetim/`, `/yonetim/taramalar`, `/yonetim/taramalar/1` and `/yonetim/firmalar/1` dropped the connection (`TypeError`, `KeyError`). Of the 16 PostgreSQL checks at review time, 8 crashed on a malformed value.
+- **RISK:** With no e-mail verification, anyone could make the admin panel's main pages unusable for the report lifetime (30 days) with a single file; it was also impossible to find and delete the malformed report from the panel.
+- **FIX:** (1) `tarama/yukleme.py` `TURLER`: a type for every PostgreSQL column; a value of the wrong type, a missing column and an infinite number (`1e999`) are rejected at upload. (2) Every check is isolated in the rule engine: a data error marks that check as unmeasurable with "invalid value format" and the report does not crash. (3) A per-report shield in the panel: even an unexpected error does not take the page down, and a malformed report can be deleted. Tests: `BozukDegerTests`, `test_zehirli_rapor_paneli_dusurmez`, `test_beklenmeyen_kural_hatasi_paneli_dusurmez`. Real PostgreSQL 16 output passed the new type check.
 
-## YÜKSEK
+## HIGH
 
-### Y1 `tarama/depo.py` `denetim_ekle` — eşzamanlı yazıcılar denetim kaydı kaybediyordu — DÜZELTİLDİ
+### Y1 `tarama/depo.py` `denetim_ekle` — concurrent writers lost audit records — FIXED
 
-- **BULGU:** Son kayıt kilitsiz okunup `seq+1` yazılıyordu. Tarama sunucusu, yönetim paneli ve bakım aynı `tarama.sqlite` zincirine yazar.
-- **KANIT:** Sonda: 3 süreç × 300 kayıt → 896/900 yazıldı, 4 `IntegrityError: UNIQUE constraint failed: denetim.seq`.
-- **RİSK:** İş eylemi (yükleme, silme) yapılmış ama denetim kaydı kaybolmuş ve istek 500 ile bitmiş olur: denetim güvencesi delinir.
-- **DÜZELTME:** Okuma ve ekleme `BEGIN IMMEDIATE` altında. Test: `test_eszamanli_surecler_zinciri_bozmaz_kayit_kaybetmez` (3 süreç, 360/360, zincir sağlam).
+- **FINDING:** The last record was read without a lock and `seq+1` was written. The scan server, the admin panel and maintenance all write to the same `tarama.sqlite` chain.
+- **EVIDENCE:** Probe: 3 processes x 300 records -> 896/900 written, 4 `IntegrityError: UNIQUE constraint failed: denetim.seq`.
+- **RISK:** A business action (upload, delete) is performed but its audit record is lost and the request ends with a 500: the audit guarantee is breached.
+- **FIX:** Read and insert under `BEGIN IMMEDIATE`. Test: `test_eszamanli_surecler_zinciri_bozmaz_kayit_kaybetmez` (3 processes, 360/360, chain intact).
 
-### Y2 `yonetim/server.py` `_firma_esitle` — silinen firma eski iletişim talebinden geri geliyordu — DÜZELTİLDİ
+### Y2 `yonetim/server.py` `_firma_esitle` — a deleted company came back from an old contact request — FIXED
 
-- **BULGU:** Panel her açılışta iletişim taleplerinden firma kaydı oluşturur. Silinen firmanın talebi durduğu için kayıt bir sonraki sayfa görüntülemesinde yeniden oluşuyordu.
-- **KANIT:** Sonda: `pasif` → sil → `[]` → özet sayfası → `[(1, 'kurban.com', 'aktif')]`.
-- **RİSK:** Yönetici silmesi ve saklama süresiyle silme sessizce geri alınır; pasif edilmiş firma aktif olarak geri gelir; KVKK silme talebi karşılanamaz.
-- **DÜZELTME:** `firma_silinen` tablosu (düz anahtar değil özeti). Silmeden önceki talepler kaydı geri getirmez; silmeden sonra gelen yeni talep yeni kayıt açar. İzler talep saklama süresi dolunca silinir. Testler: `test_silinen_firma_talepten_geri_gelmez`, `test_saklamayla_silinen_firma_eski_talepten_geri_gelmez`.
+- **FINDING:** Every time the panel opens it creates company records from the contact requests. Because the deleted company's request was still there, the record was re-created on the next page view.
+- **EVIDENCE:** Probe: `pasif` (inactive) -> delete -> `[]` -> summary page -> `[(1, 'kurban.com', 'aktif')]`.
+- **RISK:** Deletion by the administrator and deletion by the retention period are silently undone; a company made inactive comes back active; a KVKK (Turkish data protection law) deletion request cannot be fulfilled.
+- **FIX:** A `firma_silinen` table (a digest, not a plain key). Requests from before the deletion do not bring the record back; a new request arriving after the deletion opens a new record. The traces are deleted when the request retention period expires. Tests: `test_silinen_firma_talepten_geri_gelmez`, `test_saklamayla_silinen_firma_eski_talepten_geri_gelmez`.
 
-### Y3 `tarama/katalog.py` `pg_sequence` — önerilen tarama hesabıyla dolu sequence görünmüyordu — DÜZELTİLDİ
+### Y3 `tarama/katalog.py` `pg_sequence` — a full sequence was invisible to the recommended scan account — FIXED
 
-- **BULGU:** `pg_sequences.last_value`, rolün USAGE ya da SELECT yetkisi olmayan sequence için boş döner. Kılavuzdaki `alig_hc` (yalnız `pg_monitor`) hiçbir sequence değerini okuyamaz; denetim boş liste döndürüp "sorun yok" sayılıyordu.
-- **KANIT:** Gerçek PostgreSQL 16: `MAXVALUE 100`, değeri 99 olan sequence. Süper kullanıcı: `oran 0.99`; `alig_hc`: `satirlar: []`.
-- **RİSK:** Ekleme işlemlerini durduracak bir sequence raporda temiz görünür (yanlış negatif).
-- **DÜZELTME:** Yeni `pg_sequence_gorunurluk` denetimi okunamayan sequence sayısını verir; sayı sıfırdan büyükse `pg_sequence` "kısmen ölçüldü" olarak ölçülemeyenlerde görünür. Gerçek kümede doğrulandı (`okunamayan: 2`).
+- **FINDING:** `pg_sequences.last_value` is empty for a sequence on which the role has neither USAGE nor SELECT. `alig_hc` in the guide (only `pg_monitor`) cannot read any sequence value; the check returned an empty list and counted as "no problem".
+- **EVIDENCE:** Real PostgreSQL 16: a sequence with `MAXVALUE 100` and value 99. Superuser: `oran 0.99` (ratio); `alig_hc`: `satirlar: []` (rows).
+- **RISK:** A sequence that will stop inserts looks clean in the report (false negative).
+- **FIX:** A new `pg_sequence_gorunurluk` check gives the number of unreadable sequences; if the number is greater than zero, `pg_sequence` appears among the unmeasurable checks as "partially measured". Verified on a real cluster (`okunamayan: 2`, 2 unreadable).
 
-### Y4 Tablo, indeks ve sequence denetimleri yalnız bağlanılan veritabanını kapsıyor — DÜZELTİLDİ (ikinci tur)
+### Y4 Table, index and sequence checks cover only the connected database — FIXED (second round)
 
-- **BULGU:** Bu denetimler bağlanılan veritabanının kataloğunu okur. Kılavuz `--dbname postgres` öneriyordu; uygulama tabloları başka veritabanındadır. Rapor bu sınırı yazmıyordu.
-- **RİSK:** Uygulama veritabanındaki ölü satır, geçersiz indeks ve sequence sorunları "bulgu yok" görünür.
-- **DÜZELTME (yapılan):** `pg_kapsam` denetimi bağlanılan veritabanını ve sunucudaki veritabanı sayısını verir; rapor özette kapsamı yazar, birden çok veritabanı varsa "bu tarama neye bakmaz" bölümünde söyler; kılavuz `--dbname uygulama_db` kullanır ve kapsamı açıklar (TR, EN).
-- **İKİNCİ TUR:** Toplayıcı bağlanabildiği her veritabanını dolaşır (en çok 50; Kip B'de 20). CONNECT yetkisi olmayan veritabanına bağlanmaya çalışmaz, "yetki" ile atlar; sınırı aşanlar "sınır" ile atlanır. Rapor kaç veritabanında çalıştığını ve atlananları yazar. Kip B'de adı güvenli kalıba uymayan veritabanı bağlantı dizgisine hiç girmez. Gerçek PostgreSQL 16'da boşluklu adlı veritabanında ölü satır bulgusu raporlandı, yetkisiz veritabanı atlandı.
+- **FINDING:** These checks read the catalog of the database they are connected to. The guide recommended `--dbname postgres`; application tables live in another database. The report did not state this limit.
+- **RISK:** Dead rows, invalid indexes and sequence problems in the application database look like "no finding".
+- **FIX (done):** The `pg_kapsam` check gives the connected database and the number of databases on the server; the report states the scope in the summary and, if there are several databases, says so in the "what this scan does not look at" section; the guide uses `--dbname uygulama_db` and explains the scope (TR, EN).
+- **SECOND ROUND:** The collector walks every database it can connect to (at most 50; 20 in Mode B). It does not try to connect to a database without CONNECT privilege and skips it with "yetki" (privilege); those exceeding the limit are skipped with "sınır" (limit). The report states in how many databases it ran and which were skipped. In Mode B, a database whose name does not match the safe pattern never enters the connection string. On real PostgreSQL 16, a dead-row finding was reported in a database with a name containing a space, and the database without privilege was skipped.
 
-### Y5 E-posta doğrulaması yok — KODU HAZIR, VARSAYILAN KAPALI (ikinci tur)
+### Y5 No e-mail verification — CODE READY, DISABLED BY DEFAULT (second round)
 
-- **BULGU:** Yükleme formundaki e-posta doğrulanmaz. Firma anahtarı alan adıdır.
-- **RİSK:** Biri `x@kurban.com` yazarak kurbanın 30 günlük ücretsiz hakkını tüketebilir, firma kaydındaki e-postayı değiştirebilir ve kendi veritabanının raporunu kurban adına panelde gösterebilir. Şirket başına sınır koruması böylece zayıflar.
-- **İKİNCİ TUR:** Ara önlemler her durumda açık: doğrulanmamış yükleme kayıtlı firma e-postasını değiştirmez, her raporda yükleyen adres ayrı tutulur, panel "doğrulanmamış" etiketini gösterir. Doğrulama açıkken (`ALIG_EPOSTA_DOGRULAMA=1`): rapor bağlantısı yalnız e-postayla gider; bağlantıyı açmak (GET) hiçbir şey değiştirmez, hak sayfadaki düğmeyle (POST) harcanır; adrese 24 saatte 3, firmaya 5 bekleyen bağlantı sınırı; doğrulanmayan rapor 24 saatte silinir. Web süreci ağa çıkmaz: giden kutusu + ayrı `alig-posta` servisi, SMTP yalnız TLS ile. Açmak için SMTP sağlayıcısı ve gönderen adres gerekir. Gerçek SMTP sunucusuyla denenmedi.
+- **FINDING:** The e-mail in the upload form is not verified. The company key is the domain name.
+- **RISK:** Someone could write `x@kurban.com` ("victim"), use up the victim's 30-day free allowance, change the e-mail in the company record and show the report of their own database in the panel under the victim's name. This weakens the per-company limit protection.
+- **SECOND ROUND:** Interim measures are on in every case: an unverified upload does not change the registered company e-mail, the uploader's address is kept separately on every report, and the panel shows an "unverified" label. When verification is on (`ALIG_EPOSTA_DOGRULAMA=1`): the report link is sent only by e-mail; opening the link (GET) changes nothing, the allowance is spent by the button on the page (POST); a limit of 3 pending links per address and 5 per company in 24 hours; an unverified report is deleted after 24 hours. The web process does not reach the network: an outbox plus a separate `alig-posta` service, SMTP over TLS only. Enabling it needs an SMTP provider and a sender address. Not tried with a real SMTP server.
 
-## ORTA
+## MEDIUM
 
-| # | Yer | Bulgu ve kanıt | Durum |
+| # | Location | Finding and evidence | Status |
 | --- | --- | --- | --- |
-| O1 | `tarama/depo.py`, `yonetim/depo.py` `baglan` | Göçler kilitsiz: aynı anda açılan süreçler çöküyordu. Sonda: 120 açılışın 90'ı `table ... already exists` ya da `database is locked`. Yeni sürüm dağıtımında servisler birlikte yeniden başlar. | DÜZELTİLDİ: göç tek yazma kilidi altında, sürüm kilit içinde yeniden okunur; WAL geçişi kilit boşalana kadar bekler. Test: `test_eszamanli_ilk_acilis_ve_goc_cokmez` |
-| O2 | `form/server.py` `RateLimiter` | Anahtarlar hiç silinmiyordu (sonda: pencere dolduktan sonra 100.001 anahtar). IPv6 ile her istek yeni adresten gelebilir; bellek sınırsız büyür. Kilitsizdi (yarış sondada üretilemedi). | DÜZELTİLDİ: pencere başına temizlik ve kilit. Testler `test_limiter_*` |
-| O3 | `tarama/server.py` `_sil` | Kimliksiz `POST /rapor/<herhangi>/sil` her seferinde silinmeyen denetim zincirine satır yazıyordu. | DÜZELTİLDİ: olmayan rapor için yalnız günlük satırı |
-| O4 | `deploy/bakim.py` `disk_yeterli` (bu oturumda yazıldı) | Disk %10'dan az boşsa yer olsa bile yedek durduruluyordu: büyük diskte yer daralırken yedeksiz kalınırdı. | DÜZELTİLDİ: ölçüt DB boyutunun iki katı ve 64 MB pay; %10 altı yalnız uyarı |
-| O5 | `deploy/bakim.py` `geri_yukle` (bu oturumda yazıldı) | WAL kipinde `BEGIN EXCLUSIVE` okuyucuları engellemez: istekler arasında bağlantı tutan çalışan servis görülmüyordu. | DÜZELTİLDİ: `/proc` üzerinden dosyayı açık tutan süreç denetimi. Test: `test_bosta_baglanti_tutan_surec_varken_durur` |
-| O6 | `deploy/hazirlik.py` (bu oturumda yazıldı) | `jinja2` içe aktarıyordu; yalnız standart kütüphane kuralına aykırı. | DÜZELTİLDİ: birimler Ansible'ın kendisiyle işlenir; bozuk birim FAIL verdiği denendi |
-| O7 | `yonetim/server.py` firma silme | İletişim talepleri silinmez (arayüz söylüyor); KVKK silme talebinde kişisel veri `form.sqlite`'ta kalır. | DÜZELTİLDİ (ikinci tur): silme formunda "İletişim taleplerini de sil" seçeneği; önce talepler, sonra firma; denetime adres yazılmaz |
-| O8 | toplayıcı `--maskele` | Takma ad → gerçek ad eşlemesi müşteriye verilmiyor; maskeli raporda `nesne-3`'ün hangi tablo olduğu bilinemez. | DÜZELTİLDİ (ikinci tur): `<çıktı>-maske.json` yalnız müşteride, 0600; yüklenirse reddedilir |
-| O9 | `tarama/baglanti.py` | Kip B `sslmode=require` sunucu sertifikasını doğrulamaz; `channel_binding=require` parolanın açık ya da MD5 ile gönderilmesini ve SCRAM aktarma saldırısını önler. Kip B kapalı. | DÜZELTİLDİ (ikinci tur): `channel_binding=require`; bedeli md5/password doğrulamalı hesabın Kip B'de çalışmaması |
-| O10 | iş eylemi ile denetim kaydı | Aynı işlemde değil: ikisi arasında süreç ölürse eylem denetimsiz kalır. | DÜZELTİLDİ (ikinci tur): `depo.islem` ile yükleme, doğrulama, silme, firma işlemleri, kullanıcı işlemleri, giriş ve saklama silmesi tek işlemde. Kalan: `form.sqlite` ile `yonetim.sqlite` ayrı dosyalar, tek işlemde olamaz; önce silme, sonra denetim kaydı |
-| O11 | `yonetim/server.py` `_firma_esitle` | Her özet ve firma sayfasında 500'e kadar talep için ayrı commit (GET yan etkili, her commit fsync). | DÜZELTİLDİ (ikinci tur): yalnız son eşitlemeden sonraki talepler, tek işlemde |
-| O12 | `tarama/server.py` yükleme | `_derinlik_denetle` 5 MB'ı saf Python döngüsüyle tarar; nginx sınırı (dakikada 6) ve IP sınırı var. | DÜZELTİLDİ (ikinci tur): yapı, tırnak ve kaçış sayısı C hızında sınırlanır, döngü yalnız bu baytlarda; 4,5 MB kötü dosya 0,01 sn'de reddedilir |
+| O1 | `tarama/depo.py`, `yonetim/depo.py` `baglan` | Migrations without a lock: processes opened at the same time crashed. Probe: of 120 opens, 90 hit `table ... already exists` or `database is locked`. When a new version is deployed the services restart together. | FIXED: migration under a single write lock, the version is re-read inside the lock; the WAL switch waits until the lock is free. Test: `test_eszamanli_ilk_acilis_ve_goc_cokmez` |
+| O2 | `form/server.py` `RateLimiter` | Keys were never deleted (probe: 100,001 keys after the window expired). With IPv6 every request can come from a new address; memory grows without bound. It was lock-free (a race could not be produced in the probe). | FIXED: cleanup per window, and a lock. Tests `test_limiter_*` |
+| O3 | `tarama/server.py` `_sil` | An unauthenticated `POST /rapor/<anything>/sil` wrote a row to the audit chain, which is never deleted, every time. | FIXED: only a log line for a nonexistent report |
+| O4 | `deploy/bakim.py` `disk_yeterli` (written in this session) | If the disk was less than 10% free, the backup was stopped even if there was room: on a large disk, backups would stop as space tightened. | FIXED: the criterion is twice the DB size plus a 64 MB margin; below 10% is only a warning |
+| O5 | `deploy/bakim.py` `geri_yukle` (written in this session) | In WAL mode `BEGIN EXCLUSIVE` does not block readers: a running service holding a connection between requests was not detected. | FIXED: a check via `/proc` for processes holding the file open. Test: `test_bosta_baglanti_tutan_surec_varken_durur` |
+| O6 | `deploy/hazirlik.py` (written in this session) | It imported `jinja2`; against the standard-library-only rule. | FIXED: units are rendered by Ansible itself; verified that a broken unit gives FAIL |
+| O7 | `yonetim/server.py` company deletion | Contact requests are not deleted (the UI says so); on a KVKK deletion request the personal data stays in `form.sqlite`. | FIXED (second round): a "Also delete contact requests" option in the delete form; requests first, then the company; no address is written to the audit |
+| O8 | collector `--maskele` (mask) | The alias -> real name mapping is not given to the customer; in a masked report it cannot be known which table `nesne-3` is. | FIXED (second round): `<output>-maske.json` stays only at the customer, 0600; rejected if uploaded |
+| O9 | `tarama/baglanti.py` | Mode B `sslmode=require` does not verify the server certificate; `channel_binding=require` prevents the password being sent in clear or with MD5 and prevents a SCRAM relay attack. Mode B is off. | FIXED (second round): `channel_binding=require`; the cost is that an account with md5/password authentication does not work in Mode B |
+| O10 | business action and audit record | Not in the same transaction: if the process dies between the two, the action stays unaudited. | FIXED (second round): with `depo.islem`, upload, verification, deletion, company operations, user operations, login and retention deletion in a single transaction. Remaining: `form.sqlite` and `yonetim.sqlite` are separate files and cannot be in a single transaction; delete first, then the audit record |
+| O11 | `yonetim/server.py` `_firma_esitle` | A separate commit for up to 500 requests on every summary and company page (a GET with side effects, every commit an fsync). | FIXED (second round): only requests after the last sync, in a single transaction |
+| O12 | `tarama/server.py` upload | `_derinlik_denetle` scans 5 MB with a pure Python loop; the nginx limit (6 per minute) and the IP limit exist. | FIXED (second round): structure, quote and escape counts are limited at C speed, the loop runs only over those bytes; a 4.5 MB malicious file is rejected in 0.01 s |
 
-## DÜŞÜK
+## LOW
 
-| # | Yer | Bulgu | Durum |
+| # | Location | Finding | Status |
 | --- | --- | --- | --- |
-| D1 | `tests/test_yonetim.py` | Statik dosya yol denetiminin testi yoktu (mutasyon kaçtı): izinli uzantılı ama `assets` dışı yol denenmiyordu. | DÜZELTİLDİ |
-| D2 | `yonetim/server.py` | Olmayan raporu silmeye çalışmak yönetim zincirine "silindi" yazıyordu. | DÜZELTİLDİ |
-| D3 | `ci/run_all.py` | Test ve toplayıcı çağrılarında zaman aşımı yoktu; asılı test CI'yi sonsuza dek bekletirdi. | DÜZELTİLDİ |
-| D4 | çeşitli | Kullanılmayan içe aktarma ve değişkenler (`ruff`). | DÜZELTİLDİ |
-| D5 | toplayıcı | `dbname=%s sslmode=%s` birleştirme: boşluk ya da tırnaklı veritabanı adı bozulur (müşterinin kendi girdisi). | DÜZELTİLDİ (ikinci tur): değerler libpq kurallarıyla tırnaklanır; gerçek kümede boşluklu adla denendi |
-| D6 | toplayıcı | Varsayılan `sslmode=prefer`; bağlantı şifresiz kurulduysa uyarı yok. | DÜZELTİLDİ (ikinci tur): `pg_stat_ssl` ile denetlenir, şifresizse uyarı; çıktı dosyası da 0600 |
-| D7 | `yonetim/server.py` | Talep listesi ve CSV 500 satırla sessizce sınırlı. | DÜZELTİLDİ (ikinci tur): talep sayfası 100'erli sayfalı, CSV tüm satırlar |
-| D8 | `tarama/depo.py` | Firma kimliği silmeden sonra yeniden kullanılabiliyor (`AUTOINCREMENT` yok); denetimde aynı numara iki firmayı gösterebilir. | DÜZELTİLDİ (ikinci tur): firma ve rapor tabloları `AUTOINCREMENT` ile yeniden kuruldu, kimlikler korunarak |
-| D9 | `yonetim/server.py` | SSH tüneliyle (nginx'siz) açılan panelde CSP başlığı yok. | DÜZELTİLDİ (ikinci tur): panel kendi CSP başlığını gönderir (betik yok, satır içi stil yok) |
-| D10 | `tarama/hata.py` | "30 günde 2 tarama" metni sabit; `SINIR_ADET` değişirse yanlış kalır. | DÜZELTİLDİ (ikinci tur): hata sayfası sabitten yazar; statik metinleri sabitlerle karşılaştıran test |
-| D11 | `yonetim/depo.py` `giris` | Aynı TOTP kodu eşzamanlı iki girişte iki kez kabul edilebilir (yarış penceresi; parola da gerekir). | DÜZELTİLDİ (ikinci tur): kod ve sayaç yazma kilidi altında; aynı kodla eşzamanlı iki girişten biri geçer (test) |
-| D12 | `kontrol.py` | "Gömülü gizli veri" (test parolaları) ve "SQL birleştirme" (sabit katalog, sabit kolon listeleri) uyarıları yanlış pozitif. | Not edildi |
+| D1 | `tests/test_yonetim.py` | The static file path check had no test (the mutation escaped): a path with an allowed extension but outside `assets` was not tried. | FIXED |
+| D2 | `yonetim/server.py` | Trying to delete a nonexistent report wrote "deleted" to the admin chain. | FIXED |
+| D3 | `ci/run_all.py` | The test and collector calls had no timeout; a hung test would make CI wait forever. | FIXED |
+| D4 | various | Unused imports and variables (`ruff`). | FIXED |
+| D5 | collector | `dbname=%s sslmode=%s` concatenation: a database name with a space or quote breaks it (the customer's own input). | FIXED (second round): values are quoted with libpq rules; tried on a real cluster with a name containing a space |
+| D6 | collector | Default `sslmode=prefer`; no warning if the connection was made unencrypted. | FIXED (second round): checked with `pg_stat_ssl`, a warning if unencrypted; the output file is also 0600 |
+| D7 | `yonetim/server.py` | The request list and CSV were silently limited to 500 rows. | FIXED (second round): the request page is paginated by 100, the CSV has all rows |
+| D8 | `tarama/depo.py` | A company ID can be reused after deletion (no `AUTOINCREMENT`); in the audit the same number could point to two companies. | FIXED (second round): the company and report tables were rebuilt with `AUTOINCREMENT`, preserving the IDs |
+| D9 | `yonetim/server.py` | No CSP header on a panel opened through an SSH tunnel (without nginx). | FIXED (second round): the panel sends its own CSP header (no script, no inline style) |
+| D10 | `tarama/hata.py` | The text "2 scans in 30 days" is fixed; it would go wrong if `SINIR_ADET` changes. | FIXED (second round): the error page writes from the constant; a test comparing static texts with the constants |
+| D11 | `yonetim/depo.py` `giris` | The same TOTP code could be accepted twice in two concurrent logins (race window; the password is also required). | FIXED (second round): code and counter under the write lock; of two concurrent logins with the same code one passes (test) |
+| D12 | `kontrol.py` | The "embedded secret" (test passwords) and "SQL concatenation" (fixed catalog, fixed column lists) warnings are false positives. | Noted |
 
-## Doğrulama
+## Verification
 
-- Tüm testler ve 13 CI denetimi geçti.
-- Gerçek PostgreSQL 16: toplayıcı çıktısı yeni tür denetiminden geçti; `pg_kapsam` ve `pg_sequence_gorunurluk` beklenen değerleri verdi; `GercekPgTests` geçti.
-- Sondalar (yükleme, panel, eşzamanlı zincir, eşzamanlı göç, firma geri gelme) düzeltmeden sonra yeniden çalıştırıldı: hepsi temiz.
-- Gerçek sunucuda, systemd altında ve canlı trafikte hiçbir şey denenmedi.
+- All tests and the 13 CI checks passed.
+- Real PostgreSQL 16: the collector output passed the new type check; `pg_kapsam` and `pg_sequence_gorunurluk` gave the expected values; `GercekPgTests` passed.
+- The probes (upload, panel, concurrent chain, concurrent migration, company reappearing) were re-run after the fix: all clean.
+- Nothing was tried on a real server, under systemd or with live traffic.
 
-## İkinci tur: kalan bulguların düzeltilmesi
+## Second round: fixing the remaining findings
 
-| Bulgu | Yapılan | Kanıt |
+| Finding | Done | Evidence |
 | --- | --- | --- |
-| Y5 | E-posta doğrulaması (varsayılan kapalı) ve her durumda açık ara önlemler | `EpostaDogrulamaTests`, `tests/test_posta.py`, panel etiketi testi |
-| Y4 | Tüm veritabanlarını dolaşma; rapor kapsamı | `VeritabaniKapsamTests`, `ToplayiciVeritabaniTests` (sahte `psql`), gerçek PostgreSQL 16 (aşağıda) |
-| O7 | Firma silmede talepleri de silme seçeneği | `test_firma_silinirken_talepleri_de_silinebilir` |
-| O8 | Maske eşlemesi yalnız müşteride | `test_maske_eslemesi_yalniz_yerelde`, gerçek PostgreSQL 16 |
-| O9 | `channel_binding=require` | `test_baglanti_dogrulanan_ipye_sabitlenir_ve_tls_ister`, gerçek PostgreSQL 16 (TLS + SCRAM) |
-| O10 | `depo.islem`: eylem ve denetim kaydı birlikte | `IslemTests`, `test_denetim_yazilamazsa_yukleme_ve_silme_geri_alinir`, `test_saklama_silmesi_denetimsiz_kalmaz` |
-| O11 | Firma eşitleme yalnız yeni talepler, tek işlemde | `test_firma_esitleme_yalniz_yeni_talepleri_isler` |
-| O12 | Hızlı yapı denetimi | `test_cok_sayida_yapi_hizla_reddedilir` |
-| D5, D6 | Bağlantı dizgisi kaçışı, şifresiz bağlantı uyarısı, çıktı 0600 | `ToplayiciVeritabaniTests` |
-| D7 | Talep sayfalama, tam CSV | `test_talepler_sayfali_csv_eksiksiz` |
-| D8 | `AUTOINCREMENT` göçü | `test_silinen_firma_ve_rapor_kimligi_yeniden_kullanilmaz`, `test_eski_firma_ve_rapor_tablosu_kimlikleri_korunarak_tasinir` |
-| D9 | Panelde CSP | `test_panel_kendi_csp_basligini_gonderir` |
-| D10 | Sınır metni sabitten | `MetinTests` |
-| D11 | TOTP kilidi | `test_ayni_dogrulama_kodu_es_zamanli_iki_giriste_bir_kez_gecer` |
+| Y5 | E-mail verification (off by default) and interim measures that are always on | `EpostaDogrulamaTests`, `tests/test_posta.py`, panel label test |
+| Y4 | Walking all databases; report scope | `VeritabaniKapsamTests`, `ToplayiciVeritabaniTests` (fake `psql`), real PostgreSQL 16 (below) |
+| O7 | Option to also delete requests when deleting a company | `test_firma_silinirken_talepleri_de_silinebilir` |
+| O8 | Mask mapping only at the customer | `test_maske_eslemesi_yalniz_yerelde`, real PostgreSQL 16 |
+| O9 | `channel_binding=require` | `test_baglanti_dogrulanan_ipye_sabitlenir_ve_tls_ister`, real PostgreSQL 16 (TLS + SCRAM) |
+| O10 | `depo.islem`: action and audit record together | `IslemTests`, `test_denetim_yazilamazsa_yukleme_ve_silme_geri_alinir`, `test_saklama_silmesi_denetimsiz_kalmaz` |
+| O11 | Company sync only new requests, in a single transaction | `test_firma_esitleme_yalniz_yeni_talepleri_isler` |
+| O12 | Fast structure check | `test_cok_sayida_yapi_hizla_reddedilir` |
+| D5, D6 | Connection string escaping, unencrypted connection warning, output 0600 | `ToplayiciVeritabaniTests` |
+| D7 | Request pagination, full CSV | `test_talepler_sayfali_csv_eksiksiz` |
+| D8 | `AUTOINCREMENT` migration | `test_silinen_firma_ve_rapor_kimligi_yeniden_kullanilmaz`, `test_eski_firma_ve_rapor_tablosu_kimlikleri_korunarak_tasinir` |
+| D9 | CSP in the panel | `test_panel_kendi_csp_basligini_gonderir` |
+| D10 | Limit text from the constant | `MetinTests` |
+| D11 | TOTP lock | `test_ayni_dogrulama_kodu_es_zamanli_iki_giriste_bir_kez_gecer` |
 
-Gerçek PostgreSQL 16 denemeleri (yerel küme, sunucu değil):
+Real PostgreSQL 16 trials (local cluster, not a server):
 
-- Toplayıcı, `alig_hc` (yalnız `pg_monitor`) ile 4 veritabanlı kümede: `"satis db"` (boşluklu ad) tarandı ve oradaki ölü satır bulgusu `satis db.public.siparis` olarak raporlandı; CONNECT yetkisi kaldırılmış `gizli` veritabanına bağlanılmadı, "yetki yok" ile atlandı; çıktı ve maske eşleme dosyaları 0600.
-- Kip B: TLS açık, `pg_hba` yalnız `hostssl ... scram-sha-256`, bağlantı dizgisinde `channel_binding=require`: tarama tamamlandı, yanlış parola "baglanti" hatası verdi. Boşluklu adlı veritabanı Kip B'de bağlantı dizgisine girmedi, "ad" nedeniyle atlandı.
+- The collector, with `alig_hc` (only `pg_monitor`) on a cluster with 4 databases: `"satis db"` (a name with a space) was scanned and the dead-row finding there was reported as `satis db.public.siparis`; the `gizli` database, whose CONNECT privilege was revoked, was not connected to and was skipped as "no privilege"; the output and mask mapping files are 0600.
+- Mode B: TLS on, `pg_hba` only `hostssl ... scram-sha-256`, `channel_binding=require` in the connection string: the scan completed, a wrong password gave a "baglanti" (connection) error. The database with a space in its name did not enter the connection string in Mode B and was skipped because of "ad" (name).
 
-Kalan sınırlar (bulgu değil, tasarım): `form.sqlite` ve `yonetim.sqlite` ayrı dosyalar olduğundan talep silme ile yönetim denetim kaydı tek işlemde yapılamaz (önce silme, sonra kayıt). E-posta gönderimi gerçek bir SMTP sunucusuyla denenmedi. Hiçbir şey gerçek sunucuda, systemd altında çalıştırılmadı.
+Remaining limits (not findings, design): because `form.sqlite` and `yonetim.sqlite` are separate files, deleting a request and writing the admin audit record cannot be done in a single transaction (delete first, then the record). E-mail sending was not tried with a real SMTP server. Nothing was run on a real server, under systemd.
 
-## Mutasyon denemesi
+## Mutation testing
 
-Her satırda koruma geçici bir kopyada kaldırıldı ve ilgili test modülü çalıştırıldı.
+On each row the protection was removed in a temporary copy and the relevant test module was run.
 
-| Koruma | Sonuç |
+| Protection | Result |
 | --- | --- |
-| CSRF, Origin, oturum süresi, TOTP tekrar koruması, HMAC karşılaştırması, yinelenen JSON anahtarı, bilinmeyen kolon, şirket sınırı, rapor süresi, rapor kaçışı, CSV formül koruması, SSRF iç adres denetimi, geri yüklemede zincir denetimi | 13/13 yakalandı |
-| Statik dosya yol denetimi | Önce kaçtı (D1); test eklendikten sonra yakalandı |
-| Bu incelemenin düzeltmeleri: kural yalıtımı, yüklemede tür denetimi, eksik kolon, zincir yazma kilidi, göç kilidi, silinen firma izi, hız sınırı temizliği, açık dosya denetimi, sequence kısmi yetki, panel kalkanı, kimliksiz silmenin denetime yazılmaması | 11/11 yakalandı |
-| Sonsuz sayı denetimi (`_skaler`) | Önce kaçtı: PostgreSQL'de tür denetimi de yakaladığı için tek başına sınanmıyordu. Tür tablosu olmayan SQL Server yolu için test eklendi; koruma kaldırılınca kırmızıya düştüğü doğrulandı |
-| İkinci tur düzeltmeleri: doğrulamada hak harcanması, posta sınırı, doğrulanmamış raporun gizliliği, firma e-postasının korunması, gönderilen metnin silinmesi, STARTTLS, veritabanı dolaşma, Kip B ad denetimi, firma silmede talepler, `AUTOINCREMENT`, panel CSP, yapı sayısı sınırı, yükleme/firma işlemi/kullanıcı ekleme işlem içinde, sınır metni | 17/17 yakalandı |
-| `channel_binding` ve firma eşitleme işareti | Önce kaçtı: ilkinde mutasyon kalıbı koddaki değil yorumdaki metne denk geldi; ikincisinde test verisi tek talep içerdiği için fark görünmüyordu. Kalıp düzeltildi, test beş talebe çıkarıldı; ikisi de yakalandı |
-| TOTP girişinde kilit | Önce üç denemenin yalnız birinde yakalandı (yarışa bağlı). Test, kod denetimini yavaşlatarak yarış penceresini genişletecek biçimde değiştirildi; üç denemenin üçünde yakalandı |
+| CSRF, Origin, session lifetime, TOTP replay protection, HMAC comparison, duplicate JSON key, unknown column, per-company limit, report lifetime, report escaping, CSV formula protection, SSRF internal address check, chain check on restore | 13/13 caught |
+| Static file path check | Escaped at first (D1); caught after the test was added |
+| This review's fixes: rule isolation, type check at upload, missing column, chain write lock, migration lock, deleted company trace, rate limiter cleanup, open file check, sequence partial privilege, panel shield, unauthenticated deletion not writing to the audit | 11/11 caught |
+| Infinite number check (`_skaler`) | Escaped at first: in PostgreSQL the type check also caught it, so it was not tested on its own. A test was added for the SQL Server path, which has no type table; verified that it goes red when the protection is removed |
+| Second round fixes: spending the allowance on verification, mail limit, privacy of an unverified report, protection of the company e-mail, deletion of the sent text, STARTTLS, database walking, Mode B name check, requests on company deletion, `AUTOINCREMENT`, panel CSP, structure count limit, upload / company operation / user creation inside a transaction, limit text | 17/17 caught |
+| `channel_binding` and the company sync marker | Escaped at first: in the first, the mutation pattern matched the text in a comment, not in the code; in the second, the test data contained a single request so the difference was invisible. The pattern was fixed, the test was raised to five requests; both were caught |
+| Lock in TOTP login | At first caught in only one of three attempts (depends on the race). The test was changed to widen the race window by slowing the code check; caught in three of three attempts |
 
 
-## ALIG-SEC-001: yönetim ve rapor erişim güvenliği denetimi (2026-11-16)
+## ALIG-SEC-001: admin and report access security review (2026-11-16)
 
-Kapsam: `tarama/server.py` rapor uçları, `tarama/portal.py` ve `portal_depo.py`, `yonetim/server.py`, `yonetim/depo.py`, `yonetim/guvenlik.py`, `yonetim/kullanici.py`, `tarama/rapor.py` kaçışı. Yöntem: düşmanca okuma ve negatif testler (`tests/test_erisim_guvenligi.py`, 47 test): erişimin olmaması gereken her yol sınandı, sonra koruma geçici bir kopyada kaldırılıp testin kırmızıya düşüp düşmediğine bakıldı (aşağıda). Çalışma zamanı SQLite'tır; PostgreSQL'e dokunulmadı.
+Scope: `tarama/server.py` report endpoints, `tarama/portal.py` and `portal_depo.py`, `yonetim/server.py`, `yonetim/depo.py`, `yonetim/guvenlik.py`, `yonetim/kullanici.py`, `tarama/rapor.py` escaping. Method: adversarial reading and negative tests (`tests/test_erisim_guvenligi.py`, 47 tests): every path through which access must not exist was tested, then the protection was removed in a temporary copy and it was checked whether the test went red (below). The runtime is SQLite; PostgreSQL was not touched.
 
-Özet: 1 açık bulgu (ORTA, karar bekliyor), 1 düzeltilen (DÜŞÜK), 3 kabul edilen sınır (BİLGİ/DÜŞÜK), 1 belge eksiği (kapatıldı). Firma izolasyonunda, belirteç ömründe, CSV'de, oturumsuz erişimde ve kaçışta açık bulunmadı: bunlar "doğrulandı" tablosunda testle kanıtlıdır.
+Summary: 1 open finding (MEDIUM, awaiting a decision), 1 fixed (LOW), 3 accepted limits (INFO/LOW), 1 documentation gap (closed). No gap was found in company isolation, token lifetime, CSV, unauthenticated access or escaping: these are proven by tests in the "verified" table.
 
-### S1 `yonetim/depo.py` `kullanici.totp` — TOTP sırrı veritabanında düz metin — AÇIK (karar SEC-K1, ORTA)
+### S1 `yonetim/depo.py` `kullanici.totp` — TOTP secret in plain text in the database — OPEN (decision SEC-K1, MEDIUM)
 
-- **BULGU:** `kullanici.totp` sütunu base32 sırrı olduğu gibi tutar. Parola scrypt ile özetlenir; TOTP (HMAC-SHA1, RFC 6238) ise sunucuda sırrın kendisini ister, özetlenemez. Standart kütüphanede simetrik şifre yoktur (`hashlib`, `hmac`, `secrets` var; AES yok), bu yüzden bu iş kod yazılarak çözülmedi. `yonetim/kullanici.py kod <ad>` komutu da sırrı veritabanından okuyup anlık kod basar (yalnız yerel deneme için yazılmıştır).
-- **KANIT:** `tests/test_erisim_guvenligi.py::TotpSirriSizmazTests::test_sir_veritabaninda_duz_metin_oldugu_belgelenmis_bulgudur`: sütun, `kullanici_ekle`in döndürdüğü sırla aynıdır. Sızdırmama yönü de sınandı (`test_sir_panelde_csvde_denetimde_ve_cli_listesinde_yok`): sır panel sayfalarında, CSV'lerde, iki denetim zincirinde ve `liste` çıktısında yoktur; yalnız `ekle` ve `totp-yenile` çıktısında bir kez yazılır. Yedekler `deploy/bakim.py` ile 0600 alınır ama içerik düz sırdır (runbook: başka yere kopyalarken şifreleyin). `veri_dizini` Ansible'da 0750, servisler `UMask=0077`.
-- **RİSK:** `yonetim.sqlite` dosyasına (disk, yedek kopyası, sökülen ya da elden çıkan disk, kök erişimi) ulaşan biri TOTP kodlarını üretebilir. Tek başına giriş sağlamaz: parola scrypt ile korunur (`n=2^15`), ikinci etken olarak yalnız TOTP düşer. Parola özeti de aynı dosyadadır; ikisi birlikte kırılırsa panel (müşteri raporları, CSV'ler) açılır.
-- **ÖNERİ:** Seçenekler, artı ve eksileriyle:
-  1. **Veri dizini 0700 ve dosya 0600** (kod gerektirmez; `veri_dizini` 0750'den 0700'e, dosyalar `UMask=0077` ve S2 düzeltmesiyle 0600). Yedekleme ve kök kullanıcıya karşı koruma sağlamaz.
-  2. **Disk şifreleme** (LUKS ya da sağlayıcının birim şifrelemesi) ve yedeklerin şifreli kopyalanması: çalınan ya da elden çıkan diske ve yedek ortamına karşı koruma sağlar; çalışan sunucuda kök erişimine karşı sağlamaz. Kod gerektirmez.
-  3. **systemd-creds ile sır dosyası** (`systemd-creds encrypt`, birimde `LoadCredentialEncrypted=`): sırlar veritabanından çıkıp sunucunun anahtarıyla (TPM2 varsa onunla) şifrelenmiş bir kimlik bilgisi dosyasına gider, yalnız servis süreci çözülmüş hâlini `$CREDENTIALS_DIRECTORY` altında görür. Kod değişikliği ister (`kullanici.py` sırları o dosyaya yazar, `giris` oradan okur; sır yenilemede servis yeniden başlar), systemd sürümü ve sunucu işletim sistemi bilinmeden (WEB-K4) seçilemez.
-  Varsayılan (SEC-K1, Ali'yi bekliyor): seçenek 1 ve 2; disk şifreleme önerisi `docs/runbook.md`de, kod yok. Seçenek 3 Ali kararından sonra ayrı madde olur.
+- **FINDING:** The `kullanici.totp` column holds the base32 secret as is. The password is hashed with scrypt; TOTP (HMAC-SHA1, RFC 6238) however needs the secret itself on the server and cannot be hashed. The standard library has no symmetric cipher (`hashlib`, `hmac`, `secrets` exist; no AES), so this was not solved by writing code. The `yonetim/kullanici.py kod <name>` command also reads the secret from the database and prints a current code (written for local testing only).
+- **EVIDENCE:** `tests/test_erisim_guvenligi.py::TotpSirriSizmazTests::test_sir_veritabaninda_duz_metin_oldugu_belgelenmis_bulgudur`: the column equals the secret returned by `kullanici_ekle`. The non-leak direction was also tested (`test_sir_panelde_csvde_denetimde_ve_cli_listesinde_yok`): the secret is not in panel pages, in CSVs, in the two audit chains or in the `liste` output; it is written once, only in the output of `ekle` and `totp-yenile`. Backups are taken with `deploy/bakim.py` at 0600 but the content is the plain secret (runbook: encrypt when copying elsewhere). `veri_dizini` (the data directory) is 0750 in Ansible, services run with `UMask=0077`.
+- **RISK:** Someone who reaches the `yonetim.sqlite` file (disk, backup copy, a removed or disposed disk, root access) can generate TOTP codes. This alone does not give login: the password is protected with scrypt (`n=2^15`), only TOTP, the second factor, falls. The password hash is in the same file; if both are broken together, the panel (customer reports, CSVs) opens.
+- **RECOMMENDATION:** Options, with pros and cons:
+  1. **Data directory 0700 and file 0600** (needs no code; `veri_dizini` from 0750 to 0700, files 0600 with `UMask=0077` and the S2 fix). Gives no protection against backup or the root user.
+  2. **Disk encryption** (LUKS or the provider's volume encryption) and copying backups encrypted: protects against a stolen or disposed disk and against the backup medium; does not protect against root access on the running server. Needs no code.
+  3. **A secret file with systemd-creds** (`systemd-creds encrypt`, `LoadCredentialEncrypted=` in the unit): the secrets leave the database and go to a credential file encrypted with the server's key (with TPM2 if present); only the service process sees the decrypted form under `$CREDENTIALS_DIRECTORY`. It requires a code change (`kullanici.py` writes the secrets to that file, `giris` reads from there; the service restarts on secret renewal), and cannot be chosen without knowing the systemd version and the server operating system (WEB-K4).
+  Default (SEC-K1, waiting for Ali): options 1 and 2; the disk encryption recommendation is in `docs/runbook.md`, no code. Option 3 becomes a separate item after Ali's decision.
 
-### S2 `yonetim/kullanici.py` — CLI, gevşek umask'ta `yonetim.sqlite`'ı herkesçe okunur oluşturuyordu — DÜZELTİLDİ (DÜŞÜK)
+### S2 `yonetim/kullanici.py` — the CLI created `yonetim.sqlite` world-readable under a loose umask — FIXED (LOW)
 
-- **BULGU:** Uygulama dosya izni ayarlamaz; izni umask belirler. Servisler `UMask=0077` ile çalışır, ama runbook'taki `sudo -u alig-web python3 .../kullanici.py ...` çağrısı çağıranın umask'ını (çoğunlukla 022) devralır. Veritabanını ilk oluşturan CLI ise dosya 0644 olur.
-- **KANIT:** Sonda: `umask 022; python3 yonetim/kullanici.py --db y.sqlite liste` → `-rw-r--r--`. Dosya parola özetlerini ve TOTP sırlarını (S1) taşır. Hafifletici: `veri_dizini` 0750 ve sahibi servis kullanıcısı, yani dosyaya yalnız o grup ulaşırdı.
-- **RİSK:** Dizin izni gevşetilirse ya da dosya başka yere taşınırsa sırlar herkesçe okunurdu; savunma tek katmana düşüyordu.
-- **ÖNERİ / DÜZELTME:** `kullanici.py` başlarken `os.umask(0o077)` (yalnız komut satırı çalıştırmasında; kütüphane olarak içe aktarılınca süreç umask'ı değişmez). Test: `CliDosyaIzniTests` (alt süreç, umask 022 → hiçbir dosyada grup ya da diğer biti yok). Mutasyonda koruma kaldırılınca kırmızı.
+- **FINDING:** The application does not set file permissions; the umask determines them. Services run with `UMask=0077`, but the `sudo -u alig-web python3 .../kullanici.py ...` call in the runbook inherits the caller's umask (mostly 022). When the CLI creates the database first, the file becomes 0644.
+- **EVIDENCE:** Probe: `umask 022; python3 yonetim/kullanici.py --db y.sqlite liste` -> `-rw-r--r--`. The file carries password hashes and TOTP secrets (S1). Mitigating: `veri_dizini` is 0750 and owned by the service user, so only that group could reach the file.
+- **RISK:** If the directory permission is loosened or the file is moved elsewhere, the secrets would be world-readable; the defence fell to a single layer.
+- **RECOMMENDATION / FIX:** `kullanici.py` calls `os.umask(0o077)` at start (only when run from the command line; imported as a library, it does not change the process umask). Test: `CliDosyaIzniTests` (subprocess, umask 022 -> no group or other bits on any file). Red in mutation when the protection is removed.
 
-### S3 `yonetim/server.py` — rol ayrımı yok: "yetkili" geçerli oturum demektir — KABUL EDİLDİ (BİLGİ)
+### S3 `yonetim/server.py` — no role separation: "authorised" means a valid session — ACCEPTED (INFO)
 
-- **BULGU:** Her panel kullanıcısı her sayfayı, iki CSV'yi, rapor silmeyi ve firma silmeyi kullanabilir; salt okunur ya da yalnız-CSV rolü yoktur.
-- **KANIT:** `YonetimOturumsuzTests::test_yetki_modeli_tek_rol_belgelenmis_varsayim` (ikinci kullanıcı da CSV alır). Her CSV indirmesi yönetim denetim zincirine satır sayısıyla yazılır (`firmalar csv indirildi, N satir`); denetime yetkisiz deneme yazılmaz (`test_csv_yalniz_oturumlu_ve_indirme_denetime_yazilir`).
-- **RİSK:** Bugün tek yönetici olduğu için etkisi yok. Kullanıcı sayısı artarsa, kişisel veri (iletişim talepleri, e-postalar) içeren CSV'yi alabilecek kişi sayısı da artar.
-- **ÖNERİ:** İkinci kullanıcı eklenmeden önce rol tasarımı (en az: yalnız görüntüleme, CSV ve silme ayrı hak). Şimdilik `kullanici.py liste` ile kullanıcılar gözden geçirilir.
+- **FINDING:** Every panel user can use every page, both CSVs, report deletion and company deletion; there is no read-only or CSV-only role.
+- **EVIDENCE:** `YonetimOturumsuzTests::test_yetki_modeli_tek_rol_belgelenmis_varsayim` (a second user also gets the CSV). Every CSV download is written to the admin audit chain with the row count (`firmalar csv indirildi, N satir`); an unauthorised attempt is not written to the audit (`test_csv_yalniz_oturumlu_ve_indirme_denetime_yazilir`).
+- **RISK:** No effect today since there is a single administrator. If the number of users grows, so does the number of people who can get the CSV containing personal data (contact requests, e-mails).
+- **RECOMMENDATION:** Before a second user is added, a role design (at minimum: view-only, with CSV and deletion as separate rights). For now users are reviewed with `kullanici.py liste`.
 
-### S4 `yonetim/depo.py` `giris_engelli` — kullanıcı başına kilit, adı bilinen yöneticiyi 15 dakika dışarıda tutabilir — KABUL EDİLDİ (DÜŞÜK)
+### S4 `yonetim/depo.py` `giris_engelli` — the per-user lock can keep an administrator whose name is known out for 15 minutes — ACCEPTED (LOW)
 
-- **BULGU:** 15 dakikada 5 hatalı denemeden sonra kullanıcı, doğru bilgiyle bile girişten engellenir. Kullanıcı adını bilen biri yöneticiyi kilitleyebilir.
-- **KANIT:** `GirisTests::test_kilitleme`; `TotpKurtarmaTests::test_kilitli_kullanici_yenilemeden_sonra_sure_dolana_kadar_kilitli_kalir`: `totp-yenile` deneme sayacını sıfırlamaz, engel süre dolunca kalkar.
-- **RİSK:** Yalnız erişilebilirlik; kapı nginx IP izin listesi ya da SSH tünelinin arkasındadır (`yonetim_izinli_ipler`). IP başına sınır (10) ayrıca vardır. Parola tahmini bu yolla hızlanmaz.
-- **ÖNERİ:** Kabul; brute force'a karşı bilinçli takas. Kilitte beklemek 15 dakika sürer (runbook'ta yazılı); sayacı sıfırlayan bir CLI komutu eklenmedi, çünkü saldırgan kilidi kaldırtmaya zorlayamaz ama komut yanlış kullanılırsa korumayı zayıflatır.
+- **FINDING:** After 5 failed attempts in 15 minutes the user is blocked from login even with correct credentials. Someone who knows the username could lock the administrator out.
+- **EVIDENCE:** `GirisTests::test_kilitleme`; `TotpKurtarmaTests::test_kilitli_kullanici_yenilemeden_sonra_sure_dolana_kadar_kilitli_kalir`: `totp-yenile` does not reset the attempt counter, the block lifts when the time expires.
+- **RISK:** Availability only; the door is behind the nginx IP allowlist or the SSH tunnel (`yonetim_izinli_ipler`). A per-IP limit (10) also exists. Password guessing is not accelerated this way.
+- **RECOMMENDATION:** Accepted; a deliberate trade-off against brute force. Waiting out the lock takes 15 minutes (written in the runbook); a CLI command that resets the counter was not added, because an attacker cannot force the lock to be lifted, but if the command is misused it would weaken the protection.
 
-### S5 `tarama/server.py` `_sil` — süresi dolmuş belirteçle silme ucu, temizlik çalışana kadar satırı siler — KABUL EDİLDİ (BİLGİ)
+### S5 `tarama/server.py` `_sil` — the delete endpoint with an expired token deletes the row until cleanup runs — ACCEPTED (INFO)
 
-- **BULGU:** Okuma ucu ve `/dogrula` ucu `bitis_utc > şimdi` arar; `rapor_sil` aranmaz. Süresi dolmuş ama henüz `suresi_dolanlari_sil` ile temizlenmemiş raporun `/sil` ucu `303` döner ve satırı siler.
-- **KANIT:** `RaporBelirteciTests::test_bitis_sonrasi_hicbir_uc_veri_vermez`: bitişten sonra GET (iki görünüm), `/dogrula` `404`; `/sil` yanıtında rapor içeriği yok ve sonrasında yine `404`.
-- **RİSK:** Veri sızmaz; silme istenen sonuçtur (saklama süresi zaten dolmuştur). Belirteç sahibi için "var mıydı" farkı görünür, belirteç zaten sahibindedir.
-- **ÖNERİ:** Değişiklik gerekmez. Test yalnız "içerik gelmez" der; durum kodunu sabitlemez, ileride `404`e çevrilirse test kırılmaz.
+- **FINDING:** The read endpoint and the `/dogrula` (verify) endpoint look for `bitis_utc > now`; `rapor_sil` (report delete) does not. For a report that has expired but has not yet been cleaned up by `suresi_dolanlari_sil`, the `/sil` endpoint returns `303` and deletes the row.
+- **EVIDENCE:** `RaporBelirteciTests::test_bitis_sonrasi_hicbir_uc_veri_vermez`: after the end time GET (two views) and `/dogrula` give `404`; the `/sil` response has no report content and afterwards it is `404` again.
+- **RISK:** No data leaks; deletion is the desired outcome (the retention period has already expired). The token holder can see the "did it exist" difference, and the token is already in the holder's hands.
+- **RECOMMENDATION:** No change needed. The test only says "no content comes"; it does not pin the status code, so if it is changed to `404` later the test does not break.
 
-### S6 `docs/runbook.md` — TOTP cihazı kaybı prosedürü tek cümleydi — DÜZELTİLDİ (ORTA, belge)
+### S6 `docs/runbook.md` — the TOTP device loss procedure was a single sentence — FIXED (MEDIUM, documentation)
 
-- **BULGU:** Runbook yalnız "telefon kaybolursa `totp-yenile` ile yeni anahtar üretin" diyordu. Hangi kullanıcıyla, hangi sırayla, kaybolan cihaz çalınmış olabilirse ne yapılacağı, kilit süresi ve doğrulama yoktu.
-- **KANIT:** `yonetim/kullanici.py` `totp-yenile` yeni sırrı üretir, sayacı sıfırlar, kullanıcının açık oturumlarını kapatır ve `cli` aktörüyle denetime yazar (`TotpKurtarmaTests`: eski cihaz girmez, yeni anahtar girer, parola aynı kalır, olmayan ya da geçersiz ad kayıt bırakmaz). Kod yeterliydi; eksik yalnız prosedürdü.
-- **RİSK:** Acil durumda yanlış sıra (örneğin cihaz çalınmışken yalnız TOTP yenilemek, parolayı bırakmak) ya da anahtarın terminal kaydına düşmesi.
-- **ÖNERİ / DÜZELTME:** `docs/runbook.md` "Doğrulama cihazı kaybı" bölümü eklendi (kimlik doğrulama, komut sırası, çalıntı cihaz için parola yenileme, kilit, doğrulama, denetim kaydı).
+- **FINDING:** The runbook only said "if the phone is lost, generate a new key with `totp-yenile`". It had no information on which user to use, in which order, what to do if the lost device may have been stolen, the lock duration, and verification.
+- **EVIDENCE:** `yonetim/kullanici.py` `totp-yenile` generates the new secret, resets the counter, closes the user's open sessions and writes to the audit with the `cli` actor (`TotpKurtarmaTests`: the old device cannot log in, the new key can, the password stays the same, a nonexistent or invalid name leaves no record). The code was sufficient; only the procedure was missing.
+- **RISK:** In an emergency, the wrong order (for example renewing only TOTP while a device is stolen and leaving the password), or the key landing in the terminal log.
+- **RECOMMENDATION / FIX:** A "Verification device loss" section was added to `docs/runbook.md` (identity verification, command order, password renewal for a stolen device, lock, verification, audit record).
 
-### ALIG-SEC-001: erişimin olmaması gereken yollar — doğrulandı (açık bulunmadı)
+### ALIG-SEC-001: paths through which access must not exist — verified (no gap found)
 
-| Gereklilik | Sonuç | Kanıt (`tests/test_erisim_guvenligi.py`, ek olarak mevcut `test_portal.py`) |
+| Requirement | Result | Evidence (`tests/test_erisim_guvenligi.py`, plus the existing `test_portal.py`) |
 | --- | --- | --- |
-| Firma A belirteci firma B raporunu açamaz | Doğrulandı | `RaporBelirteciTests` (43 konumda tek karakter değişimi, kısaltma, uzatma, büyük/küçük harf, yol ve sorgu hileleri, A belirteciyle B silinemez/doğrulanamaz); portal: `IzolasyonTests`, `test_rapor_izolasyonu_http` |
-| Rapor belirteci ömrü: `bitis_utc` sonrası erişim yok; silinen rapor yeniden açılmaz | Doğrulandı | `test_bitis_sonrasi_hicbir_uc_veri_vermez`, `test_bitis_siniri_saniye_hassasiyetinde`, `test_silinen_rapor_belirteci_yeniden_yuklemeyle_dirilmez`, `BekleyenRaporSureTests` (bekleyen rapor: süre dolunca onay sayfası da `404`, doğrulama hak harcamaz) |
-| Yönetim CSV yalnız oturumlu | Doğrulandı | `test_csv_yalniz_oturumlu_ve_indirme_denetime_yazilir`, `test_oturum_baska_yollarla_gecersiz_olunca_acilmaz` (kullanıcı silindi, parola değişti, anahtar yenilendi) |
-| Yönetim uçlarının tamamı oturumsuz kapalı | Doğrulandı | Tablo güdümlü: menü ve kaynak yolları tabloda olmak zorundadır (`test_tablo_menu_ve_kaynak_yollarini_kapsar`); 25 GET ve 10 POST yolu × 10 geçersiz kimlik durumu (çerezsiz, sahte, boş, bozuk, `__Host-` önekisiz, özet çerezi, boşta ve toplam süresi dolmuş, çıkış yapılmış) |
-| Rapor HTML'inde kaçış | Doğrulandı | `RaporKacisTests`, `RaporKacisSunucuTests`, `PortalKacisTests`, `YonetimKacisTests`: tüm denetimlerin her metin kolonunda etiket, tırnak ve varlık içeren nesne adı; iki dil, iki görünüm, müşteri/portal/yönetim, depolanmış ve yansıyan değerler |
-| TOTP tekrar kullanım engeli | Doğrulandı | `TotpTekrarVeOturumOzetiTests` (aynı kod iki IP'den, daha eski pencere kodu, yanlış parola kodu yakmaz, anahtar yenilenince sayaç sıfırlanır); mevcut yarış testi `test_ayni_dogrulama_kodu_es_zamanli_iki_giriste_bir_kez_gecer` |
-| Oturum kodu yalnız SHA-256 özetiyle saklanır | Doğrulandı | `test_oturum_kodu_yalniz_sha256_ozetiyle_saklanir` (veritabanı dosyalarında ham kod baytı yok; özet çerez olarak kabul edilmez), `test_portal_oturum_kodu_da_yalniz_ozetle_saklanir` |
+| A company A token cannot open a company B report | Verified | `RaporBelirteciTests` (single character change at 43 positions, truncation, extension, upper/lower case, path and query tricks, B cannot be deleted/verified with an A token); portal: `IzolasyonTests`, `test_rapor_izolasyonu_http` |
+| Report token lifetime: no access after `bitis_utc`; a deleted report does not reopen | Verified | `test_bitis_sonrasi_hicbir_uc_veri_vermez`, `test_bitis_siniri_saniye_hassasiyetinde`, `test_silinen_rapor_belirteci_yeniden_yuklemeyle_dirilmez`, `BekleyenRaporSureTests` (pending report: when the time expires the confirmation page is also `404`, verification does not spend the allowance) |
+| Admin CSV only with a session | Verified | `test_csv_yalniz_oturumlu_ve_indirme_denetime_yazilir`, `test_oturum_baska_yollarla_gecersiz_olunca_acilmaz` (user deleted, password changed, key renewed) |
+| All admin endpoints closed without a session | Verified | Table-driven: menu and source paths must be in the table (`test_tablo_menu_ve_kaynak_yollarini_kapsar`); 25 GET and 10 POST paths x 10 invalid-credential cases (no cookie, forged, empty, malformed, without the `__Host-` prefix, a digest cookie, idle and total timeout expired, logged out) |
+| Escaping in report HTML | Verified | `RaporKacisTests`, `RaporKacisSunucuTests`, `PortalKacisTests`, `YonetimKacisTests`: an object name containing tags, quotes and entities in every text column of all checks; two languages, two views, customer/portal/admin, stored and reflected values |
+| TOTP replay prevention | Verified | `TotpTekrarVeOturumOzetiTests` (the same code from two IPs, an older window code, a wrong password does not burn the code, the counter resets when the key is renewed); the existing race test `test_ayni_dogrulama_kodu_es_zamanli_iki_giriste_bir_kez_gecer` |
+| Session code stored only as a SHA-256 digest | Verified | `test_oturum_kodu_yalniz_sha256_ozetiyle_saklanir` (no raw code bytes in the database files; the digest is not accepted as a cookie), `test_portal_oturum_kodu_da_yalniz_ozetle_saklanir` |
 
-Sınırlar: testler SQLite çalışma zamanına karşıdır; PostgreSQL'de aynı davranış `ALIG-DB-003` maddelerinde yeniden sınanacak. Gerçek bir tarayıcı, nginx ya da gerçek sunucu kullanılmadı: HTTP testleri yerel `ThreadingHTTPServer`'a karşıdır (nginx IP izin listesi, `X-Real-IP` yazımı sınanmadı).
+Limits: the tests are against the SQLite runtime; the same behaviour will be tested again in the `ALIG-DB-003` items on PostgreSQL. No real browser, nginx or real server was used: the HTTP tests are against a local `ThreadingHTTPServer` (the nginx IP allowlist and `X-Real-IP` writing were not tested).
 
-### ALIG-SEC-001 mutasyon denemesi
+### ALIG-SEC-001 mutation testing
 
-Her satırda koruma geçici bir kopyada kaldırıldı ve `tests.test_erisim_guvenligi` çalıştırıldı.
+On each row the protection was removed in a temporary copy and `tests.test_erisim_guvenligi` was run.
 
-| Koruma | İlk kırılan test |
+| Protection | First test to fail |
 | --- | --- |
-| Rapor okumada `bitis_utc` denetimi (`rapor_getir`) | `test_bitis_siniri_saniye_hassasiyetinde` |
-| Bekleyen raporda `bitis_utc` denetimi (`rapor_bekleyen_getir`) | `test_suresi_dolan_bekleyen_rapor_dogrulanamaz_ve_hak_harcamaz` |
-| Yönetim GET uçlarında oturum denetimi | `test_csv_yalniz_oturumlu_ve_indirme_denetime_yazilir` |
-| Yönetim POST'ta CSRF kodu | `test_oturumlu_ama_csrf_ya_da_kaynak_yanlis_post_reddedilir` |
-| Oturum özetinin çerez olarak reddi | `test_oturum_kodu_yalniz_sha256_ozetiyle_saklanir` |
-| TOTP tekrar koruması (`s > son_sayac`) | `test_ayni_kod_ikinci_kez_hicbir_yolla_gecmez` |
-| Rapor kanıt listesinde kaçış | `test_portal_sayfalari` |
-| `totp-yenile` oturumları kapatması | `test_totp_yenile_yeni_anahtar_verir_oturumlari_kapatir_parolayi_degistirmez` |
+| `bitis_utc` check on report read (`rapor_getir`) | `test_bitis_siniri_saniye_hassasiyetinde` |
+| `bitis_utc` check on a pending report (`rapor_bekleyen_getir`) | `test_suresi_dolan_bekleyen_rapor_dogrulanamaz_ve_hak_harcamaz` |
+| Session check on admin GET endpoints | `test_csv_yalniz_oturumlu_ve_indirme_denetime_yazilir` |
+| CSRF code on admin POST | `test_oturumlu_ama_csrf_ya_da_kaynak_yanlis_post_reddedilir` |
+| Rejecting the session digest as a cookie | `test_oturum_kodu_yalniz_sha256_ozetiyle_saklanir` |
+| TOTP replay protection (`s > son_sayac`) | `test_ayni_kod_ikinci_kez_hicbir_yolla_gecmez` |
+| Escaping in the report evidence list | `test_portal_sayfalari` |
+| `totp-yenile` closing sessions | `test_totp_yenile_yeni_anahtar_verir_oturumlari_kapatir_parolayi_degistirmez` |
 | CLI `umask` (S2) | `test_cli_gevsek_umask_altinda_bile_dosyayi_0600_olusturur` |
-| CSV indirmesinin denetime yazılması | `test_csv_yalniz_oturumlu_ve_indirme_denetime_yazilir` |
+| Writing the CSV download to the audit | `test_csv_yalniz_oturumlu_ve_indirme_denetime_yazilir` |
 
-10/10 yakalandı (test koşusu ilk hatada durduruldu; her satırda yalnız ilk kırılan test yazıldı). Kaçan mutasyon olmadı. Mutasyon betiği depoya girmedi (geçici kopyada çalıştı).
-## ALIG-SCAN-001: tarama güvenliği denetimi (2026-11-15)
+10/10 caught (the test run was stopped at the first failure; only the first failing test is listed on each row). No mutation escaped. The mutation script did not enter the repository (it ran on a temporary copy).
 
-Kapsam: Kip A toplayıcı (`tarama/toplayici/sablon.py`, üretilen `site/assets/alig-toplayici.py`, `tarama/onsurum/`) ve Kip B (`tarama/hedef.py`, `tarama/baglanti.py`, `tarama/calistirici.py`, ilgili uçlar). Yöntem: kodu okuma, sondalar, mutasyon denemesi, PG16 geçici kümesi. Testler: `tests/test_tarama_guvenlik.py`. Toplayıcı kaynağı değiştirilmedi; `uret_toplayici.py --kontrol` 0 döner.
+## ALIG-SCAN-001: scan security review (2026-11-15)
 
-### S1 `tarama/hedef.py` ve `tarama/baglanti.py` — IPv6 kapsam kimliği bağlantı dizgisine enjekte edilip SSRF reddini atlatıyordu — DÜZELTİLDİ
+Scope: the Mode A collector (`tarama/toplayici/sablon.py`, the generated `site/assets/alig-toplayici.py`, `tarama/onsurum/`) and Mode B (`tarama/hedef.py`, `tarama/baglanti.py`, `tarama/calistirici.py`, the related endpoints). Method: reading the code, probes, mutation testing, a temporary PG16 cluster. Tests: `tests/test_tarama_guvenlik.py`. The collector source was not changed; `uret_toplayici.py --kontrol` returns 0.
 
-- **BULGU:** `[...]` içindeki IPv6 yazımı `ipaddress.IPv6Address` ile ayrıştırılıyordu. Python 3.9+ `%` sonrası kapsam kimliğini (`scope_id`) her metinle kabul eder (boşluk ve `=` dahil) ve `str(ip)` kimliği geri yazar. `Hedef.ad` ve `Hedef.ip` bu metni taşıyor, `baglanti_dizgisi` `host=%s hostaddr=%s` ile doğrudan birleştiriyordu. Adres kısmı genel IP olduğundan `adres_uygun` geçiyordu.
-- **KANIT:** `hedef.dogrula("[2606:2800:220:1::1%x hostaddr=127.0.0.1 sslmode=disable]", 5432)` kabul edildi; dizgi `host=2606:...%x hostaddr=127.0.0.1 sslmode=disable hostaddr=2606:...%x hostaddr=127.0.0.1 sslmode=disable port=54329 ...` oldu. `psql` bu dizgiyle PG16 geçici kümesinde 127.0.0.1:54329'a bağlandı; bağlantıyı yalnız `channel_binding=require` kesti ("channel binding required"; küme `trust` kimlik doğrulamalıydı). Aynı yol `calistirici.py` içinde `ipaddress.ip_address(i["ip"])` ile de açıktı.
-- **RİSK:** Müşteri formundaki "sunucu" alanıyla loopback, RFC1918 ya da bulut meta veri adreslerine bağlantı denenebilir; ek anahtarlarla (`options=-c default_transaction_read_only=off`, `sslmode=disable`) salt okunur ve TLS korumaları da ezilebilirdi. Kip B varsayılan kapalıdır ve çalıştırıcı birimi iç ağa `IPAddressDeny` ile kapalıdır (ikinci katman); ilk katman yine de delikti.
-- **DÜZELTME:** (1) `adres_uygun`: kapsam kimlikli adres hiçbir zaman uygun değil; `dogrula`: kimlikli iç adres `ic_adres`, kimlikli genel adres `ad` ile reddedilir. (2) `baglanti_dizgisi`: `host` ve `hostaddr` yalnız `[0-9A-Za-z.:-]`, port 1-65535 tam sayı değilse `BaglantiHatasi("bicim")` (çalıştırıcı soketinden gelen hedef için de geçerli). (3) `AD` kalıbında `$` yerine `\Z` (sondaki satır sonu). Testler: `HedefTablosuTests`, `BaglantiDizgisiSavunmasi`, `CalistiriciHedefTests`; ilgili korumalar kaldırılınca kırmızıya düştü.
-- **ÖNERİ:** `ALIG_YASAK_AGLAR` ve çalıştırıcı birimindeki `IPAddressDeny` açık kalsın; tek katmana güvenilmemeli.
+### S1 `tarama/hedef.py` and `tarama/baglanti.py` — an IPv6 scope ID was injected into the connection string and bypassed the SSRF rejection — FIXED
 
-### S2 `tarama/baglanti.py` `_calistir` — psql çıktısı sınırsız bellekte toplanıyordu — DÜZELTİLDİ
+- **FINDING:** The IPv6 notation inside `[...]` was parsed with `ipaddress.IPv6Address`. Python 3.9+ accepts any text as the scope ID after `%` (including spaces and `=`) and `str(ip)` writes the ID back. `Hedef.ad` and `Hedef.ip` carried this text, and `baglanti_dizgisi` concatenated it directly with `host=%s hostaddr=%s`. Because the address part was a public IP, `adres_uygun` passed.
+- **EVIDENCE:** `hedef.dogrula("[2606:2800:220:1::1%x hostaddr=127.0.0.1 sslmode=disable]", 5432)` was accepted; the string became `host=2606:...%x hostaddr=127.0.0.1 sslmode=disable hostaddr=2606:...%x hostaddr=127.0.0.1 sslmode=disable port=54329 ...`. With this string `psql` connected to 127.0.0.1:54329 on the PG16 temporary cluster; only `channel_binding=require` cut the connection ("channel binding required"; the cluster used `trust` authentication). The same path was also open in `calistirici.py` through `ipaddress.ip_address(i["ip"])`.
+- **RISK:** With the "server" field in the customer form, a connection could be attempted to loopback, RFC1918 or cloud metadata addresses; with extra keys (`options=-c default_transaction_read_only=off`, `sslmode=disable`) the read-only and TLS protections could also be overridden. Mode B is off by default and the runner unit is closed to the internal network with `IPAddressDeny` (second layer); the first layer was still a hole.
+- **FIX:** (1) `adres_uygun`: an address with a scope ID is never suitable; `dogrula`: an internal address with an ID is rejected as `ic_adres` (internal address), a public address with an ID as `ad` (name). (2) `baglanti_dizgisi`: unless `host` and `hostaddr` are only `[0-9A-Za-z.:-]` and the port is an integer 1-65535, `BaglantiHatasi("bicim")` (format) is raised (also valid for a target coming from the runner socket). (3) `\Z` instead of `$` in the `AD` pattern (trailing newline). Tests: `HedefTablosuTests`, `BaglantiDizgisiSavunmasi`, `CalistiriciHedefTests`; they went red when the related protections were removed.
+- **RECOMMENDATION:** Keep `ALIG_YASAK_AGLAR` and the `IPAddressDeny` in the runner unit; a single layer must not be trusted.
 
-- **BULGU:** `subprocess.run(capture_output=True)` stdout'u süre sınırı dolana kadar (30 sn) bellekte biriktirir. Kip B'de sunucuyu müşteri seçer; düşmanca bir sunucu `LIMIT` ve `statement_timeout` dışında istediği büyüklükte yanıt gönderebilir.
-- **KANIT:** Sahte `psql` 200 MB yazarken test, `CIKTI_SINIRI` olmadığından kırmızıydı. Yeni `_surec_calistir`: stdout 2 MB'ı aşarsa süreç öldürülür, sonuç `hata`.
-- **RİSK:** Çalıştırıcı bellek tüketimiyle düşürülebilir; eşzamanlı iki tarama sınırı bunu hafifletmez.
-- **DÜZELTME:** `selectors` ile sınırlı okuma: stdout 2 MB, stderr 64 KB, toplam süre sınırı, her durumda `kill`. Test: `CiktiSiniriTests`. Kip A'da değişiklik gerekmedi: toplayıcı müşterinin kendi makinesinde, kendi sunucusuna karşı çalışır.
+### S2 `tarama/baglanti.py` `_calistir` — psql output was collected in memory without a limit — FIXED
 
-### S3 Toplayıcı ve Kip B: yalnız okuma, allowlist, oturum ayarları — DOĞRULANDI (eksik testler eklendi)
+- **FINDING:** `subprocess.run(capture_output=True)` accumulates stdout in memory until the time limit expires (30 s). In Mode B the customer chooses the server; a hostile server can send a response of any size apart from `LIMIT` and `statement_timeout`.
+- **EVIDENCE:** While a fake `psql` wrote 200 MB, the test was red because there was no `CIKTI_SINIRI` (output limit). The new `_surec_calistir`: if stdout exceeds 2 MB the process is killed and the result is `hata` (error).
+- **RISK:** The runner can be brought down by memory consumption; the limit of two concurrent scans does not mitigate it.
+- **FIX:** Bounded reading with `selectors`: stdout 2 MB, stderr 64 KB, a total time limit, `kill` in every case. Test: `CiktiSiniriTests`. No change was needed in Mode A: the collector runs on the customer's own machine against their own server.
 
-- **BULGU:** Mevcut `KatalogTests` yalnız `katalog.PG` sorgularını denetliyordu; `YASAKLI` listesinde `into`, `set_config`, `nextval`/`setval`, `for update`, `pg_advisory_*`, `pg_stat_reset*` yoktu; veritabanı listesi sorgusu, ilk bağlantı sorguları (Kip A ve Kip B), üretilmiş toplayıcının gömülü katalogu, `sorgu-katalogu*.txt` ve SQL Server toplayıcısı bu allowlist'ten geçmiyordu.
-- **KANIT:** Yeni `TumSqlAllowlistTests`: yalnız `SELECT`/`SHOW`/`WITH ... SELECT`, tek deyim, yorum yok, geniş yasak kalıp listesi (INSERT/UPDATE/DELETE/ALTER/CREATE/DROP/TRUNCATE/GRANT/COPY/`pg_terminate_backend`/`pg_cancel_backend`/`pg_reload_conf`/`set_config`/`SELECT INTO`/`FOR UPDATE` vb.); denetleyici önce 38 kötü örnekle kendini sınar. Kapsam: katalog (eski sürüm biçimleri dahil, 26 denetim), `VT_LISTE_SQL`, `ILK_SORGU`, üretilen toplayıcının AST'deki tüm SQL sabitleri ve gömülü `KATALOG`, `sorgu-katalogu.txt`, SQL Server toplayıcısı ve `sorgu-katalogu-mssql.txt`; `calistir()` çağrılarının SQL'inin yalnız sabit ya da katalogdan geldiği AST ile denetlenir. Hepsi geçti, hiçbir sorgu değişmedi. Oturum: iki yol da her `psql` çağrısında `PGOPTIONS` ile `default_transaction_read_only=on`, `statement_timeout=15000`, `lock_timeout=2000` verir ve ortamdaki düşmanca `PGOPTIONS` ezilir (mock testleri; mutasyonla doğrulandı). PG16'da: toplayıcı oturumu `on / 15s / 2s` döndü, sarmalı kırıp `CREATE TABLE` ekleyen metin salt okunur oturumda reddedildi ve tablo oluşmadı, 26 denetimin hepsi salt okunur oturumda çalıştı. Kip B: toplam süre bütçesi bitince katalog denetimleri çalışmıyor.
-- **RİSK:** `default_transaction_read_only` bir güvenlik sınırı değil, kazaya karşı ağdır: oturumdaki SQL `SET` ile aşabilir. Gerçek sınır, SQL metninin sabit katalogdan gelmesi ve allowlist testidir. Hesabın yetkisiz olması (öneri: `pg_monitor`) üçüncü katmandır.
-- **ÖNERİ:** Toplayıcı kaynağında değişiklik gerekmedi. `BEGIN READ ONLY` eklemek, ilk sorgudan önce `SET TRANSACTION READ WRITE` ile aşılabileceğinden anlamlı ek koruma sağlamaz.
+### S3 Collector and Mode B: read-only, allowlist, session settings — VERIFIED (missing tests added)
 
-### S4 SQL Server toplayıcısı (ön sürüm): oturum düzeyinde salt okunur kip yok — AÇIK, KABUL EDİLEN
+- **FINDING:** The existing `KatalogTests` only checked the `katalog.PG` queries; the `YASAKLI` (forbidden) list did not have `into`, `set_config`, `nextval`/`setval`, `for update`, `pg_advisory_*`, `pg_stat_reset*`; the database list query, the initial connection queries (Mode A and Mode B), the embedded catalog of the generated collector, `sorgu-katalogu*.txt` and the SQL Server collector did not pass through this allowlist.
+- **EVIDENCE:** The new `TumSqlAllowlistTests`: only `SELECT`/`SHOW`/`WITH ... SELECT`, a single statement, no comments, a broad forbidden pattern list (INSERT/UPDATE/DELETE/ALTER/CREATE/DROP/TRUNCATE/GRANT/COPY/`pg_terminate_backend`/`pg_cancel_backend`/`pg_reload_conf`/`set_config`/`SELECT INTO`/`FOR UPDATE` etc.); the checker first tests itself with 38 bad examples. Scope: the catalog (including old-version forms, 26 checks), `VT_LISTE_SQL`, `ILK_SORGU`, all SQL constants in the AST of the generated collector and the embedded `KATALOG`, `sorgu-katalogu.txt`, the SQL Server collector and `sorgu-katalogu-mssql.txt`; that the SQL of `calistir()` calls comes only from constants or from the catalog is checked with the AST. All passed, no query changed. Session: both paths give `default_transaction_read_only=on`, `statement_timeout=15000`, `lock_timeout=2000` with `PGOPTIONS` on every `psql` call and a hostile `PGOPTIONS` in the environment is overridden (mock tests; verified by mutation). On PG16: the collector session returned `on / 15s / 2s`, a text that breaks the wrapper and adds `CREATE TABLE` was rejected in the read-only session and the table was not created, all 26 checks ran in the read-only session. Mode B: when the total time budget runs out the catalog checks do not run.
+- **RISK:** `default_transaction_read_only` is not a security boundary, it is a safety net against accidents: SQL in the session can get around it with `SET`. The real boundary is that the SQL text comes from the fixed catalog, and the allowlist test. The account being unprivileged (recommendation: `pg_monitor`) is the third layer.
+- **RECOMMENDATION:** No change was needed in the collector source. Adding `BEGIN READ ONLY` gives no meaningful extra protection, since it can be bypassed with `SET TRANSACTION READ WRITE` before the first query.
 
-- **BULGU:** `ON_EK` yalnız `SET NOCOUNT ON`, `SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED`, `SET LOCK_TIMEOUT 2000`, `SET DEADLOCK_PRIORITY LOW`, `DECLARE @j`; sorgu zaman aşımı `sqlcmd -t 15`, bağlantı `-l 15`.
-- **KANIT:** `test_mssql_sabit_on_ek_yalniz_oturum_ayari` ön eki sabitler. SQL Server'da `default_transaction_read_only` karşılığı yoktur (`ApplicationIntent=ReadOnly` yalnız kullanılabilirlik grubu yönlendirmesidir, yazmayı engellemez).
-- **RİSK:** Koruma yalnız sabit SELECT'ler ve hesabın yetkisidir (`alig-giris-mssql.sql`: `VIEW SERVER STATE`, `VIEW ANY DEFINITION`).
-- **ÖNERİ:** Yetki betiğinin dışında yetki verilmesin; `ALIG_MSSQL` zaten varsayılan kapalı. Gerçek SQL Server'da sınanmadı.
+### S4 SQL Server collector (preview): no session-level read-only mode — OPEN, ACCEPTED
 
-### S5 Kip B hedef doğrulaması, kaynak sınırları, varsayılan kapalı — DOĞRULANDI (tablo güdümlü testler eklendi)
+- **FINDING:** `ON_EK` (the prefix) is only `SET NOCOUNT ON`, `SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED`, `SET LOCK_TIMEOUT 2000`, `SET DEADLOCK_PRIORITY LOW`, `DECLARE @j`; the query timeout is `sqlcmd -t 15`, the connection `-l 15`.
+- **EVIDENCE:** `test_mssql_sabit_on_ek_yalniz_oturum_ayari` pins the prefix. SQL Server has no equivalent of `default_transaction_read_only` (`ApplicationIntent=ReadOnly` is only availability group routing and does not prevent writes).
+- **RISK:** The protection is only the fixed SELECTs and the account's privileges (`alig-giris-mssql.sql`: `VIEW SERVER STATE`, `VIEW ANY DEFINITION`).
+- **RECOMMENDATION:** No privileges should be granted outside the privilege script; `ALIG_MSSQL` is already off by default. Not tested on a real SQL Server.
 
-- **BULGU:** Mevcut testler iyiydi; eksikler: IPv6 kapsam kimliği, IPv4-mapped onaltılık yazımlar (`::ffff:7f00:1`), `::ffff:0:a.b.c.d`, tam genişlikli rakamlar ve kontrol karakterleri, çözümleyicinin bozuk kayıt döndürmesi, port tabloları (`"05432"`, `"+5432"`, Arapça rakam, `True`), hedefin çalıştırıcı soketinden gelmesi, kaynak sınırlarının sınırda ve sınırın üstünde sınanması (5 MB, derinlik 8, 200 ve 5000 satır, 1000 atlanan, yapı/tırnak/kaçış sayısı), `TARAMA_YUVASI` ve çalıştırıcı eşzamanlılığı (2), çerçeve boyutu, Kip B kapalıyken uçların 404'ü.
-- **KANIT:** `HedefTablosuTests` (90 doğrudan girdi, 22 çözümleme senaryosu, port tabloları), `CalistiriciHedefTests`, `SinirTests`, `KapaliTests`, `KapaliUclarTests` (kapalıyken `GET`/`POST` `/api/tarama/baglan` ve `/api/tarama/baglan/<belirteç>` 404; `baglanti.tara` ve çalıştırıcı çağrılmıyor). `ALIG_DOGRUDAN` yalnız tam `1` ve çalıştırıcı soketiyle açılır; `deploy/` ve `config.example` içinde koşulsuz `ALIG_DOGRUDAN=1` yoktur.
-- **RİSK (tasarım, bulgu değil):** İzinli port aralığı 1024-65535 ile 5432/1433; internete açık herhangi bir adresin yüksek portu denenebilir. Yanıt tek tip olduğundan port taraması için işe yaramaz; firma başına istek ve deneme sınırları ek frendir.
-- **ÖNERİ:** İş gereği genişse müşteri başına izinli port listesi düşünülebilir; şimdilik değişiklik yok.
+### S5 Mode B target validation, resource limits, off by default — VERIFIED (table-driven tests added)
 
-Mutasyon: kapsam kimliği denetimi, `baglanti_dizgisi` doğrulaması, psql çıktı sınırı, Kip A `lock_timeout` ve Kip A `default_transaction_read_only=on` satırları geçici olarak bozuldu; her biri ilgili testi kırmızıya düşürdü, sonra geri alındı.
+- **FINDING:** The existing tests were good; the gaps: IPv6 scope ID, IPv4-mapped hexadecimal notations (`::ffff:7f00:1`), `::ffff:0:a.b.c.d`, full-width digits and control characters, the resolver returning a malformed record, port tables (`"05432"`, `"+5432"`, Arabic digits, `True`), the target coming from the runner socket, testing the resource limits at the limit and above it (5 MB, depth 8, 200 and 5000 rows, 1000 skipped, structure/quote/escape counts), `TARAMA_YUVASI` (scan slot) and runner concurrency (2), frame size, the 404 of the endpoints when Mode B is off.
+- **EVIDENCE:** `HedefTablosuTests` (90 direct inputs, 22 resolution scenarios, port tables), `CalistiriciHedefTests`, `SinirTests`, `KapaliTests`, `KapaliUclarTests` (when off, `GET`/`POST` `/api/tarama/baglan` and `/api/tarama/baglan/<token>` give 404; `baglanti.tara` and the runner are not called). `ALIG_DOGRUDAN` is enabled only by exactly `1` together with the runner socket; there is no unconditional `ALIG_DOGRUDAN=1` in `deploy/` and `config.example`.
+- **RISK (design, not a finding):** The allowed port range is 1024-65535 plus 5432/1433; a high port on any internet-facing address can be tried. Since the response is uniform it is not useful for port scanning; limits on requests and attempts per company are an extra brake.
+- **RECOMMENDATION:** If the business need is broad, a per-customer allowed port list can be considered; no change for now.
+
+Mutation: the scope ID check, the `baglanti_dizgisi` validation, the psql output limit, the Mode A `lock_timeout` and the Mode A `default_transaction_read_only=on` lines were temporarily broken; each turned the relevant test red, then was reverted.
 
