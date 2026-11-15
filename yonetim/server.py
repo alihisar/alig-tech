@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 KOK = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KOK))
+from tarama import bakim as bakim_modulu  # noqa: E402  (the handler has an attribute named bakim)
 from tarama import depo as tdepo, kurallar, puan, rapor as trapor, saklama  # noqa: E402
 from yonetim import depo  # noqa: E402
 
@@ -109,6 +110,8 @@ class H(BaseHTTPRequestHandler):
     guvenli_cerez = True
     form_portu = 8090
     tarama_portu = 8091
+    bakim = False   # maintenance mode (ALIG_BAKIM=1): every POST is 503 + Retry-After, pages stay readable
+    bakim_bekle = bakim_modulu.BEKLE_VARSAYILAN
     sys_version = ""
 
     # ---- infrastructure ----
@@ -230,6 +233,8 @@ class H(BaseHTTPRequestHandler):
             con.close()
 
     def do_POST(self):
+        if bakim_modulu.engelle(self):   # maintenance mode: login, logout and every admin write are refused
+            return
         yol = urlparse(self.path).path
         if not yol.startswith("/yonetim/"):
             return self._send(404, b"yok\n", "text/plain; charset=utf-8")
@@ -854,7 +859,8 @@ def main(argv=None):
         depo.zincir.denetim_anahtari()
         saklama.dogrula()
         puan.yukle()   # the same environment file as the scan service: report and panel show the same score
-    except (depo.zincir.AnahtarHatasi, saklama.SaklamaHatasi, puan.PuanAyarHatasi) as ex:
+        bakim_modulu.ayarla(os.environ, H)
+    except (depo.zincir.AnahtarHatasi, saklama.SaklamaHatasi, puan.PuanAyarHatasi, ValueError) as ex:
         raise SystemExit("error: %s" % ex)
     depo.baglan(a.db).close()
     print("admin panel listening on 127.0.0.1:%d" % a.port, flush=True)
