@@ -136,21 +136,15 @@ tatbikatı; RTO yalnız tatbikatla ölçülür. `BACKUP_RESTORE_VERIFIED` tatbik
 | SQLite çalışma zamanı bağımlılığı | NONE | FAIL (bugün SQLite kullanılıyor; ALIG-CI-001 cutover sonrası denetim ekler) |
 | PostgreSQL bağlantısı | PASS | PG16'da PASS (prototip) |
 | Parametreli SQL | PASS | PG16'da PASS (prototip) |
-| Yabancı anahtar, benzersizlik, CHECK | PASS | NOT_RUN (prototipte yalnız benzersizlik hata sınıfı PG16'da geçti; şema yok) |
 | İşlem geri alma | PASS | PG16'da PASS (prototip) |
-| PostgreSQL bağlantısı | PASS | NOT_RUN |
-| Parametreli SQL | PASS | NOT_RUN |
 | Yabancı anahtar, benzersizlik, CHECK | PASS | PG16'da PASS (`tests/test_pg_sema.py`; firma silme kaskadı dahil) |
-| İşlem geri alma | PASS | NOT_RUN |
 | Paralel kota tüketimi | ATOMIC | NOT_RUN |
 | Idempotency | PASS | NOT_RUN (yalnız tablo kısıtı PG16'da PASS: aynı anahtar ikinci kez eklenemez; farklı içerik reddi uygulama kodudur, ALIG-DB-003c) |
 | Firma izolasyonu | PASS | NOT_RUN (SQLite'ta testli: `tests/test_portal.py`) |
 | RLS aşma denemesi | DENY | NOT_APPLICABLE (DB-K3: portal kapalı, RLS sonra) |
-| Salt okuma rolüyle DML, uygulama rolüyle DDL | DENY | NOT_RUN |
 | PostgreSQL bağlantı kesintisi | SAFE FAILURE | PG16'da PASS (prototip) |
 | Salt okuma rolüyle DML, uygulama rolüyle DDL | DENY | PG16'da PASS (42501; denetim tablolarında UPDATE/DELETE/TRUNCATE de DENY) |
 | Şema göçü: tüm dosyalar, tekrar çalıştırma, değişmiş eski dosya | PASS | PG16'da PASS (`db/uygula.py`) |
-| PostgreSQL bağlantı kesintisi | SAFE FAILURE | NOT_RUN |
 | Göç satır sayısı ve özet | MATCH | NOT_RUN |
 | Geri yükleme | VERIFIED | NOT_RUN |
 | Sır maskeleme | PASS | PG16'da PASS (prototip; parola hata metninde ve repr'de yok) |

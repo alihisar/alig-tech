@@ -440,9 +440,6 @@ def _bulgu_karti(b, m, d):
             + "".join(kanit_blok) + "".join(yorum) + "</section>")
 
 
-def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik", sekme_baglantilari=None):
-    """onceki: karsilastirilacak onceki rapor (depo.onceki_rapor) ya da None. gorunum: GORUNUMLER (gecersiz deger teknik).
-    sekme_baglantilari: gorunum sekmelerinin adresleri (varsayilan ?gorunum=). rapor[\"bitis_utc\"] None ise silinme satiri yazilmaz."""
 def _llm_kutu(bulgu, d, m, ortam):
     """Dil modeli ozeti (madde 23): varsayilan kapali. Yalniz ayri kutu; puan ve bulgu HTML'i bundan bagimsiz uretilir.
     Ozet yok, reddedildi ya da hata verdiyse bos metin. Ozet duz metindir, escape ile yazilir."""
@@ -452,8 +449,9 @@ def _llm_kutu(bulgu, d, m, ortam):
     return "<aside class=\"llm-ozet\"><h2>%s</h2><p>%s</p></aside>" % (escape(m["llm_b"]), escape(metin))
 
 
-def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik", ozet_ortam=None):
+def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik", sekme_baglantilari=None, ozet_ortam=None):
     """onceki: karsilastirilacak onceki rapor (depo.onceki_rapor) ya da None. gorunum: GORUNUMLER (gecersiz deger teknik).
+    sekme_baglantilari: gorunum sekmelerinin adresleri (varsayilan ?gorunum=). rapor[\"bitis_utc\"] None ise silinme satiri yazilmaz.
     ozet_ortam: dil modeli ozeti icin ortam sozlugu (None: islem ortami); yalniz yonetici gorunumunde kullanilir."""
     d = dil if dil in M else "tr"
     m = M[d]
