@@ -83,7 +83,7 @@ def bolumleri_uret(hatalar):
         f"`run_all.py` şu {len(adimlar)} denetimi sırayla çalıştırır:\n\n"
         + "\n".join(satirlar)
     )
-    bolum["testler"] = f"Birim testleri: {test_sayisi()} test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır)."
+    bolum["testler"] = f"Birim testleri: {test_sayisi()} test (PostgreSQL testleri ayrı `postgresql testleri` adımında sayılır: `ALIG_TEST_PG_HOST` varsa dış sunucu, yoksa sistem PostgreSQL 16 ile geçici küme; ikisi de yoksa SKIP, `--release` kipinde hata)."
 
     dizin_satirlari = ["| Dizin | İçerik |", "| --- | --- |"]
     for dizin, aciklama in DIZINLER:

@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parent.parent
 ALLOWED_HOSTS = {"alig.tech", "www.alig.tech", "staging.alig.tech"}
 SKIP_DIRS = {".git", "dist", "__pycache__", "node_modules"}
 TEXT_SUFFIXES = {".html", ".css", ".js", ".json", ".md", ".py", ".txt", ".svg", ".xml",
-                 ".yml", ".yaml", ".service", ".timer", ".conf", ".example", ".sh", ".toml", ".ini", ""}
+                 ".yml", ".yaml", ".service", ".timer", ".conf", ".example", ".sh", ".toml", ".ini", ".sql", ""}
 
 
 def read_text(path):

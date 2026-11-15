@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "ci"))
 
+import common as check_common  # noqa: E402
 import check_banned  # noqa: E402
 import check_external  # noqa: E402
 import check_html  # noqa: E402
@@ -100,6 +101,29 @@ class SecretsTests(unittest.TestCase):
         })
         problems = check_secrets.scan_tree(base, set())
         self.assertEqual(sorted(p.split(":")[0] for p in problems), ["a.txt", "c.txt"])
+
+
+    def test_sql_dosyalari_taranir(self):
+        """ALIG-CI-001: db/sema/*.sql sir taramasina girer; sizan parola .sql icinde de yakalanir."""
+        base = tree({"db/sema/0009_x.sql": "ALTER ROLE a PASSWORD_TOKEN_X;\nALTER ROLE a SET secret_key = 'abcdefghijklmnop1234';\n"})
+        problems = check_secrets.scan_tree(base, set())
+        self.assertEqual(len(problems), 1, problems)
+        self.assertTrue(problems[0].startswith("db/sema/0009_x.sql:2"))
+        self.assertIn(".sql", check_common.TEXT_SUFFIXES)
+
+    def test_depodaki_sql_dosyalari_temiz(self):
+        sql = [p for p in check_common.iter_files(ROOT / "db", {".sql"})]
+        self.assertGreaterEqual(len(sql), 4)
+        self.assertEqual([p for p in check_secrets.check() if p.endswith(".sql") or ".sql:" in p], [])
+
+
+class RunAllOzetTests(unittest.TestCase):
+    def test_run_all_pg_adimini_ayri_adim_olarak_calistirir(self):
+        kaynak = (ROOT / "ci" / "run_all.py").read_text(encoding="utf-8")
+        self.assertIn('step("postgresql testleri"', kaynak)
+        self.assertLess(kaynak.index('step("birim testleri"'), kaynak.index('step("postgresql testleri"'))
+        # ozet: "atlandi" durumu basari ("tamam") sayilmaz ve CI'yi dusurmez, HATA dusurur
+        self.assertIn('durum == "HATA"', kaynak)
 
 
 class WorkflowTests(unittest.TestCase):

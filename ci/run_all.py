@@ -5,6 +5,7 @@
   python3 ci/run_all.py --theme a --release  # uretim etiketi: doldurulacak alan kalirsa kirilir
 """
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -23,6 +24,7 @@ import check_placeholders  # noqa: E402
 import check_secrets  # noqa: E402
 import check_size  # noqa: E402
 import check_workflows  # noqa: E402
+import pg_adimi  # noqa: E402
 import uret_readme  # noqa: E402
 from common import ROOT  # noqa: E402
 
@@ -35,17 +37,28 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     dist = ROOT / "dist" / f"ci-{args.theme}"
-    results = []
+    results = []   # (ad, durum, ozet): durum "tamam" | "atlandi" | "HATA". "atlandi" basari sayilmaz ama CI'yi dusurmez.
 
     def step(name, fn):
+        """fn sorun listesi dondurur; ya da (durum, ozet satiri, ayrinti listesi) uclusu dondurur."""
         print(f"\n== {name}")
+        durum, ozet = None, ""
         try:
-            problems = fn()
+            sonuc = fn()
+            if isinstance(sonuc, tuple):
+                durum, ozet, problems = sonuc
+            else:
+                problems = sonuc
         except Exception as exc:  # denetimin kendisi coktu: kirmizi say
             problems = [f"denetim coktu: {exc!r}"]
+            durum = "HATA"
+        if ozet:
+            print(f"  {ozet}")
         for p in problems:
             print(f"  - {p}")
-        results.append((name, not problems))
+        if durum is None:
+            durum = "HATA" if problems else "tamam"
+        results.append((name, durum, ozet))
 
     step("derleme", lambda: [] if site_build.main(["--theme", args.theme, "--out", str(dist)]) == 0 else ["derleme basarisiz"])
 
@@ -66,6 +79,18 @@ def main(argv=None):
     step("toplayici guncel", toplayici)
     step("ornek rapor guncel", ornek_rapor)
     step("birim testleri", tests)
+
+    def pg_testleri():
+        # PostgreSQL testleri birim testlerinden ayri sayilir; SKIP basari degildir (ci/pg_adimi.py).
+        r = subprocess.run([sys.executable, str(ROOT / "ci" / "pg_adimi.py")], cwd=ROOT, capture_output=True, text=True, timeout=1200)
+        try:
+            veri = json.loads(r.stdout.strip().splitlines()[-1])
+        except (IndexError, ValueError):
+            return "HATA", "postgresql testleri: sonuc okunamadi", [(r.stderr or r.stdout)[-800:]]
+        durum, satir, _ = pg_adimi.ozet(veri["sayilar"], veri["surum"], args.release, veri["pg_var"])
+        return durum, satir, veri.get("ayrinti", []) + ([] if durum != "HATA" else ["bu adim --release kipinde ya da FAIL ile kirilir"])
+
+    step("postgresql testleri", pg_testleri)
     step("html yapisi", lambda: check_html.check(dist))
     step("ic baglantilar", lambda: check_links.check(dist))
     step("dis kaynak", lambda: check_external.check(dist))
@@ -84,10 +109,10 @@ def main(argv=None):
 
     step("readme guncel", readme)
 
-    failed = [n for n, ok in results if not ok]
+    failed = [n for n, durum, _ in results if durum == "HATA"]
     print("\n== ozet")
-    for name, ok in results:
-        print(f"  {'tamam' if ok else 'HATA ':5} {name}")
+    for name, durum, ozet in results:
+        print(f"  {durum:7} {ozet or name}")
     return 1 if failed else 0
 
 

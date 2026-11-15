@@ -51,26 +51,27 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 ```
 
 <!-- oto:basla denetimler -->
-`run_all.py` şu 14 denetimi sırayla çalıştırır:
+`run_all.py` şu 15 denetimi sırayla çalıştırır:
 
 1. derleme
 2. toplayici guncel
 3. ornek rapor guncel
 4. birim testleri
-5. html yapisi
-6. ic baglantilar
-7. dis kaynak
-8. boyut butcesi
-9. sir taramasi
-10. is akisi sabitleme
-11. yasakli kaliplar
-12. dil esligi
-13. doldurulacak alanlar
-14. readme guncel
+5. postgresql testleri
+6. html yapisi
+7. ic baglantilar
+8. dis kaynak
+9. boyut butcesi
+10. sir taramasi
+11. is akisi sabitleme
+12. yasakli kaliplar
+13. dil esligi
+14. doldurulacak alanlar
+15. readme guncel
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 752 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
+Birim testleri: 771 test (PostgreSQL testleri ayrı `postgresql testleri` adımında sayılır: `ALIG_TEST_PG_HOST` varsa dış sunucu, yoksa sistem PostgreSQL 16 ile geçici küme; ikisi de yoksa SKIP, `--release` kipinde hata).
 <!-- oto:bitis testler -->
 
 ## Dizinler
@@ -142,7 +143,8 @@ başlığını koymalı. Kayıtlar SQLite WAL, zaman UTC, IP tuzlu özet.
 `tarama/` (sunucu, kurallar, depo). Toplayıcı `site/assets/alig-toplayici.py` katalogdan
 üretilir: `python3 tarama/uret_toplayici.py` (CI `--kontrol` ile güncelliğini denetler).
 Firma adı ve e-posta düz metin saklanır; aydınlatma metni ve saklama süresi için
-`docs/doldurulacak.md`. Gerçek PostgreSQL ile sınama:
+`docs/doldurulacak.md`. Gerçek PostgreSQL ile sınama: sistem PostgreSQL 16 varsa testler kendi geçici kümesini kurar
+(`tests/pg_yardimci.py`); dış sunucu için
 `ALIG_TEST_PG_HOST=<soket dizini> ALIG_TEST_PG_PORT=<port> ALIG_TEST_PG_USER=<rol> python3 -m unittest tests.test_tarama`.
 
 ### SQL Server (ön sürüm)

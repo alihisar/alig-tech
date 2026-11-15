@@ -149,6 +149,13 @@ tatbikatı; RTO yalnız tatbikatla ölçülür. `BACKUP_RESTORE_VERIFIED` tatbik
 | Geri yükleme | VERIFIED | NOT_RUN |
 | Sır maskeleme | PASS | PG16'da PASS (prototip; parola hata metninde ve repr'de yok) |
 
+Test düzeni (ALIG-CI-001): PostgreSQL testleri `tests/pg_yardimci.py` ortak geçici kümesini kullanır (initdb, boş port,
+Unix soketi, `trust` ya da `scram-sha-256`, rol ve veritabanı, durdurma ve silme; süreç SIGKILL ile ölse de bekçi süreç
+sunucuyu durdurup dizini siler). Sistem PostgreSQL 16 yoksa testler SKIP olur. `ALIG_TEST_PG_HOST` isteyen 6 test
+(`GercekPgTests`, `GercekPgOturumTests`) artık değişken verilmezse geçici kümeyle koşar (PG16'da PASS); değişken
+verilirse dış sunucu kullanılır. `ci/run_all.py` bunları "postgresql testleri" adımında PASS/FAIL/SKIP ve sürümle
+ayrı raporlar; PostgreSQL yoksa adım "atlandı" der (başarı sayılmaz), `--release`te hata verir.
+
 Ortam notu: bu geliştirme ortamında yalnız sistem PostgreSQL 16 var. PostgreSQL 18 ikilisi indirilmesine izin
 verilmedi; PG18 üzerinde testler **BLOCKED**. PG16'da geçen test "PG16'da PASS" olarak yazılır, PG18 için PASS sayılmaz.
 

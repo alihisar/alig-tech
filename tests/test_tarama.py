@@ -14,6 +14,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
+import pg_yardimci  # noqa: E402
 from tarama import depo, katalog, kurallar, rapor, server as tserver, uret_toplayici, yukleme  # noqa: E402
 
 
@@ -1207,15 +1209,20 @@ class EpostaAyarTests(unittest.TestCase):
         self.assertFalse(H2.eposta_dogrulama)
 
 
-@unittest.skipUnless(os.environ.get("ALIG_TEST_PG_HOST"), "ALIG_TEST_PG_HOST yok: gercek PostgreSQL denemesi atlandi")
+@pg_yardimci.pg_testi(*pg_yardimci.dis_veya_gecici_var())
 class GercekPgTests(unittest.TestCase):
-    """ALIG_TEST_PG_HOST (soket dizini ya da host), ALIG_TEST_PG_PORT, ALIG_TEST_PG_USER ile calisir."""
+    """ALIG_TEST_PG_HOST (soket dizini ya da host), ALIG_TEST_PG_PORT, ALIG_TEST_PG_USER varsa dis sunucu; yoksa
+    tests/pg_yardimci.py gecici kumesi (alig_hc: pg_monitor, salt okunur). Sistem PostgreSQL de yoksa SKIP."""
+
+    @classmethod
+    def setUpClass(cls):
+        pg_yardimci.hedef_hazirla(cls)
 
     def calistir(self, *ek):
         cikti = Path(tempfile.mkdtemp()) / "t.json"
         env = dict(os.environ)
-        r = subprocess.run([sys.executable, str(ROOT / "site" / "assets" / "alig-toplayici.py"), "--host", os.environ["ALIG_TEST_PG_HOST"],
-                            "--port", os.environ.get("ALIG_TEST_PG_PORT", "5432"), "--user", os.environ.get("ALIG_TEST_PG_USER", "alig_hc"),
+        r = subprocess.run([sys.executable, str(ROOT / "site" / "assets" / "alig-toplayici.py"), "--host", self.pg_host,
+                            "--port", self.pg_port, "--user", self.pg_kullanici,
                             "--out", str(cikti)] + list(ek), capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(cikti.read_text())
@@ -1229,8 +1236,8 @@ class GercekPgTests(unittest.TestCase):
 
     def test_salt_okunur(self):
         # katalogdaki sorgular salt okunur oturumda calisir; yazma ayni ayarla reddedilir
-        r = subprocess.run(["psql", "-X", "-A", "-t", "-h", os.environ["ALIG_TEST_PG_HOST"], "-p", os.environ.get("ALIG_TEST_PG_PORT", "5432"),
-                            "-U", os.environ.get("ALIG_TEST_PG_USER", "alig_hc"), "-d", "postgres", "-c", "CREATE TABLE alig_yazma_denemesi(i int)"],
+        r = subprocess.run(["psql", "-X", "-A", "-t", "-h", self.pg_host, "-p", self.pg_port,
+                            "-U", self.pg_kullanici, "-d", "postgres", "-c", "CREATE TABLE alig_yazma_denemesi(i int)"],
                            capture_output=True, text=True, env=dict(os.environ, PGOPTIONS="-c default_transaction_read_only=on"))
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("read-only", r.stderr)

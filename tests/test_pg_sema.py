@@ -1,12 +1,10 @@
 """ALIG-DB-003a: PostgreSQL semasi ve roller (db/sema/*.sql, db/uygula.py). Uygulamaya bagli degildir.
-Gecici PostgreSQL 16 kumesi acilir (initdb, Unix soketi, trust kimlik dogrulama: yalniz bu test kumesi); PostgreSQL yoksa SKIP."""
+Gecici PostgreSQL 16 kumesi tests/pg_yardimci.py ile acilir (initdb, Unix soketi, trust kimlik dogrulama: yalniz bu test kumesi); PostgreSQL yoksa SKIP."""
 import hashlib
 import importlib.util
 import os
-import pwd
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -14,10 +12,12 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tests"))
+import pg_yardimci  # noqa: E402
+
 SEMA = ROOT / "db" / "sema"
 UYGULA = ROOT / "db" / "uygula.py"
-PG16 = Path("/usr/lib/postgresql/16/bin")
-PG_VAR = (PG16 / "initdb").exists() and (PG16 / "psql").exists()
+BULGU = pg_yardimci.pg_bul()
 SQLSTATE = re.compile(r"(?:ERROR|FATAL):\s+([0-9A-Z]{5}):")
 
 
@@ -78,59 +78,24 @@ class UygulaBirimTests(unittest.TestCase):
         self.assertIn("PGDATABASE", r.stderr)
 
 
-@unittest.skipUnless(PG_VAR, "PostgreSQL 16 yok: sema testi atlandi")
+@pg_yardimci.pg_testi(BULGU.var, BULGU.neden)
 class PgSemaTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.kok = Path(tempfile.mkdtemp(prefix="aligpg"))
-        os.chmod(cls.kok, 0o755)
-        cls.root_mu = os.geteuid() == 0
-        cls.pw = pwd.getpwnam("postgres") if cls.root_mu else None
-        if cls.root_mu:
-            os.chown(cls.kok, cls.pw.pw_uid, cls.pw.pw_gid)
-        cls.veri, cls.soket = cls.kok / "veri", cls.kok / "soket"
-        cls.soket.mkdir()
-        if cls.root_mu:
-            os.chown(cls.soket, cls.pw.pw_uid, cls.pw.pw_gid)
-        s = socket.socket()
-        s.bind(("127.0.0.1", 0))
-        cls.port = str(s.getsockname()[1])
-        s.close()
-        cls.calisiyor = False
-        try:
-            cls._pg(["initdb", "-D", str(cls.veri), "-U", "postgres", "--auth=trust", "-E", "UTF8", "--no-locale"])
-            cls._pg(["pg_ctl", "-D", str(cls.veri), "-w", "-t", "30", "-l", str(cls.kok / "gunluk.txt"), "-o",
-                     "-p %s -k %s -c listen_addresses= -c fsync=off -c synchronous_commit=off -c full_page_writes=off"
-                     % (cls.port, cls.soket), "start"])
-            cls.calisiyor = True
-            cls.sayac = 0
-            cls.db = cls.yeni_db()
-            r = cls.uygula(cls.db)
-            assert r.returncode == 0, r.stderr
-        except BaseException:
-            cls.tearDownClass()
-            raise
-
-    @classmethod
-    def tearDownClass(cls):
-        if getattr(cls, "calisiyor", False):
-            cls._pg(["pg_ctl", "-D", str(cls.veri), "-m", "immediate", "-w", "stop"], kontrol=False)
-        shutil.rmtree(cls.kok, ignore_errors=True)
-
-    @classmethod
-    def _pg(cls, argv, kontrol=True):
-        komut = [str(PG16 / argv[0])] + argv[1:]
-        if cls.root_mu:
-            komut = ["runuser", "-u", "postgres", "--"] + komut
-        r = subprocess.run(komut, capture_output=True, text=True, timeout=60)
-        if kontrol and r.returncode != 0:
-            raise RuntimeError("%s: %s" % (argv[0], r.stderr[-500:]))
-        return r
+        cls.kume = pg_yardimci.GeciciKume()
+        cls.kume.baslat()
+        cls.addClassCleanup(cls.kume.durdur)
+        cls.kok, cls.veri, cls.soket = Path(cls.kume.dizin), cls.kume.veri, Path(cls.kume.soket)
+        cls.port = str(cls.kume.port)
+        cls.sayac = 0
+        cls.db = cls.yeni_db()
+        r = cls.uygula(cls.db)
+        assert r.returncode == 0, r.stderr
 
     @classmethod
     def ortam(cls, db, kullanici="postgres"):
         e = {k: v for k, v in os.environ.items() if not k.startswith("PG")}
-        e.update(PATH="%s:%s" % (PG16, e.get("PATH", "")), PGHOST=str(cls.soket), PGPORT=cls.port,
+        e.update(PATH="%s:%s" % (cls.kume.bulgu.dizin, e.get("PATH", "")), PGHOST=str(cls.soket), PGPORT=cls.port,
                  PGDATABASE=db, PGUSER=kullanici, PGCONNECT_TIMEOUT="10")
         return e
 

@@ -2,7 +2,7 @@
 
 Bolumler: (1) calisan TUM SQL metinleri icin allowlist, (2) oturum salt okunur ve kisa zaman asimli,
 (3) Kip B hedef dogrulamasi (tablo guduumlu), (4) kaynak sinirlari, (5) Kip B varsayilan kapali.
-Gercek PostgreSQL denemeleri ALIG_TEST_PG_HOST ile acilir (PG16 gecici kumesi); yoksa SKIP.
+Gercek PostgreSQL denemeleri: ALIG_TEST_PG_HOST varsa dis sunucu, yoksa tests/pg_yardimci.py ile PG16 gecici kumesi; ikisi de yoksa SKIP.
 Ag kullanilmaz; sahte psql ya da mock ile calisir.
 """
 import ast
@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 from tarama import baglanti, calistirici, hedef, katalog, server as tserver, yukleme  # noqa: E402
+import pg_yardimci  # noqa: E402
 import test_tarama  # noqa: E402
 
 temiz_belge = test_tarama.temiz_belge
@@ -335,13 +336,17 @@ class OturumTests(unittest.TestCase):
         self.assertTrue(all(0 < s <= 30 for s in sureler))
 
 
-@unittest.skipUnless(os.environ.get("ALIG_TEST_PG_HOST"), "ALIG_TEST_PG_HOST yok: gercek PostgreSQL denemesi atlandi")
+@pg_yardimci.pg_testi(*pg_yardimci.dis_veya_gecici_var())
 class GercekPgOturumTests(unittest.TestCase):
-    """PG16'da: uretilen toplayicinin oturumu salt okunur, kilit ve sorgu zaman asimli; yazma reddedilir."""
+    """PG16'da: uretilen toplayicinin oturumu salt okunur, kilit ve sorgu zaman asimli; yazma reddedilir.
+    ALIG_TEST_PG_HOST varsa dis sunucu, yoksa tests/pg_yardimci.py gecici kumesi; ikisi de yoksa SKIP."""
+
+    @classmethod
+    def setUpClass(cls):
+        pg_yardimci.hedef_hazirla(cls)
 
     def baglanti(self):
-        return ["-h", os.environ["ALIG_TEST_PG_HOST"], "-p", os.environ.get("ALIG_TEST_PG_PORT", "5432"),
-                "-U", os.environ.get("ALIG_TEST_PG_USER", "alig_hc"), "-d", "dbname=postgres"]
+        return ["-h", self.pg_host, "-p", self.pg_port, "-U", self.pg_kullanici, "-d", "dbname=postgres"]
 
     def test_oturum_ayarlari_gercekten_uygulanir(self):
         m = toplayici_modulu()
