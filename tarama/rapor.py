@@ -1,7 +1,7 @@
 """Rapor HTML'i. Tum degerler html.escape ile yazilir; nesne adlari yalniz kanit listesinde gorunur."""
 from html import escape
 
-from tarama import gecmis, kanit, katalog, kurallar, puan
+from tarama import gecmis, kanit, katalog, kurallar, ozet_llm, puan
 
 M = {
     "tr": {"baslik": "Sağlık taraması raporu", "ozet": "Özet", "tarama": "Tarama zamanı (UTC)", "motor": "Motor",
@@ -84,6 +84,7 @@ M = {
            "yo_onceki": "Önceki tarama: %s. Sağlık puanı: %s.",
            "yo_dayanak_a": "Bu özet, teknik raporun bulgularından kurallarla üretilir; yorum yazan bir model kullanılmaz. "
                            "Kanıt türü sütunu bulgunun ne kadar kesin olduğunu gösterir: hipotez olarak işaretli bulgu kesin sonuç değildir, doğrulanmalıdır.",
+           "llm_b": "Dil modeli özeti — kanıt değildir; bulgular ve puan kural çıktısıdır",
            "ayr": "Ölçüm ve yorum", "kanit_b": "Kanıt", "yorum_b": "Yorum", "tur_e": "Kanıt türü",
            "once_sonra": "Değişiklikten önce ve sonra",
            "once_sonra_l": ["Önerileri önce kendi ortamınızda ve bir bakım penceresinde sınayın; bu araç hiçbir değişiklik uygulamaz.",
@@ -170,6 +171,7 @@ M = {
            "yo_onceki": "Previous scan: %s. Health score: %s.",
            "yo_dayanak_a": "This summary is produced by rules from the findings of the technical report; no model writes commentary. "
                            "The evidence type column shows how firm a finding is: a finding marked as a hypothesis is not a firm conclusion and must be verified.",
+           "llm_b": "Language model summary — not evidence; findings and score come from the rules",
            "ayr": "Measurement and interpretation", "kanit_b": "Evidence", "yorum_b": "Interpretation", "tur_e": "Evidence type",
            "once_sonra": "Before and after a change",
            "once_sonra_l": ["Test the proposals in your own environment and in a maintenance window first; this tool applies no changes.",
@@ -441,6 +443,18 @@ def _bulgu_karti(b, m, d):
 def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik", sekme_baglantilari=None):
     """onceki: karsilastirilacak onceki rapor (depo.onceki_rapor) ya da None. gorunum: GORUNUMLER (gecersiz deger teknik).
     sekme_baglantilari: gorunum sekmelerinin adresleri (varsayilan ?gorunum=). rapor[\"bitis_utc\"] None ise silinme satiri yazilmaz."""
+def _llm_kutu(bulgu, d, m, ortam):
+    """Dil modeli ozeti (madde 23): varsayilan kapali. Yalniz ayri kutu; puan ve bulgu HTML'i bundan bagimsiz uretilir.
+    Ozet yok, reddedildi ya da hata verdiyse bos metin. Ozet duz metindir, escape ile yazilir."""
+    metin = ozet_llm.ozet_uret(bulgu, d, ortam=ortam)
+    if not metin:
+        return ""
+    return "<aside class=\"llm-ozet\"><h2>%s</h2><p>%s</p></aside>" % (escape(m["llm_b"]), escape(metin))
+
+
+def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik", ozet_ortam=None):
+    """onceki: karsilastirilacak onceki rapor (depo.onceki_rapor) ya da None. gorunum: GORUNUMLER (gecersiz deger teknik).
+    ozet_ortam: dil modeli ozeti icin ortam sozlugu (None: islem ortami); yalniz yonetici gorunumunde kullanilir."""
     d = dil if dil in M else "tr"
     m = M[d]
     gorunum = gorunum_sec(gorunum)
@@ -456,6 +470,9 @@ def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik", sekme
               "<dt>%s</dt><dd>%s</dd>" % (escape(m["tarama"]), escape(belge["olusturma_utc"])),
               "<dt>%s</dt><dd>%s</dd>" % (escape(m["motor"]), escape(katalog.MOTOR_AD.get(motor, motor))), "</dl>",
               _yonetici(belge, sonuc, bulgu, pn, onceki, m, d)]
+        kutu = _llm_kutu(bulgu, d, m, ozet_ortam)
+        if kutu:
+            p.append(kutu)
     else:
         p += _teknik(rapor, belge, sonuc, bulgu, pn, onceki, motor, m, d)
     if rapor["bitis_utc"] is not None:

@@ -53,7 +53,7 @@ Sıra `docs/master-prompt-v2.md` belgesindeki önceliklere göredir (P0 önce). 
 | 20 | P1 | Yönetim paneli: gösterge sayıları ve ticari süreç durumları (basit durum makinesi ve not) | Test | **tamam** (Özet sayfasında Gösterge: son 7 ve 30 gün tarama, aktif/pasif firma, açık iletişim, portal ve Kip B talepleri, bekleyen posta, iki denetim zincirinin doğrulaması; salt okunur sorgular, okunamayan sayı "veri yok" yazılır, 0 sayılmaz. Firma başına süreç durum makinesi `tarama/depo.py` (`SUREC_GECISLERI`), firma sayfasında değişir, listede süzülür; geçiş iki denetim zincirine yazılır, not zincire yazılmaz; `tests/test_yonetim.py` `SurecDepoTests`, `SurecPanelTests`, `GostergeTests`) |
 | 21 | P1 | İş kuyruğu: yalnızca doğrudan bağlantı için, PostgreSQL tabanlı (`FOR UPDATE SKIP LOCKED`, `pg-gecis` dalında; v5 bölüm 9), ayrı işçi | Durum geçişleri idempotent, yeniden başlatmada toparlanır | bekliyor |
 | 22 | P2 | SQL Server: yetenek tablosu ve gerçek sunucu çıktısına göre düzeltme | Ali'nin gönderdiği `ok` / `ATLANDI` listesi | Ali'yi bekliyor |
-| 23 | P2 | LLM rapor özeti: varsayılan kapalı, kanıt üretemez, puanı değiştiremez | Sağlayıcı yokken rapor aynen çalışır | bekliyor |
+| 23 | P2 | LLM rapor özeti: varsayılan kapalı, kanıt üretemez, puanı değiştiremez | Sağlayıcı yokken rapor aynen çalışır | **kod tamam, kapalı; gerçek sağlayıcı WEB-K5'i bekliyor** (`tarama/ozet_llm.py`: takılabilir arayüz, yalnız test için sahte sağlayıcı; allowlist'li maskeli girdi, çıktı doğrulayıcısı, yönetici görünümünde ayrı kutu; `ALIG_LLM_OZET=1` ve kayıtlı sağlayıcı gerekir; `tests/test_ozet_llm.py`) |
 | 24 | P3 | Kip B kalanları: istek listesi panelde, sunucu sertifikası doğrulaması, yanıt süresini sabitleme, kılavuz bölümü (`channel_binding=require` yapıldı) | Ayrı kabul kapısı | bekliyor |
 
 Kod incelemesinden (`docs/kod-inceleme.md`) gelen açık maddeler:
@@ -111,6 +111,7 @@ v5'ten bilerek alınmayanlar ya da uyarlananlar:
 | Ticari süreç durumları | `aday` -> `gorusuluyor` -> `teklif` -> `musteri`; her durumdan `kapandi` (kapandı son durumdur, yeniden açılmaz). Yalnız durum ve not; fiyat, tutar, müşteri adı yok. Not firma kaydıyla birlikte silinir | `tarama/depo.py` `SUREC_DURUMLARI`, `SUREC_GECISLERI` |
 | Kip B kimlik | E-posta doğrulaması yerine yönetici izni | panel, firma ayrıntısı |
 | Doğrudan bağlantı ve SQL Server | Kapalı | `ALIG_DOGRUDAN`, `ALIG_MSSQL` |
+| Dil modeli rapor özeti (madde 23) | Kapalı; gerçek sağlayıcı yok, yalnız test için sahte sağlayıcı. Açmak için `ALIG_LLM_OZET=1` ve kayıtlı sağlayıcı gerekir; `deploy/` şablonları açmaz. Gerçek sağlayıcıya veri gönderimi hukuki (KVKK) onay ister | `tarama/ozet_llm.py`, WEB-K5 |
 | Müşteri portalı | Kapalı; e-posta doğrulaması açık değilse açılmaz | `ALIG_PORTAL`, `musteri_portali` |
 | Portal girişi | E-posta + parola (en az 12 karakter), ikinci faktör yok; aynı kurumsal alan adı aynı firma | `tarama/portal_depo.py` |
 | Portal hizmet talebi | Firma başına günde en çok 5; konu 120, mesaj 2000 karakter; türler: denetim, destek, diğer | `tarama/portal_depo.py` |
