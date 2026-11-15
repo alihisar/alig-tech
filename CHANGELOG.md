@@ -2,6 +2,7 @@
 
 ## Yayınlanmadı
 
+- PostgreSQL şeması ve roller (ALIG-DB-003a, uygulamaya bağlı değil): `db/sema/` altında sıralı göç dosyaları (roller `alig_owner`, `alig_app`, `alig_migrator`, `alig_readonly`, `alig_backup`; `alig` şeması; mevcut SQLite tablolarının karşılıkları; `idempotency_anahtari`; `schema_migrations`), denetim tablolarında uygulama rolüne yalnız INSERT ve SELECT, `public` şemasında CREATE yok. `db/uygula.py` göçleri `psql` ile tek işlemde uygular, değişmiş eski dosyada durur. PostgreSQL 16 geçici kümesinde sınandı (`tests/test_pg_sema.py`); PG18'de sınanmadı. SQLite çalışma zamanı değişmedi.
 - Yol haritası: Master Prompt v5 (v4.1 dahil) maddeleri eklendi; PostgreSQL geçişi (ALIG-DB-001…006), güvenlik ve tarama denetimleri (ALIG-SEC-001, ALIG-SCAN-001), PostgreSQL CI (ALIG-CI-001, 002). Günde iki maddelik plan. Yeni belgeler: `docs/kararlar.md`, `docs/postgresql-gecis.md`, `docs/master-prompt-v5.md`. Kod değişmedi.
 - Ana sayfa: 7 hizmet kartı (sağlık denetimi, yönetilen operasyon, yüksek erişilebilirlik, güvenlik sertleştirme, performans, sürüm yükseltme ve göç, danışmanlık), "sağlık taraması nasıl çalışır" dört adımı ve altı soruluk SSS; üç temada, TR ve EN. Sürüm desteği SSS'de olduğu gibi yazılır: yalnız PostgreSQL 16 gerçek sunucuda sınandı. Tema C'de ajan bölümünün bağlantı kimliği `#ajan` oldu; `#hizmetler` hizmet kartlarına gider.
 - Müşteri portalı, ikinci dilim (varsayılan kapalı): tarama geçmişinde önceki taramaya göre puan değişimi, rapor silme

@@ -1,0 +1,103 @@
+# db: PostgreSQL şeması ve roller (ALIG-DB-003a)
+
+Bu dizin uygulamanın PostgreSQL şemasını ve göç aracını içerir. **Uygulamaya bağlı değildir**: çalışma zamanı hâlâ
+SQLite kullanır (`tarama/depo.py`, `yonetim/depo.py`, `form/server.py` değişmedi). Sürücü kararı (DB-K1) verilmediği için
+Python bağlantı kodu yoktur; şema SQL dosyalarıyla kurulur, `psql` ile doğrulanır. Mimari ve göç planı:
+`docs/postgresql-gecis.md`.
+
+## Dosyalar
+
+| Dosya | İçerik | Kim uygular |
+| --- | --- | --- |
+| `sema/0001_roller.sql` | Beş rol, veritabanı yetkileri, `public` şemasında CREATE'in kalkması, `alig` şeması, `schema_migrations` | CREATEROLE yetkili yönetici (ilk kurulum) |
+| `sema/0002_tarama.sql` | `firma`, `firma_silinen`, `rapor`, `kullanim`, `denetim`, `baglanti_istegi`, `posta`, `esitleme`, `portal_*` | `alig_migrator` |
+| `sema/0003_yonetim_form.sql` | `kullanici`, `oturum`, `giris_denemesi`, `giris_ip`, `talep_durum`, `yonetim_denetim`, `contact` | `alig_migrator` |
+| `sema/0004_idempotency.sql` | `idempotency_anahtari` | `alig_migrator` |
+| `sema/0005_yetkiler.sql` | Tablo ve sütun yetkileri | `alig_migrator` |
+| `uygula.py` | Göç dosyalarını sırayla uygulayan araç (yalnız standart kütüphane, `psql` alt süreci) | operatör |
+
+## Roller
+
+| Rol | Oturum | Yetki |
+| --- | --- | --- |
+| `alig_owner` | yok (NOLOGIN) | `alig` şemasındaki tüm nesnelerin sahibi |
+| `alig_app` | var | Yalnız kodun yaptığı DML (tablo başına ayrı). Denetim tablolarında yalnız INSERT ve SELECT. DDL yok |
+| `alig_migrator` | var | `alig_owner` rolüne geçerek (SET ROLE, kalıtım yok) DDL yapar; `schema_migrations`'a satır ekler |
+| `alig_readonly` | var | Seçili tablo ve sütunlarda SELECT (parola, TOTP, belirteç özeti, rapor belgesi, e-posta, ileti metni verilmez) |
+| `alig_backup` | var | Yalnız REPLICATION (`pg_basebackup`); veritabanına bağlanma yetkisi ve tablo yetkisi yok |
+
+Hiçbir rolde SUPERUSER, CREATEDB, CREATEROLE, BYPASSRLS yoktur; REPLICATION yalnız `alig_backup`'tadır. Roller
+kümeye aittir, bu yüzden aynı kümedeki başka veritabanlarında (ör. staging) `0001` yeniden uygulanabilir.
+`alig_app`, `alig_migrator`, `alig_readonly` için `search_path` `alig, pg_catalog` ve `TimeZone` `UTC` olarak rol
+düzeyinde sabittir. `public` şemasında CREATE kaldırıldı; veritabanında PUBLIC'in CONNECT ve TEMP yetkisi kaldırıldı,
+yalnız üç rol bağlanır. Kimlik dizileri (identity) için ayrıca dizi yetkisi gerekmez.
+
+## Parola
+
+Dosyalara parola **yazılmaz**; roller parolasız oluşur; parola verilene kadar parola yöntemiyle (`scram-sha-256`) oturum açamazlar. Parola kurulumdan sonra ayrı bir
+adımda, yönetici olarak bağlanılan `psql` oturumunda verilir:
+
+1. Yönetici olarak `psql` açılır (soket, `-X`).
+2. Her LOGIN rolü için `\password alig_app`, `\password alig_migrator`, `\password alig_readonly`, `\password alig_backup`
+   komutu çalıştırılır. Parola istemden okunur ve istemci tarafında SCRAM ile özetlenir; komut geçmişine ve sunucu
+   günlüğüne düz metin düşmez. (Düz metin parolalı bir `ALTER ROLE ... PASSWORD` deyimini betiğe ya da komut satırına
+   yazmayın.)
+3. Parolalar servis ortamında `~/.pgpass` ya da `PGPASSFILE` ile (dosya izni 0600) verilir; `uygula.py` komut satırında
+   parola almaz.
+4. Sunucuda parola özetleme yöntemi `scram-sha-256` olur ve `pg_hba.conf` içinde bu rollere `scram-sha-256` ile izin verilir (`trust`
+   kullanılmaz); `alig_backup` için `replication` satırı ayrıca gerekir. Bu ayar sunucu yönetimidir (DB-K2) ve burada
+   değiştirilmez.
+
+## Göç aracı
+
+```
+PGHOST=/var/run/postgresql PGDATABASE=aligtech PGUSER=<yönetici> python3 db/uygula.py     # ilk kurulum, 0001 dahil
+PGHOST=/var/run/postgresql PGDATABASE=aligtech PGUSER=alig_migrator python3 db/uygula.py  # sonraki göçler
+```
+
+- `PGHOST`, `PGDATABASE`, `PGUSER` zorunlu, `PGPORT` isteğe bağlıdır. Parola komut satırına konmaz.
+- Dosyalar `NNNN_ad.sql` adıyla ve boşluksuz numaralanır; ad ya da numara bozuksa araç durur.
+- Her dosya tek işlemde çalışır (`psql -X -1 -v ON_ERROR_STOP=1`); `schema_migrations` satırı (sürüm, uygulama zamanı,
+  dosya SHA-256) aynı işlemde yazılır. Yarıda kalan dosya hiçbir iz bırakmaz. Aynı anda iki uygulayıcı, işlem başında
+  alınan danışma kilidiyle sıraya girer.
+- İkinci çalıştırma yeni bir şey uygulamaz (`yeni göç yok`).
+- Daha önce uygulanmış bir dosyanın özeti değişmişse ya da dosya silinmişse **hiçbir şey uygulanmadan** durur. Eski dosya
+  değiştirilmez; düzeltme yeni bir göç dosyasıyla yapılır.
+- Göç dosyalarının ilk deyimi (0001 hariç) `SET ROLE alig_owner;` olur: nesneler göçü hangi rol uygularsa uygulasın
+  `alig_owner`'a ait olur. Yeni tablo ekleyen göç kendi yetkilerini de yazar.
+
+## Kararlar
+
+- **Tablo adları** mevcut SQLite adlarıdır. Tek istisna: yönetim zinciri de `denetim` adını taşıyordu (ayrı SQLite dosyası);
+  tek şemada çakışmasın diye `yonetim_denetim` oldu. Geçici göç tabloları (`firma_yeni`, `rapor_yeni`) alınmadı.
+- **Türler:** `bigint GENERATED BY DEFAULT AS IDENTITY` birincil anahtar (SQLite'taki AUTOINCREMENT gibi silinen kimlik yeniden
+  kullanılmaz; `DEFAULT`, ALIG-DB-004 göçünde eski kimliklerin aynen taşınabilmesi içindir, göçten sonra sayaç `setval` ile
+  ilerletilir), `timestamptz` (UTC), `boolean`, durum alanları `text` + CHECK (değerler koddaki listelerden:
+  `FIRMA_DURUMLARI`, `TALEP_DURUMLARI`, yönetim `DURUMLAR`, posta ve bağlantı isteği durumları). SHA-256 alanlarına
+  64 haneli onaltılık CHECK konuldu.
+- **`rapor.belge_json` `text` kaldı, `jsonb` değil.** Kodda belge JSON'u SQL içinde sorgulanmıyor; `rapor_listele` ve
+  `onceki_rapor` Python'da `json.loads` ile okur. Saklanan metin `json.dumps(belge, sort_keys=True)` çıktısıdır ve
+  ALIG-DB-004'ün "kanonik özet karşılaştırması" bu metin üzerinde yapılacaktır; `jsonb` anahtar sırasını, boşlukları, sayı
+  biçimini (`1.0`) ve yinelenen anahtarları değiştirir, bu da SQLite'tan taşınan belgenin bayt bayt eşitliğini bozar.
+  Geçerliliği `CHECK (belge_json IS JSON OBJECT)` sağlar. `belge_ozeti` (kota için) saklanan metinden değil, Python
+  nesnesinden hesaplanır. SQL içinde sorgulama ihtiyacı doğarsa üretilmiş sütun ya da ayrı `jsonb` sütunu o zaman eklenir.
+- **Yabancı anahtar ve ON DELETE:** `firma_sil` kaskadına uygun: firma silinince `rapor`, `baglanti_istegi`,
+  `portal_kullanici`, `portal_talep` ve (kullanıcı üzerinden) `portal_kod`, `portal_oturum` CASCADE ile silinir. `kullanim`
+  firmaya yabancı anahtarla bağlı değildir (şirket anahtarının özetiyle eşleşir); `firma_sil` bu satırları, `firma_silinen`
+  izini ve denetim kaydını uygulama kodunda ayrıca yazar. `RESTRICT` kullanılan yer yoktur.
+- **`talep_durum.talep_id`** iletişim formu kaydının kimliğidir ama `contact(id)` için yabancı anahtar konmadı: eski SQLite'ta
+  iki ayrı dosya olduğundan yetim satır olabilir. Karar ALIG-DB-004 Faz C provasına bırakıldı.
+- **Denetim zincirleri** (`denetim`, `yonetim_denetim`): sütunlar ve kanonik özet biçimi değişmedi. `seq` birincil anahtardır
+  ve uygulamada son kayıt kilidi altında hesaplanır; `UNIQUE(onceki)` zincirin dallanmasını engeller. `alig_app` yalnız
+  INSERT ve SELECT alır; UPDATE, DELETE, TRUNCATE yoktur. Not: tablo sahibi ve yönetici bu kısıtın dışındadır; zincirin
+  bütünlüğü ayrıca doğrulama komutuyla (ALIG-DB-003d) denetlenir.
+- **`idempotency_anahtari`:** `anahtar` (birincil), `istek_ozeti`, `sonuc`, `zaman_utc`. Aynı anahtarın farklı içerikle
+  gelmesini reddeden mantık uygulama kodundadır (ALIG-DB-003c); tablo yalnız benzersizliği ve özet biçimini zorlar.
+- **Salt okuma rolü** `rapor` tablosunda `belge_json`, `token_sha256`, `eposta` sütunlarını; `firma` tablosunda `eposta` ve
+  `aciklama` sütunlarını; `posta`, `portal_*`, `kullanici`, `oturum` tablolarını okuyamaz.
+
+## Doğrulama
+
+`python3 -m unittest tests.test_pg_sema`: geçici bir PostgreSQL 16 kümesi açar (`initdb`, yalnız Unix soketi, bu küme için
+trust kimlik doğrulama), göçleri `uygula.py` ile uygular ve sınar. PostgreSQL 16 yoksa küme testleri atlanır (SKIP). Sonuç
+yalnız PostgreSQL 16 için geçerlidir; PostgreSQL 18 ikilisi bu ortamda yoktur, PG18'de sınanmadı.

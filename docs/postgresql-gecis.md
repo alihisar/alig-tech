@@ -1,6 +1,6 @@
 # PostgreSQL'e geçiş (ALIG-DB-001)
 
-Kaynak: `docs/master-prompt-v5.md` (v4.1'i içerir). Bu belge mimari ve göç planıdır; kod henüz yazılmadı.
+Kaynak: `docs/master-prompt-v5.md` (v4.1'i içerir). Bu belge mimari ve göç planıdır. Şema ve roller (ALIG-DB-003a) `db/` altında yazıldı ve PostgreSQL 16'da sınandı; uygulama kodu hâlâ SQLite kullanır.
 Durum sütunlarındaki PASS yalnız gerçek PostgreSQL üzerinde çalıştırılmış testler için yazılır.
 
 Hedef: uygulamanın tüm kalıcı verisi tek bir PostgreSQL 18 veritabanında (`aligtech`). SQLite'a geri düşme (fallback) yok:
@@ -56,6 +56,9 @@ Mevcut tablo adları korunur (v5 bölüm 7'deki İngilizce adlar mantıksal kar�
 | idempotency_keys | yeni | yükleme ve tarama başlatmada; aynı anahtar farklı içerikle reddedilir |
 | schema_migrations | `PRAGMA user_version` yerine | |
 
+Şema SQL dosyaları ve kararlar: `db/sema/*.sql`, `db/README.md` (ALIG-DB-003a, PG16'da PASS). Yönetim zinciri tek şemada
+çakışmasın diye `yonetim_denetim` adını aldı; `rapor.belge_json` metin kaldı (gerekçe `db/README.md`).
+
 Tüm zamanlar `timestamptz` (UTC). Şema: `alig`. Roller: `alig_owner` (NOLOGIN, nesne sahibi), `alig_app` (DML,
 BYPASSRLS/CREATEDB/CREATEROLE/REPLICATION yok), `alig_migrator` (DDL, yalnız göç sırasında), `alig_readonly`,
 `alig_backup`. `public` şemasında CREATE kaldırılır, `search_path` sabitlenir.
@@ -92,13 +95,14 @@ tatbikatı; RTO yalnız tatbikatla ölçülür. `BACKUP_RESTORE_VERIFIED` tatbik
 | SQLite çalışma zamanı bağımlılığı | NONE | FAIL (bugün SQLite kullanılıyor; ALIG-CI-001 cutover sonrası denetim ekler) |
 | PostgreSQL bağlantısı | PASS | NOT_RUN |
 | Parametreli SQL | PASS | NOT_RUN |
-| Yabancı anahtar, benzersizlik, CHECK | PASS | NOT_RUN |
+| Yabancı anahtar, benzersizlik, CHECK | PASS | PG16'da PASS (`tests/test_pg_sema.py`; firma silme kaskadı dahil) |
 | İşlem geri alma | PASS | NOT_RUN |
 | Paralel kota tüketimi | ATOMIC | NOT_RUN |
-| Idempotency | PASS | NOT_RUN |
+| Idempotency | PASS | NOT_RUN (yalnız tablo kısıtı PG16'da PASS: aynı anahtar ikinci kez eklenemez; farklı içerik reddi uygulama kodudur, ALIG-DB-003c) |
 | Firma izolasyonu | PASS | NOT_RUN (SQLite'ta testli: `tests/test_portal.py`) |
 | RLS aşma denemesi | DENY | NOT_APPLICABLE (DB-K3: portal kapalı, RLS sonra) |
-| Salt okuma rolüyle DML, uygulama rolüyle DDL | DENY | NOT_RUN |
+| Salt okuma rolüyle DML, uygulama rolüyle DDL | DENY | PG16'da PASS (42501; denetim tablolarında UPDATE/DELETE/TRUNCATE de DENY) |
+| Şema göçü: tüm dosyalar, tekrar çalıştırma, değişmiş eski dosya | PASS | PG16'da PASS (`db/uygula.py`) |
 | PostgreSQL bağlantı kesintisi | SAFE FAILURE | NOT_RUN |
 | Göç satır sayısı ve özet | MATCH | NOT_RUN |
 | Geri yükleme | VERIFIED | NOT_RUN |
