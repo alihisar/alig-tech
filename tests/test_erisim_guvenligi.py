@@ -117,7 +117,10 @@ class RaporBelirteciTests(test_tarama._SunucuTaban):
         self.iki_firma()
         con = depo.baglan(self.db)
         once = con.execute("SELECT id, dogrulandi, bitis_utc FROM rapor ORDER BY id").fetchall()
-        for yol in ("/rapor/%s/sil" % ("A" + self.tb[1:]), "/rapor/%s/dogrula" % ("A" + self.tb[1:]), "/rapor/%s/sil" % self.tb[::-1]):
+        bozuk = ("B" if self.tb[0] == "A" else "A") + self.tb[1:]   # ilk karakter her zaman degisir (64'te 1 cakisma olmasin)
+        ters = self.tb[::-1]
+        self.assertNotEqual(ters, self.tb)
+        for yol in ("/rapor/%s/sil" % bozuk, "/rapor/%s/dogrula" % bozuk, "/rapor/%s/sil" % ters):
             self.assertEqual(self.post(yol)[0].status, 404, yol)
         self.assertEqual(con.execute("SELECT id, dogrulandi, bitis_utc FROM rapor ORDER BY id").fetchall(), once)
         # A'nin kendi belirteci yalniz A'yi siler
