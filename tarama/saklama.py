@@ -1,12 +1,12 @@
-"""Veri siniflari ve saklama politikasi (tek yer). Yalnizca standart kutuphane.
+"""Data classes and retention policy (single place). Standard library only.
 
-Sureler ortamdan ayarlanir: ALIG_SAKLAMA_<SINIF>_GUN. "0" ya da "suresiz" suresiz demektir
-(yalniz suresiz secilebilen siniflarda). Varsayilanlar hukuken onaylanmis degerler DEGILDIR;
-onay bekler: docs/doldurulacak.md.
+Durations are set from the environment: ALIG_SAKLAMA_<CLASS>_GUN. "0" or "suresiz" (indefinite) means no expiry
+(only for classes that may be kept indefinitely). The defaults are NOT legally approved values;
+they await approval: docs/doldurulacak.md.
 """
 import os
 
-# ad: (varsayilan gun ya da None=suresiz, suresiz secilebilir mi, nerede uygulanir, aciklama)
+# name: (default days or None=indefinite, may be indefinite, where applied, description)
 SINIFLAR = {
     "rapor": (30, False, "tarama.sqlite", "Tarama raporu ve bulgulari; bitis tarihi olusturulurken yazilir"),
     "baglanti_istegi": (1, False, "tarama.sqlite", "Dogrudan baglanti istegi (parola yok); suresi dolunca silinir"),
@@ -31,22 +31,22 @@ def ortam_adi(sinif):
 
 
 def gun(sinif, ortam=None):
-    """Sinifin saklama suresi (gun) ya da None (suresiz). Gecersiz deger acik hata verir, sessizce varsayilana donmez."""
+    """Retention period of the class in days, or None (indefinite). An invalid value raises a clear error and never silently falls back to the default."""
     varsayilan, suresiz_olur, _, _ = SINIFLAR[sinif]
     ham = (os.environ if ortam is None else ortam).get(ortam_adi(sinif), "").strip().lower()
     if not ham:
         return varsayilan
     if ham in ("0", "suresiz"):
         if not suresiz_olur:
-            raise SaklamaHatasi("%s suresiz olamaz" % ortam_adi(sinif))
+            raise SaklamaHatasi("%s cannot be indefinite" % ortam_adi(sinif))
         return None
     if not ham.isdigit() or not 1 <= int(ham) <= 3650:
-        raise SaklamaHatasi("%s 1-3650 arasi gun sayisi olmali" % ortam_adi(sinif))
+        raise SaklamaHatasi("%s must be a number of days between 1 and 3650" % ortam_adi(sinif))
     return int(ham)
 
 
 def tablo(ortam=None):
-    """[(sinif, sure_metni, nerede, aciklama, varsayilan_mi)] panel ve belge icin."""
+    """[(class, duration_text, where, description, is_default)] for the panel and documents."""
     satirlar = []
     for ad, (varsayilan, _, yer, aciklama) in SINIFLAR.items():
         g = gun(ad, ortam)
@@ -55,6 +55,6 @@ def tablo(ortam=None):
 
 
 def dogrula(ortam=None):
-    """Tum siniflari dener; ilk gecersiz degerde SaklamaHatasi."""
+    """Tries every class; raises SaklamaHatasi on the first invalid value."""
     for ad in SINIFLAR:
         gun(ad, ortam)

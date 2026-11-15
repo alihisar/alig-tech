@@ -1,9 +1,9 @@
-"""PostgreSQL kurallari. Dil modeli yok: ayni girdi her zaman ayni bulgulari ve durumlari verir.
+"""PostgreSQL rules. No language model: the same input always gives the same findings and statuses.
 
-Her kural kalici bir kimlikle (PG-SEC-001 gibi) kayitlidir ve her taramada tek bir kanit kaydi uretir: durum, onem,
-guven, kaynak (tarama/kanit.py). Kural listesi ve gecme kosullari: docs/kural-katalogu.md (uretilir).
-Esikler: BELGE = resmi belgede/politikada yazili deger, MUHENDISLIK = kendi secimimiz (docs/doldurulacak.md'de listeli).
-Nesne adlari asla baslik/aciklama metnine ya da gozleme girmez; yalniz kanit listesinde, kacisli olarak gosterilir.
+Each rule is registered with a permanent id (like PG-SEC-001) and produces a single evidence record in every scan: status, severity,
+confidence, source (tarama/kanit.py). Rule list and pass conditions: docs/kural-katalogu.md (generated).
+Thresholds: BELGE = a value written in an official document/policy, MUHENDISLIK = our own choice (listed in docs/doldurulacak.md).
+Object names never enter the title/description text or the observation; they are shown only in the evidence list, escaped.
 """
 from datetime import datetime, timezone
 
@@ -12,24 +12,24 @@ from tarama import kanit, katalog, yukleme
 ONEM = ("kritik", "yuksek", "orta", "dusuk", "bilgi")
 IS = ("kucuk", "orta", "buyuk")
 
-# PostgreSQL surum politikasi (postgresql.org/support/versioning) EOL tarihleri. BELGE: tarihleri her yil dogrulayin.
+# EOL dates from the PostgreSQL version policy (postgresql.org/support/versioning). BELGE: verify the dates every year.
 PG_EOL = {13: "2025-11-13", 14: "2026-11-12", 15: "2027-11-11", 16: "2028-11-09", 17: "2029-11-08", 18: "2030-11-14"}
 
-# Resmi belgede olmayan esikler (MUHENDISLIK)
+# Thresholds not in an official document (MUHENDISLIK)
 MUHENDISLIK = {
-    "pg_bosta_islem": "idle in transaction suresi: >=600 sn orta, >=3600 sn yuksek",
-    "pg_baglanti": "baglanti doluluk: >=75% orta, >=90% yuksek",
-    "pg_xid_yasi": "orta esik: yas >= 2 x autovacuum_freeze_max_age",
-    "pg_sequence": "sequence doluluk: >0.8 yuksek, >0.95 kritik",
-    "pg_slot": "etkin olmayan slot: yuksek",
-    "pg_kullanilmayan_indeks": "10 MB ustu ve idx_scan=0: dusuk (istatistik sifirlanmis olabilir)",
-    "pg_mxid": "multixact yasi: >= 2 x autovacuum_multixact_freeze_max_age orta, >= 1,6 milyar kritik",
-    "pg_tablo_autovacuum": "tablo duzeyinde kapatilmis autovacuum: orta",
-    "pg_replikasyon": "replika gecikmesi: >=60 sn ya da >=1 GB orta, >=600 sn ya da >=16 GB yuksek; akista olmayan replika orta",
-    "pg_gecici_dosya": "gecici dosya: gunluk >=10 GB dusuk, >=100 GB orta; olcum penceresi en az 1 gun sayilir, bilinmiyorsa bilgi",
+    "pg_bosta_islem": "idle in transaction duration: >=600 s medium, >=3600 s high",
+    "pg_baglanti": "connection usage: >=75% medium, >=90% high",
+    "pg_xid_yasi": "medium threshold: age >= 2 x autovacuum_freeze_max_age",
+    "pg_sequence": "sequence usage: >0.8 high, >0.95 critical",
+    "pg_slot": "inactive slot: high",
+    "pg_kullanilmayan_indeks": "over 10 MB and idx_scan=0: low (statistics may have been reset)",
+    "pg_mxid": "multixact age: >= 2 x autovacuum_multixact_freeze_max_age medium, >= 1.6 billion critical",
+    "pg_tablo_autovacuum": "autovacuum disabled at table level: medium",
+    "pg_replikasyon": "replica lag: >=60 s or >=1 GB medium, >=600 s or >=16 GB high; a replica that is not streaming is medium",
+    "pg_gecici_dosya": "temporary files: daily >=10 GB low, >=100 GB medium; the measurement window counts as at least 1 day, info if unknown",
 }
 
-T = {  # kontrol -> sablon. Her alan {"tr":..., "en":...}
+T = {  # check -> template. Each field is {"tr":..., "en":...}
     "pg_surum_eol": dict(
         baslik={"tr": "PostgreSQL ana sürümü destek dışı ya da bitmek üzere", "en": "PostgreSQL major version is out of support or about to be"},
         neden={"tr": "Destek bitince güvenlik ve veri bozulması düzeltmeleri yayımlanmaz.", "en": "After end of support, security and corruption fixes are no longer released."},
@@ -189,7 +189,7 @@ def _parse_utc(s):
 
 
 def _nesne(x, *alanlar):
-    """Kanit listesi icin nesne adi; veritabani basina denetimlerde veritabani adi one eklenir."""
+    """Object name for the evidence list; for per-database checks the database name is prefixed."""
     return ".".join(str(x[a]) for a in (("veritabani",) if x.get("veritabani") is not None else ()) + alanlar)
 
 
@@ -200,17 +200,17 @@ def _t(tr, en):
 KURALLAR = []
 kural = kanit.kayitci(KURALLAR, "postgresql")
 K = kanit.Kaynak
-# Kural kaynagi olmayan, raporda bilgi olarak kullanilan denetimler
-BILGI = ("pg_sunucu_rolu", "pg_kume_kimligi", "pg_hesap", "pg_kapsam", "pg_eklentiler")   # pg_hesap ve pg_sunucu_rolu sonucun tamligi icin (tarama/kanit.py)
+# Checks that are not a rule source and are used as information in the report
+BILGI = ("pg_sunucu_rolu", "pg_kume_kimligi", "pg_hesap", "pg_kapsam", "pg_eklentiler")   # pg_hesap and pg_sunucu_rolu, for the completeness of the result (tarama/kanit.py)
 
 TLS_SURUMLERI = ("TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3")
 _ACIK, _KAPALI = {"on", "true", "yes", "1"}, {"off", "false", "no", "0"}
-# PostgreSQL 18: log_connections asama listesi alir; bos liste kapali demektir.
+# PostgreSQL 18: log_connections takes a list of stages; an empty list means off.
 _BAGLANTI_ASAMALARI = {"receipt", "authentication", "authorization", "setup_durations", "all"}
 
 
 def _gunluk_acik(deger, liste=False):
-    """True, False ya da taninmayan deger icin None."""
+    """True, False, or None for an unrecognized value."""
     d = deger.strip().lower()
     if d in _ACIK:
         return True
@@ -221,7 +221,7 @@ def _gunluk_acik(deger, liste=False):
     return None
 
 
-# Kural sirasi bulgularin ayni onemdeki sirasidir; kimlikler kalicidir, yeni kural yeni numara alir.
+# Rule order is the order of findings of the same severity; ids are permanent, a new rule gets a new number.
 
 @kural("PG-MAINT-001", "bakim", "yuksek", "HIGH", [K("pg_surum", "tek", ("surum_num",))],
        _t("Ana sürüm desteği", "Major version support"),
@@ -274,7 +274,7 @@ def _bosta(r, g):
 
 
 def _kutuphaneler(deger):
-    """shared_preload_libraries -> kucuk harfli kutuphane adlari: tirnak, $libdir/ yolu ve .so eki atilir."""
+    """shared_preload_libraries -> lowercase library names: quotes, the $libdir/ path and the .so suffix are dropped."""
     adlar = []
     for parca in deger.split(","):
         ad = parca.strip().strip('"').strip().rsplit("/", 1)[-1].lower()
@@ -324,7 +324,7 @@ def _gecici_dosya(r, g):
                 raise kanit.Belirsiz("gecersiz_veri")
             bilinmeyen += 1
             continue
-        gun = max((g.taranan - t).total_seconds() / 86400, 1.0)   # kisa pencere hizi buyutmesin
+        gun = max((g.taranan - t).total_seconds() / 86400, 1.0)   # so a short window does not inflate the rate
         olculen.append((x["bayt"] / gun, gun, x))
     en = max(olculen, key=lambda o: o[0]) if olculen else None
     if en and en[0] >= 100 * GB:
@@ -359,7 +359,7 @@ def _baglanti(r, g):
 @kural("PG-MAINT-003", "bakim", "orta", "MEDIUM", [K("pg_olu_satir", "herhangi", ("canli", "olu"))],
        _t("Ölü satır oranı", "Dead row ratio"),
        _t("10 000'den çok ölü satırı olan tablolarda ölü satır oranı %20'yi geçmiyor.", "In tables with more than 10,000 dead rows the dead-row ratio stays below 20%."),
-       birincil=True)   # yedekte n_dead_tup tutulmaz
+       birincil=True)   # n_dead_tup is not kept on a standby
 def _olu_satir(r, g):
     kotu = [x for x in r if x["olu"] / max(x["canli"] + x["olu"], 1) > 0.2]
     if not kotu:
@@ -383,7 +383,7 @@ def _gecersiz_indeks(r, g):
        _t("Kullanılmayan büyük indeksler", "Large unused indexes"),
        _t("İstatistiklere göre hiç taranmamış, 10 MB'tan büyük, tekil olmayan indeks yok.",
           "There is no non-unique index over 10 MB that statistics show as never scanned."),
-       birincil=True)   # yedekteki idx_scan yalniz yedegin okumalarini sayar
+       birincil=True)   # idx_scan on a standby counts only the standby's reads
 def _kullanilmayan_indeks(r, g):
     if not r:
         return []
@@ -447,8 +447,8 @@ def _mxid(r, g):
        _t("Bütün sequence'lar okunabiliyor ve her biri en büyük değerinin %80'inin altında.",
           "Every sequence is readable and below 80% of its maximum value."))
 def _sequence(r, g):
-    # pg_sequences.last_value, USAGE ya da SELECT yetkisi olmayan sequence icin bos doner: o sequence'lar burada
-    # hic gorunmez. Okunamayan varsa sonuc "temiz" sayilmaz.
+    # pg_sequences.last_value returns empty for a sequence without USAGE or SELECT privilege: those sequences
+    # do not appear here at all. If any cannot be read the result is not counted as "clean".
     gorunurluk = g.satirlar("pg_sequence_gorunurluk")
     if gorunurluk is not None and sum(x["okunamayan"] for x in gorunurluk) > 0:
         g.kismi("kismi_yetki")
@@ -480,7 +480,7 @@ def _slot(r, g):
 
 
 GB = 1024 ** 3
-_AKIS_DISI = "backup"   # pg_basebackup baglantisi da pg_stat_replication'da gorunur: replika degildir
+_AKIS_DISI = "backup"   # the pg_basebackup connection also appears in pg_stat_replication: it is not a replica
 
 
 @kural("PG-HA-002", "ha_dr", "yuksek", "MEDIUM", [K("pg_replikasyon", "herhangi", ("durum",))],
@@ -494,7 +494,7 @@ def _replikasyon(r, g):
     kotu = []
     for x in replikalar:
         sn, bayt = x.get("gecikme_sn"), x.get("gecikme_bayt")
-        if bayt is None:   # konum bilinmiyor: gecikme olculemedi (sure gecikmesi yetisen replikada NULL olabilir, bayt olamaz)
+        if bayt is None:   # position unknown: lag could not be measured (a time lag may be NULL on a caught-up replica, a byte lag cannot be)
             raise kanit.Belirsiz("eksik_veri")
         if bayt < 0 or (sn is not None and sn < 0):
             raise kanit.Belirsiz("gecersiz_veri")
@@ -519,7 +519,7 @@ def _replikasyon(r, g):
        _t("WAL arşivleme", "WAL archiving"),
        _t("archive_mode açık, başarılı arşivleme kaydı var ve son hata son başarıdan eski.",
           "archive_mode is on, a successful archive is recorded and the last failure is older than the last success."),
-       birincil=True)   # arsivlemeyi birincil yapar
+       birincil=True)   # makes archiving primary-only
 def _arsiv(r, g):
     a = r[0]
     g.gozle(archive_mode=a["archive_mode"], son_basari_utc=a.get("son_basari_utc"))
@@ -532,7 +532,7 @@ def _arsiv(r, g):
     if hata and (not basari or hata > basari):
         return [_f("pg_arsiv", "pg_arsiv", "yuksek", {"son_hata_utc": a["son_hata_utc"], "son_basari_utc": a.get("son_basari_utc")})]
     if not basari:
-        raise kanit.Belirsiz("arsiv_kaniti_yok")   # arsivleme acik ama calistigina dair kayit yok
+        raise kanit.Belirsiz("arsiv_kaniti_yok")   # archiving is on but there is no record that it works
     return []
 
 
@@ -637,7 +637,7 @@ def _gunluk(r, g):
 
 
 def incele(doc):
-    """Ortak kanit modeli: her kural icin bir kayit, iki motor icin ayni bicim (tarama/kanit.py)."""
+    """Common evidence model: one record per rule, the same format for both engines (tarama/kanit.py)."""
     if isinstance(doc, dict) and doc.get("motor") == "mssql":
         from tarama import kurallar_mssql
         return kanit.calistir(doc, kurallar_mssql.KURALLAR, katalog.MSSQL_BY_ID, kurallar_mssql.TURLER)
@@ -645,6 +645,6 @@ def incele(doc):
 
 
 def degerlendir(doc):
-    """(bulgular, olculemeyenler). olculemeyen = [(kural_kimligi, neden)]: durumu UNKNOWN ya da UNAVAILABLE olan kurallar."""
+    """(findings, unmeasurable). unmeasurable = [(rule_id, reason)]: rules whose status is UNKNOWN or UNAVAILABLE."""
     s = incele(doc)
     return s.bulgular, s.olculemeyen

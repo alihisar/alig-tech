@@ -1,4 +1,4 @@
-"""Kip B: dogrudan baglanti. Sahte psql ile; ag ve gercek veritabani gerekmez."""
+"""Mode B: direct connection. With a fake psql; no network or real database is needed."""
 import http.client
 import json
 import os
@@ -89,7 +89,7 @@ class TaraTests(Temel):
         self.assertEqual(belge["motor"], "postgresql")
         self.assertEqual(set(belge["kontroller"]), set(katalog.PG_BY_ID))
         self.assertFalse(belge["superuser"])
-        self.assertEqual(len(self.gunluk()), len(katalog.PG) + 2)   # ilk sorgu + veritabani listesi + her denetim bir kez
+        self.assertEqual(len(self.gunluk()), len(katalog.PG) + 2)   # first query + database list + each check once
 
     def test_her_veritabani_taranir_uygunsuz_ad_baglantiya_girmez(self):
         self.ayar["veritabanlari"] = [{"veritabani": "postgres", "baglanir": True}, {"veritabani": "satis", "baglanir": True},
@@ -103,7 +103,7 @@ class TaraTests(Temel):
         self.assertEqual(sorted(olu["atlanan"], key=lambda x: x["veritabani"]),
                          [{"veritabani": "gizli", "neden": "yetki"}, {"veritabani": "kotu ad host=10.0.0.1", "neden": "ad"}])
         for d in dizgiler:
-            self.assertIn("hostaddr=93.184.216.34", d)   # her veritabaninda da dogrulanan IP
+            self.assertIn("hostaddr=93.184.216.34", d)   # the validated IP in every database too
 
     def test_baglanti_dogrulanan_ipye_sabitlenir_ve_tls_ister(self):
         self.tara()
@@ -112,8 +112,8 @@ class TaraTests(Temel):
             self.assertIn("hostaddr=93.184.216.34", dizgi)
             self.assertIn("host=db.ornek.com", dizgi)
             self.assertIn("sslmode=require", dizgi)
-            self.assertIn("channel_binding=require", dizgi)   # parola duz ya da MD5 ile gonderilmez, SCRAM aktarmasi onlenir
-            self.assertIn("-w", g["argv"])   # parola asla sorulmaz
+            self.assertIn("channel_binding=require", dizgi)   # the password is not sent in plain or MD5, a SCRAM relay is prevented
+            self.assertIn("-w", g["argv"])   # the password is never asked for
 
     def test_parola_argumanlarda_yok_ortam_temiz(self):
         os.environ["ALIG_FORM_SALT"] = "servis-sirri"
@@ -170,7 +170,7 @@ class TaraTests(Temel):
         self.assertTrue(belge["maskeli"])
 
 
-# Gercek bir sertifika degil, yalniz bicim denetimi icin yeterli rastgele base64 govde (PEM biciminde).
+# Not a real certificate, just random base64 body (in PEM form) that is enough for the format check.
 SAHTE_GOVDE = "\n".join(["MIIBszCCAVmgAwIBAgIUQ2hhbmdlTWVJZlBvc3NpYmxlMDEyMzQ1Njc4OTBhYmNkZWYw"] * 3 + ["QUJDREVGRw=="])
 SAHTE_CA = "-----BEGIN CERTIFICATE-----\n" + SAHTE_GOVDE + "\n-----END CERTIFICATE-----\n"
 
@@ -185,10 +185,10 @@ class CaPemTests(unittest.TestCase):
 
     def test_gecerli_pem_kabul_edilir_ve_normallesir(self):
         self.assertIsNone(self.kod(SAHTE_CA))
-        self.assertEqual(baglanti.ca_dogrula(SAHTE_CA.replace("\n", "\r\n")), SAHTE_CA)   # satir sonu normallesir
+        self.assertEqual(baglanti.ca_dogrula(SAHTE_CA.replace("\n", "\r\n")), SAHTE_CA)   # line endings are normalized
         self.assertEqual(baglanti.ca_dogrula("  \n" + SAHTE_CA + "\n\n"), SAHTE_CA)
         iki = SAHTE_CA + SAHTE_CA
-        self.assertEqual(baglanti.ca_dogrula(iki), iki)   # ara CA + kok CA zinciri
+        self.assertEqual(baglanti.ca_dogrula(iki), iki)   # intermediate CA + root CA chain
 
     def test_gecersiz_pemler_reddedilir(self):
         govde = SAHTE_GOVDE
@@ -230,10 +230,10 @@ class SslrootcertDizgisiTests(Temel):
         d = self.dizgi(sslmode="verify-full", sslrootcert="/tmp/alig-ca-ab12/ca.pem")
         self.assertIn("sslmode=verify-full", d)
         self.assertIn("sslrootcert=/tmp/alig-ca-ab12/ca.pem", d)
-        self.assertIn("channel_binding=require", d)   # dogrulama kanal baglamayi kaldirmaz
+        self.assertIn("channel_binding=require", d)   # verification does not remove channel binding
         for mod in ("verify-full", "verify-ca"):
             with self.assertRaises(baglanti.BaglantiHatasi):
-                self.dizgi(sslmode=mod)   # kok sertifikasiz dogrulama: libpq ev dizinine duser, kabul edilmez
+                self.dizgi(sslmode=mod)   # verification without a root certificate: libpq falls back to the home directory, not accepted
 
     def test_sslrootcert_yolu_dizgiye_ek_anahtar_sokamaz(self):
         for kotu in ("ca.pem", "/tmp/a b/ca.pem", "/tmp/a'b/ca.pem", "/tmp/a\\b", "/tmp/x sslmode=disable", "/tmp/a=b", "/tmp/a\nb",
@@ -243,7 +243,7 @@ class SslrootcertDizgisiTests(Temel):
 
     def test_kok_sertifika_verify_olmadan_verilmez(self):
         with self.assertRaises(baglanti.BaglantiHatasi):
-            self.dizgi(sslmode="require", sslrootcert="/tmp/x/ca.pem")   # sessizce yok sayilmaz
+            self.dizgi(sslmode="require", sslrootcert="/tmp/x/ca.pem")   # not silently ignored
 
     def test_alig_scan_001_dogrulamalari_korunur(self):
         for h in (hedef.Hedef("a b", "93.184.216.34", 5432), hedef.Hedef("db.ornek.com", "93.184.216.34 sslmode=disable", 5432),
@@ -253,7 +253,7 @@ class SslrootcertDizgisiTests(Temel):
 
 
 class CaIleTaramaTests(Temel):
-    """Yalniz CA'ya ozgu denemeler (TaraTests'in yardimcilari ortak, testleri yeniden kosulmaz)."""
+    """Tests specific to the CA only (the helpers of TaraTests are shared, its tests are not run again)."""
     tara, kod = TaraTests.tara, TaraTests.kod
 
     def setUp(self):
@@ -279,13 +279,13 @@ class CaIleTaramaTests(Temel):
             self.assertIn("sslmode=verify-full", dizgi)
             self.assertIn("sslrootcert=", dizgi)
             self.assertIn("channel_binding=require", dizgi)
-            self.assertIn("host=db.ornek.com", dizgi)   # sertifika bu ada gore denetlenir
+            self.assertIn("host=db.ornek.com", dizgi)   # the certificate is checked against this name
         self.assertEqual(len(self.izler), len(self.gunluk()))
         for iz in self.izler:
             self.assertEqual(iz["dosya_izni"], 0o600)
             self.assertEqual(iz["dizin_izni"], 0o700)
             self.assertEqual(iz["icerik"], SAHTE_CA)
-        for iz in self.izler:   # is bitince dosya ve dizin yok
+        for iz in self.izler:   # when the job ends the file and directory are gone
             self.assertFalse(os.path.exists(iz["yol"]))
             self.assertFalse(os.path.exists(os.path.dirname(iz["yol"])))
 
@@ -324,7 +324,7 @@ class CaIleTaramaTests(Temel):
     def test_ca_parolayi_arguman_ve_ortama_yazmaz(self):
         self.tara(ca_pem=SAHTE_CA)
         for g in self.gunluk():
-            self.assertNotIn(SAHTE_GOVDE.splitlines()[0], " ".join(g["argv"]))   # PEM argumanda yok, yalniz dosya yolu
+            self.assertNotIn(SAHTE_GOVDE.splitlines()[0], " ".join(g["argv"]))   # the PEM is not in the arguments, only the file path
 
 
 class CiktiSiniriTests(unittest.TestCase):
@@ -344,7 +344,7 @@ class SunucuTests(Temel):
         self.db = str(self.d / "s.sqlite")
         depo.baglan(self.db).close()
 
-        self.saat, self.beklemeler, self.dns_gecikme = 1000.0, [], 0.0   # sahte saat: gercek beklemeyle test uzamaz
+        self.saat, self.beklemeler, self.dns_gecikme = 1000.0, [], 0.0   # fake clock: the test is not lengthened by real waiting
 
         def ilerle(sn):
             self.saat += sn
@@ -432,8 +432,8 @@ class SunucuTests(Temel):
             r = self.baslat(**k)
             self.assertEqual(r.status, 422, k)
             govdeler.add(r.govde)
-        self.assertEqual(len(govdeler), 1)   # neden disariya sizmaz
-        self.assertEqual(self.gunluk(), [])   # hicbir baglanti denenmedi
+        self.assertEqual(len(govdeler), 1)   # the reason does not leak outward
+        self.assertEqual(self.gunluk(), [])   # no connection was tried
         self.assertTrue(any("hedefi reddedildi (ic_adres)" in o for o in self.olaylar()))
 
     def test_tam_akis_rapor_verir_parola_iz_birakmaz(self):
@@ -449,10 +449,10 @@ class SunucuTests(Temel):
         g = c.getresponse()
         self.assertEqual(g.status, 200)
         self.assertIn("Sağlık taraması raporu", g.read().decode())
-        self.assertEqual(self.post(self.istek(r), {"parola": PAROLA}).status, 404)   # istek tek kullanimlik
+        self.assertEqual(self.post(self.istek(r), {"parola": PAROLA}).status, 404)   # the request is single-use
         ham = b""
         for p in Path(self.d).glob("s.sqlite*"):
-            try:  # -shm/-wal dosyalari sunucu baglantisi kapanirken kaybolabilir
+            try:  # the -shm/-wal files may disappear when the server connection closes
                 ham += p.read_bytes()
             except FileNotFoundError:
                 pass
@@ -471,11 +471,11 @@ class SunucuTests(Temel):
             s = self.post(yol, {"parola": PAROLA})
             self.assertEqual(s.status, 422)
             self.assertIn("kanıt", s.govde.lower())
-        self.assertEqual(len(self.gunluk()), 3)   # yalniz ilk sorgu, katalog hic calismadi
+        self.assertEqual(len(self.gunluk()), 3)   # only the first query, the catalog never ran
         self.assertEqual(self.post(yol, {"parola": PAROLA}).status, 429)
         self.assertEqual(self.post(yol, {"parola": PAROLA}).status, 404)
         con = depo.baglan(self.db)
-        self.assertEqual(depo.kullanim_say(con, depo.sirket_anahtari("ali@ornek.com.tr")), 0)   # basarisiz deneme hak harcamaz
+        self.assertEqual(depo.kullanim_say(con, depo.sirket_anahtari("ali@ornek.com.tr")), 0)   # a failed attempt does not spend an allowance
 
     def test_super_kullanici_ve_yanlis_parola(self):
         self.izin_ver()
@@ -512,7 +512,7 @@ class SunucuTests(Temel):
             self.assertEqual(r.status, 200)
             self.assertIn('<textarea id="b-ca" name="ca_pem"', r.govde)
             self.assertIn(metin, r.govde)
-            self.assertNotIn(" required", r.govde.split('name="ca_pem"')[1].split(">")[0])   # alan istege bagli
+            self.assertNotIn(" required", r.govde.split('name="ca_pem"')[1].split(">")[0])   # the field is optional
             self.assertIn("verify-full", r.govde)
 
     def test_ca_ile_tam_akis_verify_full_kullanir(self):
@@ -527,13 +527,13 @@ class SunucuTests(Temel):
             self.assertIn("sslrootcert=", dizgi)
             self.assertNotIn(SAHTE_GOVDE.splitlines()[0], json.dumps(g["argv"]))
         ham = b"".join(p.read_bytes() for p in Path(self.d).glob("s.sqlite") if p.exists())
-        self.assertNotIn(SAHTE_GOVDE.splitlines()[0].encode(), ham)   # CA da kaydedilmez
+        self.assertNotIn(SAHTE_GOVDE.splitlines()[0].encode(), ham)   # the CA is not recorded either
 
     def test_ca_olmadan_mevcut_varsayilan(self):
         self.izin_ver()
         r = self.baslat()
         self.kanit_ayarla(r)
-        self.assertEqual(self.post(self.istek(r), {"parola": PAROLA, "ca_pem": "  \n"}).status, 303)   # bos alan = CA yok
+        self.assertEqual(self.post(self.istek(r), {"parola": PAROLA, "ca_pem": "  \n"}).status, 303)   # an empty field = no CA
         for g in self.gunluk():
             dizgi = g["argv"][g["argv"].index("-d") + 1]
             self.assertIn("sslmode=require", dizgi)
@@ -544,7 +544,7 @@ class SunucuTests(Temel):
         r = self.baslat()
         self.kanit_ayarla(r)
         yol = self.istek(r)
-        for _ in range(5):   # deneme hakki (3) bu hatayla tukenmez
+        for _ in range(5):   # the attempt allowance (3) is not exhausted by this error
             s = self.post(yol, {"parola": PAROLA, "ca_pem": "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"})
             self.assertEqual(s.status, 422)
             self.assertIn("CA sertifikası", s.govde)
@@ -557,7 +557,7 @@ class SunucuTests(Temel):
         self.assertEqual(s.status, 422)
         self.assertIn("CA certificate", s.govde)
         self.assertEqual(self.gunluk(), [])
-        self.assertEqual(self.post(self.istek(en), {"parola": PAROLA, "ca_pem": SAHTE_CA}).status, 303)   # istek hala gecerli (hak harcanmadi)
+        self.assertEqual(self.post(self.istek(en), {"parola": PAROLA, "ca_pem": SAHTE_CA}).status, 303)   # the request is still valid (no allowance was spent)
 
     def test_dev_ca_govdesi_reddedilir(self):
         self.izin_ver()
@@ -567,7 +567,7 @@ class SunucuTests(Temel):
         self.assertIn(s.status, (415, 422))
         self.assertEqual(self.gunluk(), [])
 
-    # ---- yanit suresi ve govdesi tek tip ----
+    # ---- response time and body are uniform ----
     def test_hedef_red_nedenleri_ayni_sure_ve_govde(self):
         self.izin_ver()
         sonuclar = []
@@ -580,13 +580,13 @@ class SunucuTests(Temel):
             sonuclar.append((r.status, r.govde, round(self.saat - bas, 6)))
         self.assertEqual({x[0] for x in sonuclar}, {422})
         self.assertEqual(len({x[1] for x in sonuclar}), 1)
-        self.assertEqual({x[2] for x in sonuclar}, {tserver.H.SABIT_RED_SN})   # DNS ne kadar surerse sursun toplam sure ayni
+        self.assertEqual({x[2] for x in sonuclar}, {tserver.H.SABIT_RED_SN})   # however long DNS takes, the total time is the same
 
     def test_basarili_baslangic_ve_diger_hatalar_bekletilmez(self):
         self.izin_ver()
         self.assertEqual(self.baslat().status, 200)
         self.assertEqual(self.beklemeler, [])
-        self.assertEqual(self.baslat(sirket="").status, 422)   # hedefle ilgisiz hata: sure sabitlemeye gerek yok
+        self.assertEqual(self.baslat(sirket="").status, 422)   # an error unrelated to the target: no need to pin the time
         self.assertEqual(self.beklemeler, [])
 
     def test_baglanti_hatalari_ayni_sure_ve_govde(self):
@@ -606,7 +606,7 @@ class SunucuTests(Temel):
             bas = self.saat
             s = self.post(self.istek(r), {"parola": PAROLA})
             sonuclar.append((s.status, s.govde, round(self.saat - bas, 6)))
-        r = self.baslat()   # gercek (sahte psql) yanlis parola da ayni
+        r = self.baslat()   # a real (fake psql) wrong password is the same too
         self.kanit_ayarla(r)
         self.H.tara = staticmethod(gercek)
         bas = self.saat
@@ -620,11 +620,11 @@ class SunucuTests(Temel):
         self.izin_ver()
         self.dns_gecikme = tserver.H.SABIT_RED_SN + 5
         self.baslat(sunucu="yok.ornek.com")
-        self.assertEqual(self.beklemeler, [])   # alt sinir; ustten kirpma yapilmaz
+        self.assertEqual(self.beklemeler, [])   # lower bound; no clipping from above
 
     def test_sabit_sureler_makul_ve_basarida_bekleme_yok(self):
         self.assertTrue(0 < tserver.H.SABIT_RED_SN <= 10)
-        self.assertGreater(tserver.H.SABIT_BAGLANTI_SN, 10)   # psql connect_timeout=10 sn'yi kapsamali
+        self.assertGreater(tserver.H.SABIT_BAGLANTI_SN, 10)   # must cover psql connect_timeout=10 s
         self.izin_ver()
         r = self.baslat()
         self.kanit_ayarla(r)

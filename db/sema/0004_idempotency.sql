@@ -1,6 +1,6 @@
--- 0004: idempotency_anahtari (docs/postgresql-gecis.md bolum 3). Yukleme ve tarama baslatmada ayni anahtar ayni istegi
--- verir; ayni anahtar FARKLI icerikle gelirse uygulama reddeder (istek_ozeti karsilastirmasi; kod ALIG-DB-003c).
--- Kayit, is verisi ve denetim kaydiyla ayni islemde yazilir.
+-- 0004: idempotency_anahtari (docs/postgresql-gecis.md section 3). The same key gives the same request on upload and on scan start;
+-- if the same key arrives with DIFFERENT content the application rejects it (istek_ozeti comparison; code in ALIG-DB-003c).
+-- The record is written in the same transaction as the business data and the audit record.
 SET ROLE alig_owner;
 
 CREATE TABLE alig.idempotency_anahtari(

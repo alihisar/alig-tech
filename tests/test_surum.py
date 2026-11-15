@@ -1,5 +1,5 @@
-"""PostgreSQL surum ve yetki matrisi: surume gore sorgu secimi, desteklenmeyen surumde sorgu calismaz, yetki zorunlulugu,
-gercek sunucu kaniti (docs/surum-dogrulama.json, tests/veri/surum) ile katalog bildiriminin tutarliligi."""
+"""PostgreSQL version and privilege matrix: query selection by version, no query runs on an unsupported version, privilege requirement,
+consistency of the catalog declaration with the real-server evidence (docs/surum-dogrulama.json, tests/veri/surum)."""
 import copy
 import importlib.util
 import json
@@ -43,18 +43,18 @@ class MatrisTests(unittest.TestCase):
             onceki = c["en_az"] - 1
             for v in c.get("eski_surum", ()):
                 self.assertTrue(set(v) == {"en_cok", "sql", "not"} and v["not"].strip(), c["id"])
-                self.assertGreater(v["en_cok"], onceki, c["id"])   # artan sirada, en_az'dan sonra
+                self.assertGreater(v["en_cok"], onceki, c["id"])   # in ascending order, after en_az
                 onceki = v["en_cok"]
             self.assertTrue(c.get("en_cok") is None or onceki < c["en_cok"], c["id"])
 
     def test_sorgu_secimi(self):
         slot = katalog.PG_BY_ID["pg_slot"]
         eski = katalog.sorgu(slot, 12)
-        self.assertEqual(re.findall(r"\w*wal_status\w*", eski), ["wal_status"])   # yalniz takma ad: PostgreSQL 12'de kolon yok
+        self.assertEqual(re.findall(r"\w*wal_status\w*", eski), ["wal_status"])   # only an alias: the column does not exist in PostgreSQL 12
         self.assertIn("NULL::text AS wal_status", eski)
         self.assertEqual(katalog.sorgu(slot, 13), slot["sql"])
-        self.assertEqual(katalog.sorgu(slot, 19), slot["sql"])     # yeni surumde ana sorgu
-        self.assertEqual(katalog.sorgu(slot, None), slot["sql"])   # surum bilinmiyorsa ana sorgu
+        self.assertEqual(katalog.sorgu(slot, 19), slot["sql"])     # on a newer version the main query
+        self.assertEqual(katalog.sorgu(slot, None), slot["sql"])   # if the version is unknown the main query
         self.assertIsNone(katalog.sorgu(slot, 11))
         self.assertEqual(katalog.sorgu(katalog.PG_BY_ID["pg_surum"], 9), katalog.PG_BY_ID["pg_surum"]["sql"])
         sahte = {"sql": "S", "en_az": 13, "en_cok": 15, "eski_surum": [{"en_cok": 13, "sql": "E", "not": "n"}]}
@@ -80,7 +80,7 @@ class MatrisTests(unittest.TestCase):
 
 
 class ToplayiciSurumTests(test_tarama.ToplayiciTaban):
-    """Sahte psql: sunucu surumu ilk sorguda doner; toplayici desteklenmeyen sorguyu hic gondermez."""
+    """Fake psql: the server version is returned on the first query; the collector never sends an unsupported query."""
 
     def calistirilan(self):
         return [g["sql"] for g in self.gunluk()]
@@ -94,7 +94,7 @@ class ToplayiciSurumTests(test_tarama.ToplayiciTaban):
         self.assertTrue(any(eski in s for s in self.calistirilan()))
         self.assertFalse(any(katalog.PG_BY_ID["pg_slot"]["sql"] in s for s in self.calistirilan()))
         self.assertEqual(b["kontroller"]["pg_slot"]["durum"], "ok")
-        self.assertEqual(durumlar(b)["PG-HA-001"][0], "FAIL")   # PostgreSQL 12'de etkin olmayan slot yine bulunur
+        self.assertEqual(durumlar(b)["PG-HA-001"][0], "FAIL")   # an inactive slot is still found on PostgreSQL 12
 
     def test_desteklenmeyen_surumde_sorgu_calismaz(self):
         self.ayar["surum"] = 110022
@@ -122,7 +122,7 @@ class KipBSurumTests(test_baglanti.Temel):
         b = self.tara()
         calisan = [g["argv"][g["argv"].index("-c") + 1] for g in self.gunluk()]
         desteklenen = [c for c in katalog.PG if katalog.sorgu(c, 11) is not None]
-        self.assertEqual(len(calisan), 2 + len(desteklenen))   # ilk sorgu + veritabani listesi + desteklenen denetimler
+        self.assertEqual(len(calisan), 2 + len(desteklenen))   # first query + database list + supported checks
         for c in katalog.PG:
             if katalog.sorgu(c, 11) is None:
                 self.assertEqual(b["kontroller"][c["id"]], {"durum": "hata", "neden": "desteklenmiyor"}, c["id"])
@@ -149,7 +149,7 @@ class YetkiTests(unittest.TestCase):
         d = durumlar(b)
         for kimlik in ("PG-PERF-001", "PG-CAP-001", "PG-SEC-001", "PG-SEC-002"):
             self.assertEqual(d[kimlik], ("UNKNOWN", "rol_eksik"), kimlik)
-        self.assertEqual(d["PG-MAINT-004"][0], "PASS")   # rol gerektirmeyen denetim etkilenmez
+        self.assertEqual(d["PG-MAINT-004"][0], "PASS")   # a check that does not require a role is not affected
 
     def test_bulgu_varsa_rol_eksigi_gizlemez(self):
         b = self.belge(pg_read_all_stats=False)
@@ -201,7 +201,7 @@ class SurumGuvenTests(unittest.TestCase):
 
 
 class GercekSunucuKanitiTests(unittest.TestCase):
-    """docs/surum-dogrulama.json ve tests/veri/surum: tarama/surum_dogrula.py'nin gercek PostgreSQL'de topladigi kanit."""
+    """docs/surum-dogrulama.json and tests/veri/surum: the evidence that tarama/surum_dogrula.py collected on real PostgreSQL."""
 
     def test_sinanan_surumlerin_kaniti_tam_ve_guncel(self):
         self.assertTrue(katalog.SINANAN)
@@ -220,7 +220,7 @@ class GercekSunucuKanitiTests(unittest.TestCase):
         for v, s in DOGRULAMA["surumler"].items():
             h = {a: s["hesaplar"][a]["kontroller"] for a in s["hesaplar"]}
             for c in katalog.PG:
-                if c["id"] not in h["pg_monitor"] or c["id"] == "pg_hesap":   # pg_hesap hesabin kendisini anlatir
+                if c["id"] not in h["pg_monitor"] or c["id"] == "pg_hesap":   # pg_hesap describes the account itself
                     continue
                 mon, duz, sup = h["pg_monitor"][c["id"]], h["yetkisiz"][c["id"]], h["super"][c["id"]]
                 ad = "%s PostgreSQL %s" % (c["id"], v)
@@ -240,35 +240,35 @@ class GercekSunucuKanitiTests(unittest.TestCase):
             for b in belge.values():
                 yukleme.dogrula(copy.deepcopy(b))
             mon, duz, sup, yed = (durumlar(belge[a]) for a in ("pg_monitor", "yetkisiz", "super", "yedek"))
-            # senaryo: etkin olmayan slot, gecersiz indeks, MD5 rol, bosta acik islem (esik alti), okunamayan sequence
+            # scenario: inactive slot, invalid index, MD5 role, idle open transaction (below the threshold), unreadable sequence
             self.assertEqual(mon["PG-HA-001"][0], "FAIL")
             self.assertEqual(mon["PG-MAINT-004"][0], "FAIL")
             self.assertEqual(mon["PG-SEC-003"], ("UNAVAILABLE", "yetki"))
             self.assertEqual(sup["PG-SEC-003"][0], "WARNING")
             self.assertEqual(sup["PG-SEC-005"][0], "WARNING")
             self.assertEqual(mon["PG-PERF-001"], ("PASS", None))
-            self.assertEqual(duz["PG-PERF-001"], ("UNKNOWN", "rol_eksik"))   # yetkisiz hesap baska oturumu goremedi: gecti denmez
+            self.assertEqual(duz["PG-PERF-001"], ("UNKNOWN", "rol_eksik"))   # the unprivileged account could not see other sessions: not called pass
             self.assertEqual(duz["PG-CAP-001"], ("UNKNOWN", "rol_eksik"))
-            self.assertEqual(mon["PG-CAP-002"][0], "UNKNOWN")                # sequence okunamadi ve gizli veritabani taranmadi
+            self.assertEqual(mon["PG-CAP-002"][0], "UNKNOWN")                # the sequence could not be read and the hidden database was not scanned
             self.assertEqual(sup["PG-CAP-002"][0], "FAIL")
             self.assertTrue(kurallar.incele(belge["pg_monitor"]).baglam["sinanan"])
-            # madde 12: autovacuum, multixact, replikasyon gecikmesi, sorgu istatistikleri, gecici dosya
+            # item 12: autovacuum, multixact, replication lag, query statistics, temporary file
             self.assertEqual((mon["PG-MAINT-006"], mon["PG-MAINT-008"]), (("PASS", None), ("PASS", None)))
-            self.assertEqual(mon["PG-MAINT-007"][0], "WARNING")                 # autovacuum'u kapatilmis "olu" tablosu
-            self.assertEqual(mon["PG-HA-002"], ("PASS", None))                  # akista, esik alti gecikme
+            self.assertEqual(mon["PG-MAINT-007"][0], "WARNING")                 # the "dead" table with autovacuum disabled
+            self.assertEqual(mon["PG-HA-002"], ("PASS", None))                  # streaming, lag below the threshold
             self.assertGreater(kurallar.incele(belge["pg_monitor"]).kayitlar[[k.kimlik for k in kurallar.KURALLAR].index("PG-HA-002")]
-                               ["gozlem"]["en_yuksek_gecikme_bayt"], 0)        # duraklatilmis yeniden oynatma olculdu
-            self.assertEqual(duz["PG-HA-002"], ("UNKNOWN", "rol_eksik"))       # yetkisiz hesap replikayi gorur ama durumunu goremez
+                               ["gozlem"]["en_yuksek_gecikme_bayt"], 0)        # the paused replay was measured
+            self.assertEqual(duz["PG-HA-002"], ("UNKNOWN", "rol_eksik"))       # the unprivileged account sees the replica but cannot see its status
             self.assertEqual(duz["PG-PERF-002"], ("UNAVAILABLE", "yetki"))
-            self.assertIn(mon["PG-PERF-002"][0], ("PASS", "WARNING"))           # pg_stat_statements paketteyse yuklenir
-            self.assertEqual(mon["PG-PERF-003"][0], "WARNING")                  # gecici dosya var, istatistik baslangici bilinmiyor
-            # yedek sunucu: butun sorgular calisir, birincile ozgu kurallar uygulanmaz, slot yedekte de olculur
+            self.assertIn(mon["PG-PERF-002"][0], ("PASS", "WARNING"))           # pg_stat_statements is loaded if it is in the package
+            self.assertEqual(mon["PG-PERF-003"][0], "WARNING")                  # there is a temporary file, the statistics start is unknown
+            # standby server: all queries run, primary-specific rules do not apply, the slot is measured on the standby too
             self.assertFalse([c for c, e in belge["yedek"]["kontroller"].items() if e["durum"] != "ok" and c != "pg_md5_roller"])
             self.assertTrue(kurallar.incele(belge["yedek"]).baglam["yedek"])
             self.assertFalse(kurallar.incele(belge["pg_monitor"]).baglam["yedek"])
             for kimlik in ("PG-MAINT-003", "PG-MAINT-005", "PG-BACKUP-001"):
                 self.assertEqual(yed[kimlik], ("NOT_APPLICABLE", "birincil_degil"), kimlik)
-            self.assertEqual(yed["PG-HA-001"][0], "FAIL")                       # yedekteki etkin olmayan slot
+            self.assertEqual(yed["PG-HA-001"][0], "FAIL")                       # the inactive slot on the standby
             self.assertEqual(yed["PG-HA-002"], ("NOT_APPLICABLE", "replika_yok"))
 
 

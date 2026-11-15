@@ -1,4 +1,4 @@
-"""Ortak kanit modeli (tarama/kanit.py): her kural her taramada tek bir durum uretir, veri yokken PASS cikmaz."""
+"""Common evidence model (tarama/kanit.py): every rule produces a single status in every scan; PASS never appears when data is missing."""
 import copy
 import json
 import re
@@ -38,13 +38,13 @@ class KuralTablosuTests(unittest.TestCase):
             m = re.match(r"^(PG|MS)-([A-Z]+)-(\d{3})$", k.kimlik)
             self.assertTrue(m, k.kimlik)
             self.assertEqual(m.group(1), {"postgresql": "PG", "mssql": "MS"}[k.motor], k.kimlik)
-            self.assertEqual(m.group(2), kanit.KATEGORI_KISALTMA[k.kategori], k.kimlik)   # kategori degisirse kimlik degismez: istisna buraya yazilir
+            self.assertEqual(m.group(2), kanit.KATEGORI_KISALTMA[k.kategori], k.kimlik)   # if the category changes the id does not change: exceptions are written here
 
     def test_alanlar_gecerli(self):
         for k in TUM:
             self.assertIn(k.kategori, kanit.KATEGORILER, k.kimlik)
             self.assertIn(k.guven, kanit.GUVENLER, k.kimlik)
-            self.assertTrue(k.kaynaklar and not k.kaynaklar[0].ek, k.kimlik)   # ilk kaynak birincildir
+            self.assertTrue(k.kaynaklar and not k.kaynaklar[0].ek, k.kimlik)   # the first source is the primary
             for alan in (k.ad, k.beklenen):
                 self.assertTrue(alan["tr"].strip() and alan["en"].strip(), k.kimlik)
             for kay in k.kaynaklar:
@@ -102,7 +102,7 @@ class DurumTests(unittest.TestCase):
                 self.assertEqual(k["bulgular"], [])
 
     def _varyantlar(self, motor, kay):
-        """Kaynagin verisini bozan ya da kaldiran degisiklikler: (ad, belge)."""
+        """Changes that corrupt or remove the source's data: (name, document)."""
         temiz = TEMIZ[motor]()
         if kay.kontrol == kanit.TOPLAYICI:
             b = copy.deepcopy(temiz)
@@ -171,7 +171,7 @@ class DurumTests(unittest.TestCase):
         self.assertEqual((k["PG-MAINT-005"]["durum"], k["PG-MAINT-005"]["onem"]), ("WARNING", "dusuk"))
         m = test_mssql.temiz_mssql()
         m["kontroller"]["ms_sysadmin"]["satirlar"] = [{"giris": "dba", "tur": "SQL_LOGIN", "devre_disi": 0}]
-        self.assertEqual(kayitlar(m)["MS-SEC-004"]["durum"], "WARNING")   # bilgi: gozden gecirilecek liste
+        self.assertEqual(kayitlar(m)["MS-SEC-004"]["durum"], "WARNING")   # info: a list to be reviewed
         self.assertEqual(set(kanit.BULGU_DURUMU), set(kurallar.ONEM))
 
     def test_bulgular_kural_bilgisini_tasir(self):
@@ -194,7 +194,7 @@ class DurumTests(unittest.TestCase):
                 if k["durum"] in ("UNKNOWN", "UNAVAILABLE"):
                     self.assertIsNone(k["guven"], k["kural"])
         for k in kurallar.incele(test_mssql.temiz_mssql()).kayitlar:
-            self.assertNotEqual(k["guven"], "HIGH", k["kural"])   # on surum: sorgular gercek sunucuda sinanmadi
+            self.assertNotEqual(k["guven"], "HIGH", k["kural"])   # preview: the queries were not tested on a real server
 
     def test_kayit_alanlari(self):
         for motor in MOTOR_KURALLARI:
@@ -205,20 +205,20 @@ class DurumTests(unittest.TestCase):
                 self.assertTrue(k["kaynak"] and all(isinstance(x, str) for x in k["kaynak"]), k["kural"])
                 self.assertTrue(k["kontroller"], k["kural"])
                 self.assertTrue(set(kanit.KAYIT_ALANLARI) == set(k), k["kural"])
-                json.dumps(k)   # disa aktarilabilir
+                json.dumps(k)   # can be exported
 
     def test_veritabani_kapsami_eksikse_bilinmiyor(self):
         vt_kurallari = {k.kimlik for k in kurallar.KURALLAR if any(katalog.PG_BY_ID.get(kay.kontrol, {}).get("kapsam") == "veritabani" for kay in k.kaynaklar)}
         self.assertIn("PG-MAINT-004", vt_kurallari)
         b = test_tarama.temiz_belge()
-        b["kontroller"]["pg_kapsam"]["satirlar"][0]["veritabani_sayisi"] = 3   # --veritabanlari ile secilmeyenler
+        b["kontroller"]["pg_kapsam"]["satirlar"][0]["veritabani_sayisi"] = 3   # those not selected with --veritabanlari
         del_kapsam = test_tarama.temiz_belge()
         del del_kapsam["kontroller"]["pg_kapsam"]
         for belge in (b, del_kapsam):
             for kimlik, k in kayitlar(belge).items():
                 if kimlik in vt_kurallari:
                     self.assertEqual(k["durum"], "UNKNOWN", kimlik)
-                elif kimlik not in ("PG-HA-001", "PG-HA-002"):   # temiz belgede slot ve replika yok: uygulanmaz
+                elif kimlik not in ("PG-HA-001", "PG-HA-002"):   # in the clean document there is no slot and no replica: not applicable
                     self.assertEqual(k["durum"], "PASS", kimlik)
 
     def test_gozlem_nesne_adi_tasimaz(self):
@@ -250,7 +250,7 @@ class KuralMantigiTests(unittest.TestCase):
     def test_baglanti_gunlugu_postgresql_18_degerleri(self):
         def log(baglanti, kesme="on"):
             return self.pg(pg_log_ayarlari=[{"name": "log_connections", "setting": baglanti}, {"name": "log_disconnections", "setting": kesme}])
-        self.assertEqual(durum(log(""), "PG-SEC-007")[0], "WARNING")                    # 18: bos liste kapali demek
+        self.assertEqual(durum(log(""), "PG-SEC-007")[0], "WARNING")                    # 18: an empty list means off
         self.assertEqual(durum(log("off"), "PG-SEC-007")[0], "WARNING")
         self.assertEqual(durum(log("on", "off"), "PG-SEC-007")[0], "WARNING")
         self.assertEqual(durum(log("receipt,authentication,authorization"), "PG-SEC-007"), ("PASS", None))
@@ -290,7 +290,7 @@ class KuralMantigiTests(unittest.TestCase):
         self.assertEqual(durum(tls("on", "TLSv1.3"), "PG-SEC-001"), ("PASS", None))
         self.assertEqual(durum(tls("on", None), "PG-SEC-001"), ("UNKNOWN", "eksik_veri"))
         self.assertEqual(durum(tls("belki", "TLSv1.2"), "PG-SEC-001"), ("UNKNOWN", "gecersiz_veri"))
-        self.assertEqual(durum(tls("on", "TLSv9"), "PG-SEC-001"), ("UNKNOWN", "gecersiz_veri"))   # taninmayan surum temiz sayilmaz
+        self.assertEqual(durum(tls("on", "TLSv9"), "PG-SEC-001"), ("UNKNOWN", "gecersiz_veri"))   # an unrecognized version is not counted as clean
         self.assertEqual(durum(tls("on", "TLSv1.2", "md5"), "PG-SEC-002")[0], "WARNING")
         self.assertEqual(durum(tls("on", "TLSv1.2", "duz"), "PG-SEC-002"), ("UNKNOWN", "gecersiz_veri"))
 
@@ -302,7 +302,7 @@ class KuralMantigiTests(unittest.TestCase):
         b = self.pg(pg_sequence_gorunurluk=[{"veritabani": "postgres", "toplam": 5, "okunamayan": 2}])
         self.assertEqual(durum(b, "PG-CAP-002"), ("UNKNOWN", "kismi_yetki"))
         b["kontroller"]["pg_sequence"]["satirlar"] = [{"veritabani": "postgres", "schemaname": "s", "sequencename": "q", "oran": 0.99}]
-        self.assertEqual(durum(b, "PG-CAP-002")[0], "FAIL")   # gorunen sequence'taki sorun yine raporlanir
+        self.assertEqual(durum(b, "PG-CAP-002")[0], "FAIL")   # a problem in a sequence that is visible is still reported
 
     def test_mssql_ozel_durumlar(self):
         m = test_mssql.temiz_mssql()
@@ -317,12 +317,12 @@ class KuralMantigiTests(unittest.TestCase):
         m["kontroller"]["ms_sifreleme"]["satirlar"] = [{"toplam": 0, "sifreli": 0}]
         self.assertEqual(durum(m, "MS-SEC-006"), ("NOT_APPLICABLE", "tcp_baglanti_yok"))
         m = test_mssql.temiz_mssql()
-        m["kontroller"]["ms_checkdb"]["satirlar"].append({"veritabani": "b", "gun": None})   # bilinmeyen tarih temiz sayilmaz
+        m["kontroller"]["ms_checkdb"]["satirlar"].append({"veritabani": "b", "gun": None})   # an unknown date is not counted as clean
         self.assertEqual(durum(m, "MS-MAINT-002"), ("UNKNOWN", "eksik_veri"))
-        m["kontroller"]["ms_tempdb"]["satirlar"] = [{"veri_dosyasi": "1", "cpu": 8}]          # tur denetimi (SQL Server yuklemede tur denetlenmez)
+        m["kontroller"]["ms_tempdb"]["satirlar"] = [{"veri_dosyasi": "1", "cpu": 8}]          # type check (types are not checked at upload for SQL Server)
         self.assertEqual(durum(m, "MS-PERF-002"), ("UNKNOWN", "gecersiz_veri"))
         m = test_mssql.temiz_mssql()
-        m["kontroller"]["ms_db_ayar"]["satirlar"][0]["trustworthy"] = "1"   # metin "1" sayi 1 ile eslesmez: temiz sanilmasin
+        m["kontroller"]["ms_db_ayar"]["satirlar"][0]["trustworthy"] = "1"   # the text "1" does not match the number 1: must not be taken as clean
         self.assertEqual(durum(m, "MS-SEC-001"), ("UNKNOWN", "gecersiz_veri"))
 
 
@@ -341,7 +341,7 @@ class RaporTests(unittest.TestCase):
             self.assertIn(metin, en)
         tablo = tr[tr.index("<table class=\"tiers durumlar\">"):]
         tablo = tablo[:tablo.index("</table>")]
-        self.assertEqual(tablo.count("<th scope=\"row\">"), len(kurallar.KURALLAR))   # her kural bir satir
+        self.assertEqual(tablo.count("<th scope=\"row\">"), len(kurallar.KURALLAR))   # one row per rule
         self.assertEqual(tablo.count("<td data-label"), len(kurallar.KURALLAR) * 5)
 
     def test_bulgu_kartinda_kural_durum_guven_kaynak(self):

@@ -1,5 +1,5 @@
-"""Kip B sunucu sertifikasi dogrulamasi: gercek PostgreSQL 16 + TLS ve gecici kendinden imzali CA ile (openssl CLI).
-PostgreSQL 16 ya da openssl yoksa SKIP. PG18 icin sayilmaz."""
+"""Mode B server certificate validation: with a real PostgreSQL 16 + TLS and a temporary self-signed CA (openssl CLI).
+SKIPped if PostgreSQL 16 or openssl is absent. Does not count for PG18."""
 import os
 import shutil
 import socket
@@ -35,7 +35,7 @@ def _bos_port():
 
 
 def _ca_uret(dizin, ad):
-    """(ca.crt yolu, ca.key yolu): kendinden imzali CA."""
+    """(ca.crt path, ca.key path): self-signed CA."""
     crt, key = str(dizin / (ad + ".crt")), str(dizin / (ad + ".key"))
     _komut([OPENSSL, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", crt, "-subj", "/CN=alig test CA " + ad,
             "-days", "2", "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign"])
@@ -114,7 +114,7 @@ class SertifikaDogrulamaTests(unittest.TestCase):
         self.assertEqual(self.kod(ad="baska.ornek.com", ca=self.ca), "baglanti")
 
     def test_ayni_istek_ca_olmadan_mevcut_varsayilanla_baglanir(self):
-        """Varsayilan (sslmode=require + channel_binding=require) degismedi: sertifika denetlenmez ama TLS ve SCRAM zorunlu."""
+        """The default (sslmode=require + channel_binding=require) did not change: the certificate is not checked but TLS and SCRAM are mandatory."""
         self.assertEqual(self.tara(ad="baska.ornek.com")["motor"], "postgresql")
 
     def test_yanlis_parola_ca_ile_de_basarisiz(self):

@@ -1,5 +1,5 @@
-"""ALIG-DB-003a: PostgreSQL semasi ve roller (db/sema/*.sql, db/uygula.py). Uygulamaya bagli degildir.
-Gecici PostgreSQL 16 kumesi tests/pg_yardimci.py ile acilir (initdb, Unix soketi, trust kimlik dogrulama: yalniz bu test kumesi); PostgreSQL yoksa SKIP."""
+"""ALIG-DB-003a: PostgreSQL schema and roles (db/sema/*.sql, db/uygula.py). Not tied to the application.
+A temporary PostgreSQL 16 cluster is opened with tests/pg_yardimci.py (initdb, Unix socket, trust authentication: only this test cluster); SKIPped if PostgreSQL is absent."""
 import hashlib
 import importlib.util
 import os
@@ -29,7 +29,7 @@ def uygula_modulu():
 
 
 class UygulaBirimTests(unittest.TestCase):
-    """PostgreSQL gerektirmez."""
+    """Does not need PostgreSQL."""
 
     def test_sema_dosyalari_sirali_ve_sifre_icermez(self):
         adlar = sorted(p.name for p in SEMA.glob("*.sql"))
@@ -38,7 +38,7 @@ class UygulaBirimTests(unittest.TestCase):
             self.assertTrue(ad.startswith("%04d_" % i), ad)
             govde = (SEMA / ad).read_text(encoding="utf-8")
             self.assertNotRegex(govde, r"(?i)\bpassword\b|\bparola\b\s*['=]", ad)
-            if i > 1:   # 0001 roller ve semayi yoneticiyle kurar; sonrakiler nesneleri alig_owner adina olusturur
+            if i > 1:   # 0001 sets up the roles and the schema as the administrator; the later ones create objects as alig_owner
                 ilk = [satir for satir in govde.splitlines() if satir.strip() and not satir.startswith("--")][0]
                 self.assertEqual(ilk.strip(), "SET ROLE alig_owner;", ad)
 
@@ -55,7 +55,7 @@ class UygulaBirimTests(unittest.TestCase):
             with self.assertRaises(u.GocHatasi):
                 u.dosyalari_oku(d)
             (d / "x.sql").unlink()
-            (d / "0003_c.sql").write_text("SELECT 1;")   # 0002 eksik: bosluk
+            (d / "0003_c.sql").write_text("SELECT 1;")   # 0002 missing: a gap
             with self.assertRaises(u.GocHatasi):
                 u.dosyalari_oku(d)
         finally:
@@ -114,7 +114,7 @@ class PgSemaTests(unittest.TestCase):
         return subprocess.run(argv, capture_output=True, text=True, env=cls.ortam(db, kullanici), timeout=60)
 
     def sql(self, kullanici, sorgu, db=None):
-        """(donus kodu, stdout, sqlstate ya da None, stderr)"""
+        """(return code, stdout, sqlstate or None, stderr)"""
         r = subprocess.run(["psql", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose", "-f", "-"],
                            input=sorgu, capture_output=True, text=True, env=self.ortam(db or self.db, kullanici), timeout=30)
         m = SQLSTATE.search(r.stderr)
@@ -140,7 +140,7 @@ class PgSemaTests(unittest.TestCase):
         self.assertNotEqual(rc, 0, "reddedilmedi: " + sorgu)
         self.assertEqual(kod, durum, err)
 
-    # --- gocler ---
+    # --- migrations ---
     def test_tum_dosyalar_uygulandi_ve_ozetler_dogru(self):
         dosyalar = sorted(SEMA.glob("*.sql"))
         out = self.tek("postgres", "SELECT surum || ' ' || dosya_sha256 FROM alig.schema_migrations ORDER BY surum")
@@ -151,7 +151,7 @@ class PgSemaTests(unittest.TestCase):
         once = self.tek("postgres", "SELECT count(*), max(uygulama_utc) FROM alig.schema_migrations")
         r = self.uygula(self.db)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("yeni göç yok", r.stdout)
+        self.assertIn("no new migration", r.stdout)
         self.assertEqual(self.tek("postgres", "SELECT count(*), max(uygulama_utc) FROM alig.schema_migrations"), once)
 
     def test_degistirilmis_eski_dosya_reddedilir(self):
@@ -168,7 +168,7 @@ class PgSemaTests(unittest.TestCase):
         r = self.uygula(db, d)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn(hedef.name, r.stderr)
-        self.assertEqual(self.tek("postgres", "SELECT to_regclass('alig.olmamali') IS NULL", db), "t")   # yeni dosya da uygulanmadi
+        self.assertEqual(self.tek("postgres", "SELECT to_regclass('alig.olmamali') IS NULL", db), "t")   # the new file was not applied either
 
     def test_ilk_dosya_yoneticiyle_sonrakiler_gocu_rolüyle_uygulanir(self):
         d = Path(tempfile.mkdtemp(dir=self.kok))
@@ -181,7 +181,7 @@ class PgSemaTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.tek("postgres", "SELECT count(*) FROM alig.schema_migrations", db), str(len(list(SEMA.glob("*.sql")))))
         self.assertEqual(self.tek("postgres", "SELECT count(*) FROM pg_tables WHERE schemaname='alig' AND tableowner <> 'alig_owner'", db), "0")
-        self.assertEqual(self.uygula(db, d, "alig_migrator").returncode, 0)   # ikinci calistirma
+        self.assertEqual(self.uygula(db, d, "alig_migrator").returncode, 0)   # second run
 
     def test_yarida_kalan_dosya_geri_alinir(self):
         d = Path(tempfile.mkdtemp(dir=self.kok))
@@ -196,11 +196,11 @@ class PgSemaTests(unittest.TestCase):
         self.assertEqual(self.tek("postgres", "SELECT to_regclass('alig.yarim') IS NULL", db), "t")
         self.assertEqual(self.tek("postgres", "SELECT count(*) FROM alig.schema_migrations", db), str(n - 1))
 
-    # --- roller ---
+    # --- roles ---
     def test_rol_ozellikleri(self):
         satir = lambda r: self.tek("postgres", "SELECT rolsuper::int, rolcreatedb::int, rolcreaterole::int, rolreplication::int, "
                                    "rolbypassrls::int, rolcanlogin::int, (rolpassword IS NULL)::int FROM pg_authid WHERE rolname='%s'" % r)
-        # super, createdb, createrole, replication, bypassrls, login, parolasiz
+        # super, createdb, createrole, replication, bypassrls, login, no password
         self.assertEqual(satir("alig_app"), "0|0|0|0|0|1|1")
         self.assertEqual(satir("alig_owner"), "0|0|0|0|0|0|1")
         self.assertEqual(satir("alig_migrator"), "0|0|0|0|0|1|1")
@@ -229,7 +229,7 @@ class PgSemaTests(unittest.TestCase):
         self.assertEqual(self.tek("alig_migrator", "BEGIN; SET ROLE alig_owner; CREATE TABLE alig.gecici(i int); "
                                   "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid='alig.gecici'::regclass; ROLLBACK;").splitlines()[-2:][0],
                          "alig_owner")
-        self.reddedilir("alig_migrator", "CREATE ROLE kotu")   # rol olusturma yetkisi yok
+        self.reddedilir("alig_migrator", "CREATE ROLE kotu")   # no privilege to create roles
 
     def test_salt_okuma_rolu_yazamaz_ve_secili_sutunlari_okur(self):
         self.reddedilir("alig_readonly", "INSERT INTO alig.firma(anahtar, ad, eposta, kaynak, kayit_utc, son_utc) "
@@ -243,14 +243,14 @@ class PgSemaTests(unittest.TestCase):
         self.reddedilir("alig_readonly", "SELECT totp FROM alig.kullanici")
 
     def test_yedek_rolu_veriye_erisemez(self):
-        self.baglanti_reddedilir("alig_backup")   # veritabanina baglanti yetkisi yok (yalniz kopyalama baglantisi)
+        self.baglanti_reddedilir("alig_backup")   # no connect privilege on the database (only the replication connection)
         self.reddedilir_migrations_yazma()
 
     def test_rolsuz_baglanti_reddedilir(self):
         self.tek("postgres", "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='baska_rol') THEN CREATE ROLE baska_rol LOGIN; END IF; END $$")
-        self.baglanti_reddedilir("baska_rol")   # PUBLIC CONNECT kaldirildi: yalniz alig rolleri baglanir
+        self.baglanti_reddedilir("baska_rol")   # PUBLIC CONNECT was removed: only the alig roles connect
 
-    # --- denetim zincirleri ---
+    # --- audit chains ---
     def test_denetim_tablolarinda_yalniz_insert_ve_select(self):
         for t in ("denetim", "yonetim_denetim"):
             self.tek("alig_app", "INSERT INTO alig.%s(seq, zaman_utc, aktor, olay, onceki, ozet) VALUES(1, now(), 'sistem', 'x', '', '%s')" % (t, "a" * 64))
@@ -260,10 +260,10 @@ class PgSemaTests(unittest.TestCase):
             self.reddedilir("alig_app", "TRUNCATE alig.%s" % t)
             self.reddedilir("alig_app", "INSERT INTO alig.%s(seq, zaman_utc, aktor, olay, onceki, ozet) VALUES(1, now(), 'a', 'b', '', '%s')" % (t, "b" * 64), "23505")
             self.reddedilir("alig_app", "INSERT INTO alig.%s(seq, zaman_utc, aktor, olay, onceki, ozet, mod) VALUES(9, now(), 'a', 'b', '', '%s', 7)" % (t, "c" * 64), "23514")
-        # temizlik owner adina (uygulama rolu silemez)
+        # cleanup as owner (the application role cannot delete)
         self.tek("postgres", "DELETE FROM alig.denetim; DELETE FROM alig.yonetim_denetim")
 
-    # --- kisitlar ---
+    # --- constraints ---
     FIRMA = ("INSERT INTO alig.firma(anahtar, ad, eposta, kaynak, kayit_utc, son_utc) "
              "VALUES('%s', 'ad', 'a@%s', 'form', now(), now()) RETURNING id")
 
@@ -282,7 +282,7 @@ class PgSemaTests(unittest.TestCase):
         self.reddedilir("alig_app", "INSERT INTO alig.firma(anahtar, ad, eposta, kaynak, kayit_utc, son_utc, durum) "
                         "VALUES('chk.test', 'a', 'a@b.c', 'form', now(), now(), 'silinmis')", "23514")
         self.reddedilir("alig_app", "INSERT INTO alig.portal_kullanici(eposta, parola, durum, kayit_utc) "
-                        "VALUES('a@b.c', 'x', 'aktif', now())", "23514")   # aktif kullanicinin firmasi olmali
+                        "VALUES('a@b.c', 'x', 'aktif', now())", "23514")   # an active user must have a company
         self.reddedilir("alig_app", "INSERT INTO alig.posta(alici, konu, metin, olusturma_utc, durum) "
                         "VALUES('a@b.c', 'k', 'm', now(), 'belirsiz')", "23514")
         self.reddedilir("alig_app", "INSERT INTO alig.idempotency_anahtari(anahtar, istek_ozeti, sonuc) VALUES('k1', 'kisa', '')", "23514")
@@ -310,7 +310,7 @@ class PgSemaTests(unittest.TestCase):
         INSERT INTO alig.kullanim(anahtar_sha256, zaman_utc) VALUES('%(e)s', now());
         """ % {"a": h("1"), "b": h("2"), "c": h("3"), "d": h("4"), "e": h("5"), "f": fid}
         self.tek("alig_app", kur)
-        # ikinci acik silme talebi firma basina engellenir
+        # a second open deletion request is blocked per company
         self.reddedilir("alig_app", "INSERT INTO alig.portal_talep(firma_id, kullanici_id, tur, olusturma_utc, guncelleme_utc) "
                         "SELECT %s, id, 'silme', now(), now() FROM alig.portal_kullanici WHERE firma_id=%s" % (fid, fid), "23505")
         self.tek("alig_app", "DELETE FROM alig.firma WHERE id=%s" % fid)
@@ -318,7 +318,7 @@ class PgSemaTests(unittest.TestCase):
             self.assertEqual(self.tek("postgres", "SELECT count(*) FROM alig.%s WHERE firma_id=%s" % (t, fid)), "0", t)
         for t in ("portal_kod", "portal_oturum"):
             self.assertEqual(self.tek("postgres", "SELECT count(*) FROM alig.%s" % t), "0", t)
-        # kullanim firmaya yabanci anahtarla bagli degil (anahtar ozetiyle): uygulama firma_sil'de ayrica siler
+        # usage is not tied to the company by a foreign key (it uses the key digest): the application deletes it separately in firma_sil
         self.assertEqual(self.tek("postgres", "SELECT count(*) FROM alig.kullanim WHERE anahtar_sha256='%s'" % h("5")), "1")
         self.tek("postgres", "DELETE FROM alig.kullanim")
 
@@ -334,12 +334,12 @@ class PgSemaTests(unittest.TestCase):
                                   "WHERE n.nspname='alig' AND c.relkind IN ('r','S') AND pg_get_userbyid(c.relowner) <> 'alig_owner'"), "0")
         self.assertEqual(self.tek("postgres", "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
                                   "WHERE n.nspname='alig' AND c.relkind='r'"), self.tek("postgres", "SELECT count(*) FROM pg_tables WHERE schemaname='alig'"))
-        # her tablo bilinen listede: bilinmeyen tablo eklenirse bu test yeni tablonun yetkisini gozden gecirmeyi zorlar
+        # every table is in the known list: if an unknown table is added this test forces a review of the new table's privileges
         beklenen = sorted("""baglanti_istegi contact denetim esitleme firma firma_silinen giris_denemesi giris_ip idempotency_anahtari
             kullanici kullanim oturum portal_deneme portal_kod portal_kullanici portal_oturum portal_talep posta rapor
             schema_migrations talep_durum yonetim_denetim""".split())
         self.assertEqual(self.tek("postgres", "SELECT string_agg(tablename, ' ' ORDER BY tablename) FROM pg_tables WHERE schemaname='alig'").split(), beklenen)
-        # sema disinda nesne yok; PUBLIC hicbir alig tablosunda yetki tasimaz
+        # no objects outside the schema; PUBLIC holds no privilege on any alig table
         self.assertEqual(self.tek("postgres", "SELECT count(*) FROM information_schema.table_privileges WHERE table_schema='alig' AND grantee='PUBLIC'"), "0")
 
 

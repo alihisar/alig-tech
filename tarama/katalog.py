@@ -1,29 +1,29 @@
-"""PostgreSQL denetim kataloginin sorgulari. Yalnizca sabit, gozden gecirilmis SELECT'ler.
+"""Queries of the PostgreSQL audit catalog. Only fixed, reviewed SELECTs.
 
-Her sorgu `SELECT coalesce(json_agg(t),'[]') FROM (<sql>) t` icinde calisir.
-Kullanici tablolarindan satir verisi okunmaz; yalniz katalog, istatistik ve ayar gorunumleri.
-`kolonlar`: yuklemede izin verilen kolonlar. `maske`: --maskele ile takma adlanan kolonlar.
-`kapsam: veritabani`: denetim baglanilabilen her veritabaninda ayri calisir; toplayici her satira `veritabani`
-kolonunu ekler. Digerleri sunucu geneli kataloglari okur ve bir kez calisir.
-`kaynak`: sorgunun okudugu gorunum, islev ya da ayar adlari; kanit kaydinda gosterilir (tarama/kanit.py). Toplayiciya
-gitmez, katalog ozetini degistirmez.
+Each query runs inside `SELECT coalesce(json_agg(t),'[]') FROM (<sql>) t`.
+No row data is read from user tables; only catalog, statistics and setting views.
+`kolonlar`: columns allowed at upload. `maske`: columns aliased with --maskele (mask).
+`kapsam: veritabani`: the check runs separately in every database that can be connected to; the collector adds a `veritabani`
+column to each row. The others read server-wide catalogs and run once.
+`kaynak`: names of the views, functions or settings the query reads; shown in the evidence record (tarama/kanit.py). It is not sent
+to the collector and does not change the catalog digest.
 
-Surum matrisi (PostgreSQL): `en_az` denetimin calistigi en eski ana surum, istege bagli `en_cok` en yeni ana surum,
-`eski_surum` eski surumler icin degisik sorgu ([{"en_cok": 12, "sql": ...}]). Toplayici sunucunun ana surumune gore
-sorguyu secer (`sorgu`); desteklenmeyen surumde sorgu hic calismaz, denetim "desteklenmiyor" olarak yazilir.
-`yetki`: dogru sonuc icin tarama hesabinda gereken yetki (YETKILER). pg_read_all_stats ve pg_read_all_settings
-pg_monitor uyeligiyle gelir; hesapta yoksa kanit motoru sonucu kismi sayar (tarama/kanit.py, pg_hesap denetimi).
-Matris ve gercek sunucudaki dogrulama sonuclari: docs/surum-matrisi.md (uretilir).
+Version matrix (PostgreSQL): `en_az` is the oldest major version the check runs on, the optional `en_cok` the newest major version,
+`eski_surum` a different query for older versions ([{"en_cok": 12, "sql": ...}]). The collector picks the query by the server's major
+version (`sorgu`); on an unsupported version the query does not run at all and the check is written as "desteklenmiyor" (unsupported).
+`yetki`: the privilege the scan account needs for a correct result (YETKILER). pg_read_all_stats and pg_read_all_settings
+come with pg_monitor membership; if the account lacks them, the evidence engine counts the result as partial (tarama/kanit.py, pg_hesap check).
+The matrix and the verification results on real servers: docs/surum-matrisi.md (generated).
 """
 
 FORMAT = "alig-toplayici/1"
 MOTOR = "postgresql"
-SURUM_ALT, SURUM_UST = 12, 18   # matrisin kapsadigi ana surumler; daha yenisinde ana sorgu calisir (sinanmadi)
-# Butun sorgularin gercek sunucuda sinandigi ana surumler (tarama/surum_dogrula.py; kanit docs/surum-dogrulama.json,
-# tutarliligini tests/test_surum.py denetler). Disindaki surumde rapordaki kanit guveni en cok MEDIUM.
+SURUM_ALT, SURUM_UST = 12, 18   # major versions covered by the matrix; on a newer one the main query runs (untested)
+# Major versions on which all queries were tested on a real server (tarama/surum_dogrula.py; evidence in docs/surum-dogrulama.json,
+# its consistency is checked by tests/test_surum.py). On any other version the evidence confidence in the report is at most MEDIUM.
 SINANAN = (16,)
 YETKILER = ("herkes", "pg_read_all_stats", "pg_read_all_settings", "superuser")
-# Yedek sunucuda pg_current_wal_lsn() hata verir: orada son alinan WAL konumu kullanilir (CASE gereken dali calistirir).
+# pg_current_wal_lsn() fails on a standby: there the last received WAL position is used (CASE runs only the branch that is needed).
 WAL_KONUMU = "CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END"
 
 PG = [
@@ -31,7 +31,7 @@ PG = [
      "sql": "SELECT current_setting('server_version_num')::int AS surum_num"},
     {"id": "pg_sunucu_rolu", "en_az": 0, "yetki": "herkes", "kaynak": ["pg_is_in_recovery"], "kolonlar": ["yedek"], "maske": [],
      "sql": "SELECT pg_is_in_recovery() AS yedek"},
-    # Veritabani kimligi (gecmis karsilastirmasi, tarama/gecmis.py): kume tanimlayicisinin ozeti; ham deger sunucudan cikmaz.
+    # Database identity (history comparison, tarama/gecmis.py): digest of the cluster identifier; the raw value never leaves the server.
     {"id": "pg_kume_kimligi", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_control_system"], "kolonlar": ["kume"], "maske": [],
      "sql": "SELECT encode(sha256(system_identifier::text::bytea), 'hex') AS kume FROM pg_control_system()"},
     {"id": "pg_hesap", "en_az": 0, "yetki": "herkes", "kaynak": ["pg_roles", "pg_has_role"],
@@ -111,7 +111,7 @@ PG = [
      "sql": "SELECT name, setting FROM pg_settings WHERE name IN ('autovacuum', 'track_counts')"},
     {"id": "pg_tablo_autovacuum", "en_az": 12, "yetki": "herkes", "kaynak": ["pg_class"], "kapsam": "veritabani",
      "kolonlar": ["veritabani", "schemaname", "relname"], "maske": ["veritabani", "schemaname", "relname"],
-     # reloptions degeri yazildigi gibi saklanir: PostgreSQL'in kabul ettigi butun "kapali" yazimlari (parse_bool)
+     # reloptions values are stored as written: every spelling of "off" that PostgreSQL accepts (parse_bool)
      "sql": "SELECT n.nspname AS schemaname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
             "WHERE c.relkind IN ('r', 'm') AND n.nspname NOT IN ('pg_catalog', 'information_schema') "
             "AND array_to_string(c.reloptions, ',') ~* '(^|,)autovacuum_enabled=(f|fa|fal|fals|false|n|no|of|off|0)(,|$)' "
@@ -133,7 +133,7 @@ PG_BY_ID = {c["id"]: c for c in PG}
 
 
 def sorgu(c, ana):
-    """Denetimin bu ana surumde calisacak sorgusu; surum desteklenmiyorsa None. Surum bilinmiyorsa ana sorgu."""
+    """The check's query that will run on this major version; None if the version is unsupported. If the version is unknown, the main query."""
     if ana is None:
         return c["sql"]
     if ana < c.get("en_az", SURUM_ALT) or (c.get("en_cok") is not None and ana > c["en_cok"]):
@@ -145,10 +145,10 @@ def sorgu(c, ana):
 
 
 def sorgular(c):
-    """Denetimin butun sorgu bicimleri (ana ve eski surum)."""
+    """All query forms of the check (main and older version)."""
     return [c["sql"]] + [v["sql"] for v in c.get("eski_surum", ())]
 
-# Toplayicinin dolasacagi veritabanlari. CONNECT yetkisi olmayanlara baglanilmaz, "yetki" ile atlanir.
+# Databases the collector will visit. Those without CONNECT privilege are not connected to and are skipped with "yetki" (privilege).
 VT_LISTE_SQL = ("SELECT datname AS veritabani, has_database_privilege(datname, 'CONNECT') AS baglanir "
                 "FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname")
 EN_COK_VERITABANI = 50
@@ -159,9 +159,9 @@ YASAKLI = ("analyze", "insert", "update", "delete", "alter", "drop", "create", "
            "pg_rotate", "pg_switch", "pg_start_backup", "pg_promote")
 
 
-# ---- SQL Server (on surum: gercek sunucuda sinanana kadar genel sayfada yayimlanmaz) ----
-# Her sorgu tek bir SELECT'tir; toplayici sonuna `FOR JSON PATH, INCLUDE_NULL_VALUES` ekler (SQL Server 2016+).
-# Gereken yetki: VIEW SERVER STATE ve VIEW ANY DEFINITION. Kullanici tablolarindan satir okunmaz.
+# ---- SQL Server (preview: not published on the public page until tested on a real server) ----
+# Each query is a single SELECT; the collector appends `FOR JSON PATH, INCLUDE_NULL_VALUES` (SQL Server 2016+).
+# Required privileges: VIEW SERVER STATE and VIEW ANY DEFINITION. No row data is read from user tables.
 MSSQL = [
     {"id": "ms_surum", "kaynak": ["SERVERPROPERTY"], "kolonlar": ["ana_surum", "surum", "motor_turu"], "maske": [],
      "sql": "SELECT CAST(SERVERPROPERTY('ProductMajorVersion') AS int) AS ana_surum, "
@@ -221,7 +221,7 @@ MSSQL = [
 ]
 MSSQL_BY_ID = {c["id"]: c for c in MSSQL}
 
-# Metin sabitleri (tek tirnak icleri) cikarildiktan sonra aranir.
+# Searched after string literals (inside single quotes) are removed.
 YASAKLI_MSSQL = ("insert", "update", "delete", "merge", "alter", "drop", "create", "truncate", "grant", "revoke", "deny",
                  "exec", "sp_", "xp_", "openrowset", "openquery", "opendatasource", "into", "dbcc", "backup", "restore",
                  "kill", "shutdown", "waitfor", "reconfigure", "use ", "set ", "declare", "bulk", "--", "/*", ";")

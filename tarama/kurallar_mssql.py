@@ -1,15 +1,15 @@
-"""SQL Server kurallari (ON SURUM: gercek sunucuda sinanmadi, kanit guveni en cok MEDIUM). Dil modeli yok.
+"""SQL Server rules (PREVIEW: not tested on a real server, evidence confidence is at most MEDIUM). No language model.
 
-Her kural kalici bir kimlikle (MS-SEC-001 gibi) kayitlidir ve PostgreSQL ile ayni kanit kaydini uretir (tarama/kanit.py).
-Esikler: BELGE = Microsoft belgesinde yazili, MUHENDISLIK = kendi secimimiz (docs/doldurulacak.md'de listeli).
-Nesne adlari baslik/aciklama metnine ya da gozleme girmez; yalniz kanit listesinde, kacisli olarak gosterilir.
+Each rule is registered with a permanent id (like MS-SEC-001) and produces the same evidence record as PostgreSQL (tarama/kanit.py).
+Thresholds: BELGE = written in Microsoft documentation, MUHENDISLIK = our own choice (listed in docs/doldurulacak.md).
+Object names do not enter the title/description text or the observation; they are shown only in the evidence list, escaped.
 """
 from datetime import datetime, timezone
 
 from tarama import kanit
 
-# Genisletilmis destegin son gunu (learn.microsoft.com/lifecycle). BELGE: tarihleri her yil dogrulayin.
-# Anahtar: ProductMajorVersion (13 = SQL Server 2016, 14 = 2017, 15 = 2019, 16 = 2022, 17 = 2025).
+# Last day of extended support (learn.microsoft.com/lifecycle). BELGE: verify the dates every year.
+# Key: ProductMajorVersion (13 = SQL Server 2016, 14 = 2017, 15 = 2019, 16 = 2022, 17 = 2025).
 MSSQL_EOL = {13: "2026-07-14", 14: "2027-10-12", 15: "2030-01-08", 16: "2033-01-11", 17: "2036-01-06"}
 MSSQL_AD = {13: "2016", 14: "2017", 15: "2019", 16: "2022", 17: "2025"}
 
@@ -148,8 +148,8 @@ def _f(kontrol, sablon, onem, kanit_):
             "oneri": t["oneri"], "risk": t["risk"], "geri_alma": t["geri"], "is": t["is_"], "kanit": kanit_}
 
 
-# Kolon turleri. Yuklemede SQL Server icin tur denetlenmez (gercek sunucu ciktisi sinanmadi); kural motoru turu
-# uymayan satiri degerlendirmeye almaz ve sonucu kismi sayar (tarama/kanit.py).
+# Column types. At upload, types are not checked for SQL Server (real server output was not tested); the rule engine does not take a row
+# whose type does not match into the evaluation and counts the result as partial (tarama/kanit.py).
 _M, _T = "metin", "tamsayi"
 TURLER = {
     "ms_surum": {"ana_surum": _T, "surum": _M, "motor_turu": _T},
@@ -176,21 +176,21 @@ TEHLIKELI_AYARLAR = ("xp_cmdshell", "Ad Hoc Distributed Queries", "cross db owne
 
 
 def _ayar(r, ad):
-    """sys.configurations degeri; satir yoksa ya da deger bos ise Belirsiz."""
+    """The sys.configurations value; Belirsiz if there is no row or the value is empty."""
     for x in r:
         if x["ad"] == ad and x.get("deger") is not None:
             return x["deger"]
     raise kanit.Belirsiz("eksik_veri")
 
 
-# Kural sirasi bulgularin ayni onemdeki sirasidir; kimlikler kalicidir, yeni kural yeni numara alir.
+# Rule order is the order of findings of the same severity; ids are permanent, a new rule gets a new number.
 
 @kural("MS-MAINT-001", "bakim", "yuksek", "HIGH", [K("ms_surum", "tek", ("ana_surum", "motor_turu"))],
        _t("Sürüm desteği", "Version support"),
        _t("Genişletilmiş destek en az 90 gün daha sürüyor.", "Extended support lasts at least 90 more days."))
 def _surum(r, g):
     s = r[0]
-    if s["motor_turu"] in (5, 8):   # Azure SQL Database ve Managed Instance: surum yonetilen hizmette
+    if s["motor_turu"] in (5, 8):   # Azure SQL Database and Managed Instance: the version is in the managed service
         raise kanit.Uygulanmaz("yonetilen_hizmet")
     ana = s["ana_surum"]
     ad = MSSQL_AD.get(ana, str(ana))
@@ -278,7 +278,7 @@ def _auto(r, g):
        _t("TRUSTWORTHY", "TRUSTWORTHY"),
        _t("msdb dışında TRUSTWORTHY açık veritabanı yok.", "No database other than msdb has TRUSTWORTHY on."))
 def _trustworthy(r, g):
-    guven = [x for x in r if x["trustworthy"] == 1 and x.get("kimlik") != 4]  # msdb varsayilan olarak aciktir
+    guven = [x for x in r if x["trustworthy"] == 1 and x.get("kimlik") != 4]  # msdb is on by default
     if not guven:
         return []
     return [_f("ms_db_ayar", "ms_trustworthy", "orta",

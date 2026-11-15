@@ -1,12 +1,12 @@
-"""Kip B: dogrudan baglantiyla tarama. Yalnizca standart kutuphane; `psql` alt sureciyle calisir.
+"""Mode B: scan over a direct connection. Standard library only; runs through the `psql` subprocess.
 
-Guvenlik kurallari (docs/kip-b-tasarim.md):
-- Hedef once `tarama.hedef.dogrula` ile dogrulanir; baglanti ada degil dogrulanan IP'ye acilir (hostaddr).
-- Parola yalnizca alt surecin ortaminda durur; arguman listesine, gunluge, diske yazilmaz.
-- Once sahiplik kaniti okunur. Uyusmazsa ya da hesap super kullaniciysa katalogdan hicbir sorgu calismaz.
-- Sunucudan gelen her deger `yukleme.dogrula` ile (kati sema) dogrulanir.
-- Tablo, indeks ve sequence denetimleri baglanilabilen her veritabaninda calisir; adi `AD` kalibina uymayan
-  veritabani baglanti dizgisine hic girmez, "ad" nedeniyle atlanir.
+Security rules (docs/kip-b-tasarim.md):
+- The target is first validated with `tarama.hedef.dogrula`; the connection is opened to the validated IP, not the name (hostaddr).
+- The password lives only in the subprocess environment; it is not written to the argument list, the log or the disk.
+- The ownership proof is read first. If it does not match, or the account is a superuser, no catalog query runs.
+- Every value coming from the server is validated with `yukleme.dogrula` (strict schema).
+- Table, index and sequence checks run in every database that can be connected to; a database whose name does not match the `AD` pattern
+  never enters the connection string and is skipped with the reason "ad" (name).
 """
 import base64
 import binascii
@@ -23,14 +23,14 @@ from datetime import datetime, timezone
 from tarama import katalog, yukleme
 from tarama.uret_toplayici import katalog_ozeti
 
-AD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}\Z")   # \Z: sondaki satir sonu da reddedilir
-EN_COK_VERITABANI = 20   # sure butcesi (toplam_sure) icinde kalsin diye toplayicidan dusuk
-CIKTI_SINIRI = 2 * 1024 * 1024   # psql stdout; musterinin sectigi sunucu dusmanca olabilir, bellek sinirsiz buyumez
+AD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}\Z")   # \Z: a trailing newline is also rejected
+EN_COK_VERITABANI = 20   # lower than the collector's, so it stays within the time budget (toplam_sure)
+CIKTI_SINIRI = 2 * 1024 * 1024   # psql stdout; the server chosen by the customer may be hostile, so memory does not grow without bound
 HATA_SINIRI = 64 * 1024
-GUVENLI_AD = re.compile(r"^[0-9A-Za-z.:-]{1,255}\Z")   # baglanti dizgisine giren host/hostaddr: bosluk, tirnak, % ve = yok
-CA_PEM_SINIRI = 16 * 1024   # musterinin yapistirdigi CA PEM'i icin ust sinir (zincir dahil)
+GUVENLI_AD = re.compile(r"^[0-9A-Za-z.:-]{1,255}\Z")   # host/hostaddr entering the connection string: no spaces, quotes, % or =
+CA_PEM_SINIRI = 16 * 1024   # upper limit for the CA PEM pasted by the customer (including the chain)
 CA_EN_COK_SERTIFIKA = 5
-SSLROOTCERT_YOLU = re.compile(r"^/[0-9A-Za-z._/-]{1,255}\Z")   # dizgiye giren dosya yolu: bosluk, tirnak, ters bolu, = ve satir sonu yok
+SSLROOTCERT_YOLU = re.compile(r"^/[0-9A-Za-z._/-]{1,255}\Z")   # file path entering the string: no spaces, quotes, backslash, = or newline
 _PEM_BAS, _PEM_SON = "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----"
 _PEM_SATIR = re.compile(r"^[A-Za-z0-9+/]{1,100}={0,2}\Z")
 KANIT_ON_EK = "alig-kanit-"
@@ -69,8 +69,8 @@ def hata_sinifi(stderr):
 
 
 def ca_dogrula(pem):
-    """Musterinin verdigi CA PEM'ini dogrular ve normallestirilmis metni dondurur (yalniz sertifika bloklari, LF satir sonu).
-    Ozel anahtar, baslikli blok, ek metin, NUL, ASCII disi, bozuk base64, cok buyuk ya da cok sertifikali girdi BaglantiHatasi('ca')."""
+    """Validates the CA PEM given by the customer and returns the normalized text (certificate blocks only, LF line endings).
+    A private key, a block with headers, extra text, NUL, non-ASCII, bad base64, or oversized or multi-certificate input raises BaglantiHatasi('ca')."""
     if not isinstance(pem, str) or len(pem) > CA_PEM_SINIRI or "\x00" in pem or not pem.isascii():
         raise BaglantiHatasi("ca")
     satirlar = [x.strip() for x in pem.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
@@ -90,7 +90,7 @@ def ca_dogrula(pem):
         elif icinde and _PEM_SATIR.match(x):
             govde.append(x)
         else:
-            raise BaglantiHatasi("ca")   # blok disi metin, baska PEM turu (ozel anahtar), baslik satiri, bozuk karakter
+            raise BaglantiHatasi("ca")   # text outside blocks, another PEM type (private key), a header line, a bad character
     if icinde or not 1 <= len(bloklar) <= CA_EN_COK_SERTIFIKA:
         raise BaglantiHatasi("ca")
     cikti = []
@@ -101,7 +101,7 @@ def ca_dogrula(pem):
             ham = base64.b64decode("".join(govde), validate=True)
         except (binascii.Error, ValueError):
             raise BaglantiHatasi("ca")
-        if len(ham) < 16 or ham[0] != 0x30:   # DER SEQUENCE ile baslamayan govde sertifika degildir
+        if len(ham) < 16 or ham[0] != 0x30:   # a body that does not start with a DER SEQUENCE is not a certificate
             raise BaglantiHatasi("ca")
         cikti.append("\n".join([_PEM_BAS] + govde + [_PEM_SON]) + "\n")
     return "".join(cikti)
@@ -112,24 +112,24 @@ def baglanti_dizgisi(hedef, veritabani, kullanici, sslmode="require", sslrootcer
         raise BaglantiHatasi("bicim")
     if sslmode not in ("require", "verify-ca", "verify-full", "prefer"):
         raise BaglantiHatasi("bicim")
-    # verify-* kok sertifikasiz kabul edilmez (libpq ev dizinindeki dosyaya duserdi); kok sertifika verify-* disinda sessizce yok sayilmaz
+    # verify-* is not accepted without a root certificate (libpq would fall back to the file in the home directory); a root certificate is not silently ignored outside verify-*
     if (sslrootcert is None) == (sslmode in ("verify-ca", "verify-full")):
         raise BaglantiHatasi("bicim")
     if sslrootcert is not None and not (isinstance(sslrootcert, str) and SSLROOTCERT_YOLU.match(sslrootcert)):
         raise BaglantiHatasi("bicim")
-    # hedef nesnesi calistirici soketinden de gelir: dizgiye ek anahtar sokulamasin (hostaddr, options, sslmode...)
+    # the target object also comes from the runner socket: no extra keys may be injected into the string (hostaddr, options, sslmode...)
     if not (isinstance(hedef.ad, str) and GUVENLI_AD.match(hedef.ad) and isinstance(hedef.ip, str) and GUVENLI_AD.match(hedef.ip)
             and isinstance(hedef.port, int) and not isinstance(hedef.port, bool) and 1 <= hedef.port <= 65535):
         raise BaglantiHatasi("bicim")
-    # channel_binding=require: sunucu SCRAM-SHA-256-PLUS ile TLS kanalina bagli kimlik dogrulamak zorunda. Boylece parola
-    # duz metin ya da MD5 ile gonderilmez ve sertifikasi dogrulanamayan sunucuya karsi aktarma (MITM) saldirisi isleme girmez.
+    # channel_binding=require: the server must authenticate with SCRAM-SHA-256-PLUS bound to the TLS channel. This way the password
+    # is not sent in plain text or MD5, and a relay (MITM) attack against a server whose certificate cannot be verified does not work.
     kok = (" sslrootcert=" + sslrootcert) if sslrootcert is not None else ""
     return ("host=%s hostaddr=%s port=%d dbname=%s user=%s sslmode=%s%s channel_binding=require connect_timeout=10 gssencmode=disable"
             % (hedef.ad, hedef.ip, hedef.port, veritabani, kullanici, sslmode, kok))
 
 
 def _ortam(parola):
-    """Alt surece yalniz gerekenler verilir; servis ortami (tuzlar, anahtarlar, vekil ayarlari) devralinmaz."""
+    """Only what is needed is passed to the subprocess; the service environment (salts, keys, proxy settings) is not inherited."""
     return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C", "PGPASSWORD": parola,
             "PGOPTIONS": "-c default_transaction_read_only=on -c statement_timeout=15000 -c lock_timeout=2000",
             "PGAPPNAME": "alig-tarama", "PGCONNECT_TIMEOUT": "10", "PGPASSFILE": os.devnull, "PGSERVICEFILE": os.devnull,
@@ -137,8 +137,8 @@ def _ortam(parola):
 
 
 def _surec_calistir(cmd, env, sure):
-    """(donus kodu, stdout, stderr). Sure asilirsa TimeoutError, stdout CIKTI_SINIRI'ni asarsa OverflowError; surec her
-    durumda oldurulur. stderr HATA_SINIRI'ndan sonrasi atilir."""
+    """(return code, stdout, stderr). TimeoutError if the time is exceeded, OverflowError if stdout exceeds CIKTI_SINIRI; the process is
+    killed in every case. stderr beyond HATA_SINIRI is discarded."""
     p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     sec = selectors.DefaultSelector()
     sec.register(p.stdout, selectors.EVENT_READ, "out")
@@ -149,7 +149,7 @@ def _surec_calistir(cmd, env, sure):
         while sec.get_map():
             kalan = bitis - time.monotonic()
             if kalan <= 0:
-                raise TimeoutError("sure doldu")
+                raise TimeoutError("time limit exceeded")
             for anahtar, _ in sec.select(kalan):
                 parca = os.read(anahtar.fd, 65536)
                 if not parca:
@@ -158,12 +158,12 @@ def _surec_calistir(cmd, env, sure):
                 t = tampon[anahtar.data]
                 t += parca
                 if anahtar.data == "out" and len(t) > CIKTI_SINIRI:
-                    raise OverflowError("cikti siniri")
+                    raise OverflowError("output limit")
                 if anahtar.data == "err" and len(t) > HATA_SINIRI:
                     del t[HATA_SINIRI:]
         p.wait(timeout=max(0.1, bitis - time.monotonic()))
     except subprocess.TimeoutExpired:
-        raise TimeoutError("sure doldu")
+        raise TimeoutError("time limit exceeded")
     finally:
         sec.close()
         if p.poll() is None:
@@ -203,12 +203,12 @@ class _Maske:
 
 
 def _temizle(c, satirlar, limit=yukleme.MAX_SATIR):
-    """Sunucudan gelen satirlardan yalniz katalog kolonlari kalir."""
+    """Of the rows coming from the server, only the catalog columns remain."""
     return [{k: v for k, v in s.items() if k in c["kolonlar"]} for s in satirlar[:limit] if isinstance(s, dict)]
 
 
 def _veritabanlari(psql, dizgi, parola, ilk_db, bitis):
-    """(taranacak, atlanan). Liste alinamazsa yalniz ilk veritabani."""
+    """(to scan, skipped). If the list cannot be obtained, only the first database."""
     sonuc, _ = _calistir(psql, dizgi, parola, katalog.VT_LISTE_SQL, max(1, min(30, bitis - time.monotonic())))
     if sonuc["durum"] != "ok":
         return [ilk_db], []
@@ -253,11 +253,11 @@ def _her_veritabani(psql, parola, hedef, kullanici, sslmode, c, sql, taranacak, 
 
 
 def tara(hedef, veritabani, kullanici, parola, kanit, psql="psql", sslmode="require", maskele=False, toplam_sure=90, ca_pem=None):
-    """Dogrulanmis toplama belgesini dondurur ya da BaglantiHatasi firlatir.
+    """Returns the validated collection document or raises BaglantiHatasi.
 
-    Sunucu sertifikasi: varsayilan `sslmode=require` + `channel_binding=require` (sertifika denetlenmez). ca_pem verilirse
-    (musterinin CA'si) sslmode=verify-full olur: zincir bu CA'ya ve sertifika `hedef.ad`'a karsi dogrulanir. CA gecersizse
-    sessizce zayif moda dusulmez, BaglantiHatasi('ca') firlatilir. CA dosyasi 0600 gecici dizinde durur, is bitince silinir."""
+    Server certificate: by default `sslmode=require` + `channel_binding=require` (the certificate is not checked). If ca_pem is given
+    (the customer's CA), sslmode=verify-full is used: the chain is validated against this CA and the certificate against `hedef.ad`. If the CA is invalid,
+    it does not silently fall back to the weak mode; BaglantiHatasi('ca') is raised. The CA file sits in a 0600 temporary directory and is deleted when the job ends."""
     if not isinstance(parola, str) or not parola or len(parola) > 1024 or "\x00" in parola:
         raise BaglantiHatasi("baglanti")
     if ca_pem is None:
@@ -294,7 +294,7 @@ def _tara(hedef, veritabani, kullanici, parola, kanit, psql, sslmode, sslrootcer
     kontroller = {}
     for c in katalog.PG:
         sql = katalog.sorgu(c, ana)
-        if sql is None:   # bu surumde olmayan ozellik: sorgu calismaz
+        if sql is None:   # feature not present in this version: the query does not run
             kontroller[c["id"]] = {"durum": "hata", "neden": "desteklenmiyor"}
             continue
         if c.get("kapsam") == "veritabani":
@@ -320,6 +320,6 @@ def _tara(hedef, veritabani, kullanici, parola, kanit, psql, sslmode, sslrootcer
              "olusturma_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
              "maskeli": bool(maske), "superuser": False, "kontroller": kontroller}
     try:
-        return yukleme.dogrula(belge)   # sunucudan gelen her deger guvenilmezdir
+        return yukleme.dogrula(belge)   # every value coming from the server is untrusted
     except yukleme.Gecersiz:
         raise BaglantiHatasi("bicim")

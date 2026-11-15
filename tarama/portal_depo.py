@@ -1,24 +1,24 @@
-"""Musteri portali veri katmani. Yalnizca standart kutuphane.
+"""Customer portal data layer. Standard library only.
 
-Firma izolasyonu BURADA, veri erisim katmaninda saglanir, sayfa koduna birakilmaz:
-  * Portal sayfalari tarama.sqlite'a yalniz Kapsam uzerinden okur. Kapsam gecerli bir oturumdan olusur ve firma kimligini
-    oturumdaki kullanicinin kaydindan alir; istekten (adres, form, cerez icerigi) firma kimligi ALINMAZ.
-  * Kapsam'in her sorgusu "firma_id = <kapsamin firmasi>" kosulunu tasir. Baska firmanin raporu, tahmin edilen kimlikle
-    istense de bulunamaz: sonuc "yok" ile ayni, "yetkisiz" degil (kaydin varligi da sizmaz).
-  * Kullanici dogrulanmadan firmasi yoktur: dogrulanmamis hesap hicbir veriye erisemez (CHECK kisiti + kapsam kosulu).
-  * Firma pasifse ya da silindiyse oturum gecersizdir.
-Platform yoneticisi ile firma kullanicisi ayri kimliklerdir: yonetim.sqlite ile hicbir ortak tablo ya da oturum yoktur.
+Company isolation is provided HERE, in the data access layer, and is not left to page code:
+  * Portal pages read tarama.sqlite only through Kapsam (scope). Kapsam is built from a valid session and takes the company id
+    from the session user's record; the company id is NOT taken from the request (address, form, cookie content).
+  * Every query of Kapsam carries the condition "firma_id = <the scope's company>". Another company's report cannot be found even
+    if requested with a guessed id: the result is the same as "none", not "unauthorized" (the record's existence does not leak either).
+  * Before verification a user has no company: an unverified account cannot reach any data (CHECK constraint + scope condition).
+  * If the company is inactive or deleted, the session is invalid.
+The platform administrator and the company user are separate identities: there is no shared table or session with yonetim.sqlite.
 
-Giris: e-posta + parola (scrypt, en az 12 karakter). E-posta, tek kullanimlik ve sureli kodla dogrulanir; dogrulanmadan
-hesap acilmaz. Hesap varligi ekrandan sizmaz (kayit her zaman ayni yaniti verir). Basarisiz girisler e-posta ve IP basina
-sayilir ve kisa sure engellenir. Oturum bosta 30 dakika, en cok 8 saat.
+Login: email + password (scrypt, at least 12 characters). The email is verified with a single-use, time-limited code; without verification
+no account is opened. Account existence does not leak through the screen (registration always gives the same response). Failed logins are counted
+per email and per IP and blocked for a short time. A session lasts 30 minutes idle, 8 hours at most.
 """
 import hashlib
 import hmac
 from datetime import datetime, timedelta, timezone
 
 from tarama import depo
-from yonetim import guvenlik   # parola ozeti ve rastgele kod: tek yerde
+from yonetim import guvenlik   # password digest and random code: in one place
 
 PAROLA_EN_AZ = guvenlik.PAROLA_EN_AZ
 PAROLA_EN_COK = 200
@@ -36,7 +36,7 @@ TALEP_GUNLUK = 5
 
 
 class PortalHata(ValueError):
-    """kod: eposta | parola | sirket"""
+    """kod: eposta | parola | sirket (email | password | company)"""
 
     def __init__(self, kod):
         super().__init__(kod)
@@ -52,14 +52,14 @@ def _z(dt):
 
 
 def _eposta(deger):
-    """Normallestirilmis e-posta ya da None. Firma anahtari kurallariyla ayni dogrulama (depo.firma_anahtari)."""
+    """Normalized email or None. Same validation as the company key rules (depo.firma_anahtari)."""
     if not isinstance(deger, str) or depo.firma_anahtari(deger) is None:
         return None
     return deger.strip().lower()
 
 
 def _ozet(kod):
-    """Kodun ozeti; metin olmayan deger hicbir kayitla eslesmeyen bos kodun ozetidir."""
+    """Digest of the code; a non-text value gives the digest of an empty code that matches no record."""
     return guvenlik.ozet(kod if isinstance(kod, str) else "")
 
 
@@ -67,13 +67,13 @@ def _eposta_ozeti(eposta):
     return hashlib.sha256(("portal|" + eposta).encode()).hexdigest()
 
 
-# ---- kayit ve e-posta dogrulama ----
+# ---- registration and email verification ----
 
 def kayit(con, eposta, parola, sirket, dil):
-    """Hesap isteginin sonucu: ("yeni", kod) dogrulama baglantisi gonderilmeli; ("var", None) adreste etkin hesap var
-    (yeni hesap acilmaz, kullaniciya ayni yanit gosterilir). Gecersiz girdide PortalHata. Firma bu asamada olusmaz:
-    firma, adresin sahibi dogrulama kodunu kullaninca olusur. Dogrulanmamis eski istek yenisiyle degistirilir
-    (adresin sahibi olmayan biri baskasinin adresine parola yerlestirip kalici hak kazanamaz)."""
+    """Outcome of an account request: ("yeni", code) a verification link must be sent; ("var", None) an active account exists at the address
+    (no new account is opened, the user is shown the same response). PortalHata on invalid input. The company is not created at this stage:
+    the company is created when the address owner uses the verification code. An older unverified request is replaced by the new one
+    (so someone who does not own the address cannot plant a password on another's address and gain a lasting right)."""
     eposta_n = _eposta(eposta)
     if eposta_n is None:
         raise PortalHata("eposta")
@@ -83,7 +83,7 @@ def kayit(con, eposta, parola, sirket, dil):
     if not sirket or len(sirket) > 160 or any(ord(c) < 32 or ord(c) == 127 for c in sirket):
         raise PortalHata("sirket")
     dil = dil if dil in ("tr", "en") else "tr"
-    ozet = guvenlik.parola_ozetle(parola)   # yavas islem: yazma kilidi disinda
+    ozet = guvenlik.parola_ozetle(parola)   # slow operation: outside the write lock
     with depo.islem(con) as c:
         var = c.execute("SELECT id, durum FROM portal_kullanici WHERE eposta=?", (eposta_n,)).fetchone()
         if var and var[1] == "aktif":
@@ -103,15 +103,15 @@ def kayit(con, eposta, parola, sirket, dil):
 
 
 def kod_bekleyen(con, kod):
-    """Dogrulama bekleyen kullanicinin dili, yoksa None. Okuma: hicbir sey degistirmez (GET icin)."""
+    """Language of the user awaiting verification, otherwise None. Read-only: changes nothing (for GET)."""
     s = con.execute("SELECT u.dil FROM portal_kod k JOIN portal_kullanici u ON u.id=k.kullanici_id "
                     "WHERE k.kod_sha256=? AND k.bitis_utc>? AND u.durum='bekliyor'", (_ozet(kod), depo.simdi())).fetchone()
     return s[0] if s else None
 
 
 def dogrula(con, kod):
-    """Kodu tek seferlik kullanir: hesap etkinlesir, firma olusur ya da mevcut firmaya baglanir, firma e-postasi dogrulanir.
-    ("tamam", kullanici_id, firma_id) | ("pasif", ...) firma pasifse hesap etkinlesmez | ("yok", None, None)."""
+    """Uses the code once: the account is activated, the company is created or linked to an existing company, the company email is verified.
+    ("tamam", kullanici_id, firma_id) | ("pasif", ...) the account is not activated if the company is inactive | ("yok", None, None)."""
     with depo.islem(con) as c:
         oz = _ozet(kod)
         s = c.execute("SELECT k.kullanici_id, u.eposta, u.sirket, u.durum FROM portal_kod k JOIN portal_kullanici u ON u.id=k.kullanici_id "
@@ -134,7 +134,7 @@ def dogrula(con, kod):
         return "tamam", kid, firma["id"]
 
 
-# ---- giris, oturum ----
+# ---- login, session ----
 
 def _deneme_say(con, anahtar):
     esik = _z(_simdi() - timedelta(minutes=DENEME_PENCERE_DK))
@@ -146,15 +146,15 @@ def giris_engelli(con, eposta_n, ip):
 
 
 def giris(con, eposta, parola, ip):
-    """(oturum_kodu, None) ya da (None, neden): hatali | engelli | pasif. Neden denetim icindir; ekranda 'hatali' ve
-    'engelli' disindaki ayrim yalniz dogru parola verildiyse gosterilir (hesap varligi sizmasin)."""
+    """(session_code, None) or (None, reason): hatali | engelli | pasif. The reason is for the audit; on screen, any distinction other than 'hatali' and
+    'engelli' is shown only if the correct password was given (so account existence does not leak)."""
     eposta_n = _eposta(eposta) or "?"
     ioz = depo.ip_ozeti(ip)
     if giris_engelli(con, eposta_n, ip):
         depo.denetim_ekle(con, "sistem", "portal girisi engellendi (cok fazla deneme)", {"sonuc": "reddedildi", "neden": "engelli", "ip_ozeti": ioz})
         return None, "engelli"
     satir = con.execute("SELECT id, parola, firma_id, durum FROM portal_kullanici WHERE eposta=?", (eposta_n,)).fetchone()
-    # Kullanici yokken de ayni sure harcanir: zamanlama ile hesap varligi anlasilmasin
+    # The same time is spent when the user does not exist: account existence must not be inferable from timing
     ok = guvenlik.parola_dogrula(parola if isinstance(parola, str) and len(parola) <= PAROLA_EN_COK else "", satir[1] if satir else guvenlik.SAHTE_OZET)
     if not (satir and ok and satir[3] == "aktif"):
         with depo.islem(con) as c:
@@ -182,7 +182,7 @@ def cikis(con, kod):
 
 
 def temizle(con):
-    """Suresi dolan kod, oturum ve deneme kayitlari; 24 saatte dogrulanmayan hesap istekleri."""
+    """Expired codes, sessions and attempt records; account requests not verified within 24 hours."""
     n = _simdi()
     con.execute("DELETE FROM portal_kod WHERE bitis_utc<=?", (depo.simdi(),))
     con.execute("DELETE FROM portal_oturum WHERE son_erisim_utc<? OR olusturma_utc<?",
@@ -193,12 +193,12 @@ def temizle(con):
 
 
 class Kapsam:
-    """Bir firmanin verisine tek erisim yolu. Yalniz kapsam() olusturur. firma_id yalniz okunur."""
+    """The only access path to a company's data. Only kapsam() creates it. firma_id is read-only."""
     __slots__ = ("_con", "_firma_id", "kullanici_id", "eposta", "dil", "firma_ad", "csrf")
 
     def __init__(self, con, firma_id, kullanici_id, eposta, dil, firma_ad, csrf, _izin=None):
         if _izin is not _KAPSAM_IZNI:
-            raise TypeError("Kapsam yalniz portal_depo.kapsam() ile olusturulur")
+            raise TypeError("Kapsam is created only with portal_depo.kapsam()")
         self._con, self._firma_id, self.kullanici_id, self.eposta, self.dil, self.firma_ad, self.csrf = con, firma_id, kullanici_id, eposta, dil, firma_ad, csrf
 
     @property
@@ -206,13 +206,13 @@ class Kapsam:
         return self._firma_id
 
     def raporlar(self, limit=100):
-        """Firmanin dogrulanmis ve suresi dolmamis raporlari, yeniden eskiye."""
+        """The company's verified and unexpired reports, newest first."""
         return [depo._rapor(r) for r in self._con.execute(
             "SELECT %s FROM rapor WHERE firma_id=? AND dogrulandi=1 AND bitis_utc>? ORDER BY id DESC LIMIT ?" % depo._RAPOR_KOLON,
             (self._firma_id, depo.simdi(), int(limit)))]
 
     def rapor(self, rid):
-        """Firmanin raporu; baska firmanin, silinmis, suresi dolmus ya da dogrulanmamis raporu icin None (varligi da sizmaz)."""
+        """The company's report; None for another company's, a deleted, an expired or an unverified report (its existence does not leak either)."""
         if not isinstance(rid, int) or isinstance(rid, bool):
             return None
         return depo._rapor(self._con.execute(
@@ -220,7 +220,7 @@ class Kapsam:
             (rid, self._firma_id, depo.simdi())).fetchone())
 
     def onceki(self, rapor):
-        """rapor() ile alinmis raporun karsilastirma raporu (ayni firma ve sunucu kimligi); yoksa None."""
+        """The comparison report of a report obtained with rapor() (same company and server identity); None if none."""
         if rapor is None or rapor.get("firma_id") != self._firma_id:
             return None
         return depo.onceki_rapor(self._con, rapor)
@@ -229,7 +229,7 @@ class Kapsam:
         return {"firma": self.firma_ad, "eposta": self.eposta, "dil": self.dil}
 
     def rapor_sil(self, rid):
-        """Firmanin raporunu siler. Silinen sayi: baska firmanin ya da olmayan rapor icin 0 (varligi sizmaz)."""
+        """Deletes the company's report. Number deleted: 0 for another company's or a nonexistent report (its existence does not leak)."""
         if not isinstance(rid, int) or isinstance(rid, bool):
             return 0
         with depo.islem(self._con) as c:
@@ -240,8 +240,8 @@ class Kapsam:
             return n
 
     def kullanim(self, sinir):
-        """Ucretsiz tarama hakki: {sinir, kullanilan, kalan, gun, yenilenme_utc}. yenilenme_utc: en eski hakkin dondugu an
-        (kullanilan 0 ise None). Sayim depo.kullanim_say ile ayni anahtar ve pencereyi kullanir."""
+        """Free scan allowance: {sinir, kullanilan, kalan, gun, yenilenme_utc}. yenilenme_utc: the moment the oldest allowance comes back
+        (None if kullanilan is 0). The count uses the same key and window as depo.kullanim_say."""
         f = depo.firma_getir(self._con, self._firma_id)
         anahtar = depo._firma_ozeti(f)
         esik = (datetime.now(timezone.utc) - timedelta(days=depo.SINIR_GUN)).strftime(BICIM)
@@ -252,12 +252,12 @@ class Kapsam:
         return {"sinir": sinir, "kullanilan": len(zamanlar), "kalan": max(0, sinir - len(zamanlar)), "gun": depo.SINIR_GUN, "yenilenme_utc": yenilenme}
 
     def talepler(self, limit=100):
-        """Firmanin talepleri, yeniden eskiye: [{id, tur, konu, mesaj, durum, olusturma_utc}]."""
+        """The company's requests, newest first: [{id, tur, konu, mesaj, durum, olusturma_utc}]."""
         return [dict(zip(("id", "tur", "konu", "mesaj", "durum", "olusturma_utc"), r)) for r in self._con.execute(
             "SELECT id, tur, konu, mesaj, durum, olusturma_utc FROM portal_talep WHERE firma_id=? ORDER BY id DESC LIMIT ?", (self._firma_id, int(limit)))]
 
     def talep_ekle(self, tur, konu, mesaj):
-        """Hizmet talebi: (id, None) ya da (None, neden): tur | konu | mesaj | sinir. Firma basina 24 saatte en cok TALEP_GUNLUK."""
+        """Service request: (id, None) or (None, reason): tur | konu | mesaj | sinir. At most TALEP_GUNLUK per company in 24 hours."""
         if tur not in HIZMET_TURLERI:
             return None, "tur"
         konu = konu.strip() if isinstance(konu, str) else ""
@@ -278,7 +278,7 @@ class Kapsam:
             return tid, None
 
     def silme_talebi_ekle(self):
-        """Hesap ve verilerin silinmesi talebi: (id, True) yeni, (id, False) zaten acik talep var. Silme yonetici islemidir."""
+        """Request to delete the account and data: (id, True) new, (id, False) an open request already exists. Deletion is an administrator action."""
         with depo.islem(self._con) as c:
             var = c.execute("SELECT id FROM portal_talep WHERE firma_id=? AND tur='silme' AND durum IN ('yeni', 'inceleniyor')", (self._firma_id,)).fetchone()
             if var:
@@ -295,8 +295,8 @@ _KAPSAM_IZNI = object()
 
 
 def kapsam(con, kod):
-    """Gecerli oturumdan Kapsam, yoksa None. Bosta 30 dk, en cok 8 saat; kullanici etkin, firma etkin olmali.
-    Firma kimligi kullanici kaydindan okunur: oturum satirinda firma bilgisi tutulmaz (eskiyip yanlis kalamaz)."""
+    """Kapsam from a valid session, otherwise None. 30 min idle, 8 hours at most; the user and the company must be active.
+    The company id is read from the user record: no company information is kept on the session row (it cannot go stale and wrong)."""
     if not isinstance(kod, str) or not kod:
         return None
     oz = guvenlik.ozet(kod)

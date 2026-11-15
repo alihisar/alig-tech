@@ -1,7 +1,7 @@
--- 0001: roller, veritabani yetkileri, alig semasi ve schema_migrations (ALIG-DB-003a).
--- Bu dosya yalniz ilk kurulumda, CREATEROLE yetkili bir yonetici (ya da superuser) ile uygulanir.
--- Parola ICERMEZ: roller parolasiz olusur; parola ayri bir adimda ALTER ROLE ile verilir (db/README.md).
--- Roller kume geneldir; dosya birden cok veritabaninda (staging, test) tekrar uygulanabilir (idempotent).
+-- 0001: roles, database privileges, the alig schema and schema_migrations (ALIG-DB-003a).
+-- This file is applied only at first installation, by an administrator with CREATEROLE privilege (or a superuser).
+-- It contains NO credentials: roles are created without a login secret; the secret is given in a separate step with ALTER ROLE (db/README.md).
+-- Roles are cluster-wide; the file can be applied again (idempotent) in several databases (staging, test).
 
 DO $rol$
 DECLARE
@@ -15,20 +15,20 @@ BEGIN
 END
 $rol$;
 
--- Nesne sahibi: oturum acmaz. Uygulama ve gocu rolu nesne sahibi degildir.
+-- Object owner: does not log in. The application and migrator roles are not the object owner.
 ALTER ROLE alig_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
--- Uygulama: yalniz gereken DML (0005_yetkiler.sql). DDL, rol yonetimi, kopyalama, RLS atlama yok.
+-- Application: only the DML that is needed (0005_yetkiler.sql). No DDL, role management, replication or RLS bypass.
 ALTER ROLE alig_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
--- Gocu: nesne sahibi rolune gecerek (SET ROLE) DDL yapar; kendi basina nesne sahibi degildir.
+-- Migrator: does DDL by switching to the object owner role (SET ROLE); it is not the object owner itself.
 ALTER ROLE alig_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
--- Salt okuma: secili tablo ve sutunlarda SELECT.
+-- Read-only: SELECT on selected tables and columns.
 ALTER ROLE alig_readonly LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
--- Yedek: pg_basebackup icin REPLICATION; veritabaninda hicbir yetkisi yok.
+-- Backup: REPLICATION for pg_basebackup; it has no privileges in the database.
 ALTER ROLE alig_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE REPLICATION NOBYPASSRLS NOINHERIT;
 
 GRANT alig_owner TO alig_migrator WITH INHERIT FALSE, SET TRUE;
 
--- Arama yolu ve saat dilimi rol duzeyinde sabit. SET ROLE bu ayarlari yeniden uygulamaz: gocler semayi acikca yazar.
+-- The search path and time zone are fixed at role level. SET ROLE does not re-apply these settings: migrations write the schema explicitly.
 ALTER ROLE alig_app SET search_path = alig, pg_catalog;
 ALTER ROLE alig_migrator SET search_path = alig, pg_catalog;
 ALTER ROLE alig_readonly SET search_path = alig, pg_catalog;
@@ -36,8 +36,8 @@ ALTER ROLE alig_app SET TimeZone = 'UTC';
 ALTER ROLE alig_migrator SET TimeZone = 'UTC';
 ALTER ROLE alig_readonly SET TimeZone = 'UTC';
 
--- Veritabani: PUBLIC baglanti ve gecici tablo yetkisi kalkar; yalniz uc rol baglanir.
--- alig_backup baglanmaz: kopyalama baglantisi veritabani yetkisi istemez.
+-- Database: PUBLIC loses connect and temporary table privileges; only three roles connect.
+-- alig_backup does not connect: a replication connection does not need a database privilege.
 DO $db$
 BEGIN
   EXECUTE format('REVOKE ALL ON DATABASE %I FROM PUBLIC', current_database());
@@ -45,7 +45,7 @@ BEGIN
 END
 $db$;
 
--- public semasinda CREATE kalkar. (PostgreSQL 15 ve sonrasinda varsayilan zaten bu; surum farkina bagli kalmamak icin acik yazilir.)
+-- CREATE is removed from the public schema. (This is already the default in PostgreSQL 15 and later; it is written explicitly so as not to depend on the version.)
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 
 CREATE SCHEMA IF NOT EXISTS alig AUTHORIZATION alig_owner;
@@ -53,7 +53,7 @@ ALTER SCHEMA alig OWNER TO alig_owner;
 REVOKE ALL ON SCHEMA alig FROM PUBLIC;
 GRANT USAGE ON SCHEMA alig TO alig_app, alig_migrator, alig_readonly;
 
--- Gocleri kayit tablosu. Satiri db/uygula.py ayni islemde ekler (dosya adi ve SHA-256).
+-- Migration record table. db/uygula.py adds the row in the same transaction (file name and SHA-256).
 SET ROLE alig_owner;
 CREATE TABLE IF NOT EXISTS alig.schema_migrations(
   surum        text PRIMARY KEY CHECK (surum ~ '^[0-9]{4}_[a-z0-9_]+[.]sql$'),
@@ -63,5 +63,5 @@ CREATE TABLE IF NOT EXISTS alig.schema_migrations(
 RESET ROLE;
 REVOKE ALL ON alig.schema_migrations FROM PUBLIC;
 GRANT SELECT ON alig.schema_migrations TO alig_app, alig_readonly;
--- Gocu rolu kaydi kendisi yazar (db/uygula.py); baska satir degistiremez ya da silemez.
+-- The migrator role writes the record itself (db/uygula.py); it cannot change or delete other rows.
 GRANT SELECT, INSERT ON alig.schema_migrations TO alig_migrator;

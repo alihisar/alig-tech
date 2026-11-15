@@ -1,9 +1,9 @@
-"""ALIG-SCAN-001: tarama guvenligi denetimi. Toplayici (Kip A) ve dogrudan baglanti (Kip B).
+"""ALIG-SCAN-001: scan security audit. The collector (Mode A) and the direct connection (Mode B).
 
-Bolumler: (1) calisan TUM SQL metinleri icin allowlist, (2) oturum salt okunur ve kisa zaman asimli,
-(3) Kip B hedef dogrulamasi (tablo guduumlu), (4) kaynak sinirlari, (5) Kip B varsayilan kapali.
-Gercek PostgreSQL denemeleri: ALIG_TEST_PG_HOST varsa dis sunucu, yoksa tests/pg_yardimci.py ile PG16 gecici kumesi; ikisi de yoksa SKIP.
-Ag kullanilmaz; sahte psql ya da mock ile calisir.
+Sections: (1) an allowlist for ALL the SQL texts that run, (2) the session is read-only with a short timeout,
+(3) Mode B target validation (table-driven), (4) resource limits, (5) Mode B is off by default.
+Real PostgreSQL trials: an external server if ALIG_TEST_PG_HOST is set, otherwise a temporary PG16 cluster with tests/pg_yardimci.py; SKIP if neither exists.
+No network is used; it runs with a fake psql or a mock.
 """
 import ast
 import importlib.util
@@ -57,8 +57,8 @@ _TOKEN = re.compile(r"""/\*.*?\*/|--[^\n]*|\$([A-Za-z_]*)\$.*?\$\1\$|'(?:[^']|''
 
 
 def metinsiz(sql):
-    """Tek geciste: yorumlar (bosluk), dolar tirnakli bloklar ve tirnakli metin sabitleri cikarilir; kalan kucuk harfli doner.
-    Yorum bulunduysa dizginin sonuna '#yorum' eklenir (allowlist yorumu reddeder)."""
+    """In a single pass: comments (whitespace), dollar-quoted blocks and quoted text literals are removed; the remainder is returned in lowercase.
+    If a comment was found '#comment' is appended to the end of the string (the allowlist rejects a comment)."""
     yorum = []
 
     def degistir(m):
@@ -72,7 +72,7 @@ def metinsiz(sql):
 
 
 def ihlaller(sql, motor="postgresql"):
-    """Allowlist: yalniz SELECT / SHOW / WITH ... SELECT, tek deyim. Bos liste = uygun."""
+    """Allowlist: only SELECT / SHOW / WITH ... SELECT, a single statement. Empty list = suitable."""
     s = metinsiz(sql).strip()
     out = []
     if s.endswith(";"):
@@ -98,7 +98,7 @@ def ihlaller(sql, motor="postgresql"):
 
 
 def sql_sabitleri(yol):
-    """Python dosyasindaki SQL gibi gorunen butun dizge sabitleri (AST)."""
+    """All string constants in the Python file that look like SQL (AST)."""
     agac = ast.parse(Path(yol).read_text(encoding="utf-8"))
     bulunan = []
     for n in ast.walk(agac):
@@ -110,16 +110,16 @@ def sql_sabitleri(yol):
 
 
 def katalog_json(yol):
-    """Uretilmis toplayicinin gomulu KATALOG belgesi."""
+    """The embedded KATALOG document of the generated collector."""
     m = re.search(r"KATALOG = json\.loads\(r'''(.*?)'''\)", Path(yol).read_text(encoding="utf-8"), re.S)
     return json.loads(m.group(1))
 
 
 def txt_deyimleri(yol):
-    """sorgu-katalogu*.txt: yorum satirlari atilir, deyimler bos satir ya da noktali virgulle ayrilir."""
+    """sorgu-katalogu*.txt: comment lines are dropped, statements are separated by a blank line or a semicolon."""
     govde = "\n".join(s for s in Path(yol).read_text(encoding="utf-8").splitlines() if not s.lstrip().startswith("--"))
     deyimler = [d.strip() for d in re.split(r";\s*(?:\n|$)|\n\s*\n", govde) if d.strip()]
-    return [d for d in deyimler if not d.startswith("alig.tech")]   # ilk blok aciklama basligidir
+    return [d for d in deyimler if not d.startswith("alig.tech")]   # the first block is the description header
 
 
 class AllowlistKendiniSinar(unittest.TestCase):
@@ -154,7 +154,7 @@ class AllowlistKendiniSinar(unittest.TestCase):
 
 
 class TumSqlAllowlistTests(unittest.TestCase):
-    """Toplayicinin ve Kip B'nin calistirdigi HER SQL metni allowlist'ten gecer."""
+    """EVERY SQL text that the collector and Mode B run passes the allowlist."""
 
     def hepsi(self, adlar_ve_sqller, motor="postgresql"):
         kotu = {ad: ihlaller(sql, motor) for ad, sql in adlar_ve_sqller if ihlaller(sql, motor)}
@@ -162,7 +162,7 @@ class TumSqlAllowlistTests(unittest.TestCase):
 
     def test_katalog_butun_sorgu_bicimleri(self):
         liste = [(c["id"], q) for c in katalog.PG for q in katalog.sorgular(c)] + [("vt_liste", katalog.VT_LISTE_SQL)]
-        self.assertGreater(len(liste), len(katalog.PG))   # eski surum bicimleri de var
+        self.assertGreater(len(liste), len(katalog.PG))   # there are old version forms too
         self.hepsi(liste)
 
     def test_uretilen_toplayicinin_gomulu_katalogu(self):
@@ -174,7 +174,7 @@ class TumSqlAllowlistTests(unittest.TestCase):
         self.hepsi(liste)
 
     def test_uretilen_toplayicinin_kod_sabitleri(self):
-        # katalog disinda kodun icine gomulu SQL (ilk baglanti sorgusu, sarmal) de uygun olmali
+        # SQL embedded in code outside the catalog (the first connection query, the wrapper) must also be suitable
         sabitler = sql_sabitleri(TOPLAYICI)
         self.assertTrue(any("is_superuser" in s for s in sabitler))
         self.hepsi([("toplayici", s) for s in sabitler])
@@ -198,7 +198,7 @@ class TumSqlAllowlistTests(unittest.TestCase):
         self.hepsi([("txt%d" % i, d) for i, d in enumerate(deyimler)], "mssql")
 
     def test_mssql_sabit_on_ek_yalniz_oturum_ayari(self):
-        # SQL Server'da salt okunur oturum kipi yoktur: sabit on ek yalniz bu SET'leri ve DECLARE'i icerir
+        # SQL Server has no read-only session mode: the fixed prefix contains only these SETs and the DECLARE
         spec = importlib.util.spec_from_file_location("ms_topl", TOPLAYICI_MSSQL)
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
@@ -208,7 +208,7 @@ class TumSqlAllowlistTests(unittest.TestCase):
         self.assertEqual(m.SON_EK, " FOR JSON PATH, INCLUDE_NULL_VALUES); SELECT ISNULL(@j, N'[]');")
 
     def test_toplayici_sql_yalniz_sabitlerden_gelir(self):
-        # sorgu metni calisma zamaninda disaridan (arguman, ortam, dosya) eklenmez: calistir() cagrilarinin SQL'i KATALOG'dan
+        # query text is not added from outside (argument, environment, file) at run time: the SQL of calistir() calls comes from KATALOG
         agac = ast.parse(TOPLAYICI.read_text(encoding="utf-8"))
         cagrilar = [n for n in ast.walk(agac) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "calistir"
                     and len(n.args) == 3]
@@ -230,7 +230,7 @@ class TumSqlAllowlistTests(unittest.TestCase):
             self.assertTrue(ok, ast.dump(sql))
 
 
-# ---------------------------------------------------------------- (2) oturum: salt okunur ve zaman asimi
+# ---------------------------------------------------------------- (2) session: read-only and timeout
 
 def toplayici_modulu():
     spec = importlib.util.spec_from_file_location("alig_toplayici_test", TOPLAYICI)
@@ -249,7 +249,7 @@ def oturum_denetle(test, env):
     test.assertNotIn("=off", po)
     z = zaman_asimlari(po)
     test.assertEqual(set(z), {"statement_timeout", "lock_timeout"})
-    test.assertTrue(0 < z["statement_timeout"] <= 30000, po)   # tek sorgu butcesi 30 sn'yi gecmez
+    test.assertTrue(0 < z["statement_timeout"] <= 30000, po)   # the single-query budget does not exceed 30 s
     test.assertTrue(0 < z["lock_timeout"] <= 5000, po)
 
 
@@ -271,14 +271,14 @@ class OturumTests(unittest.TestCase):
         m = toplayici_modulu()
         kayit = []
         d = tempfile.mkdtemp()
-        # ortamdaki dusmanca PGOPTIONS'in oturum ayarini gevsetmesine izin verilmez
+        # a hostile PGOPTIONS in the environment is not allowed to loosen the session setting
         with mock.patch.dict(os.environ, {"PGOPTIONS": "-c default_transaction_read_only=off -c statement_timeout=0"}), \
                 mock.patch.object(m.subprocess, "run", self.sahte_run(kayit)), mock.patch("builtins.print"):
             m.main(["--host", "db.ornek.local", "--user", "alig_hc", "--out", os.path.join(d, "o.json")])
-        self.assertGreater(len(kayit), len(katalog.PG))   # ilk sorgu, veritabani listesi ve butun denetimler
+        self.assertGreater(len(kayit), len(katalog.PG))   # the first query, the database list and all the checks
         for cmd, kw in kayit:
             oturum_denetle(self, kw["env"])
-            self.assertLessEqual(kw["timeout"], 30)   # surec zaman asimi da var
+            self.assertLessEqual(kw["timeout"], 30)   # there is a process timeout too
         oturum_denetle(self, {"PGOPTIONS": m.__dict__.get("PGOPTIONS", kayit[0][1]["env"]["PGOPTIONS"])})
 
     def test_kip_a_komut_satirindan_parola_ve_sql_gelmez(self):
@@ -287,7 +287,7 @@ class OturumTests(unittest.TestCase):
         with mock.patch.object(m.subprocess, "run", self.sahte_run(kayit)):
             m.calistir("psql", ["-d", "dbname=x"], "SELECT 1 AS a")
         cmd, _ = kayit[0]
-        self.assertEqual(cmd.count("-c"), 1)   # tek komut; -f ve baska SQL kaynagi yok
+        self.assertEqual(cmd.count("-c"), 1)   # a single command; no -f or other SQL source
         self.assertNotIn("-f", cmd)
         self.assertEqual(cmd[cmd.index("-c") + 1], "SELECT coalesce(json_agg(t), '[]'::json) FROM (SELECT 1 AS a) t")
 
@@ -311,14 +311,14 @@ class OturumTests(unittest.TestCase):
             try:
                 baglanti.tara(h, "postgres", "alig_hc", "p", kanit)
             except baglanti.BaglantiHatasi:
-                pass   # bos satirlar belgeyi gecersiz kilabilir; burada yalniz cagrilar denetlenir
+                pass   # blank lines can invalidate the document; here only the calls are checked
         self.assertGreater(len(kayit), len(katalog.PG))
         for cmd, env, sure in kayit:
             oturum_denetle(self, env)
             self.assertLessEqual(sure, 30)
 
     def test_kip_b_toplam_sure_butcesi_asilmaz(self):
-        # her cagri kalan butceyle sinirlanir: butce bitince sonraki denetimler calismaz (zaman_asimi)
+        # every call is limited by the remaining budget: when the budget runs out the later checks do not run (zaman_asimi)
         sureler = []
 
         def run(cmd, env, sure):
@@ -332,14 +332,14 @@ class OturumTests(unittest.TestCase):
                 baglanti.tara(hedef.Hedef("db.ornek.com", "93.184.216.34", 5432), "postgres", "alig_hc", "p", "a" * 32, toplam_sure=0.001)
             except baglanti.BaglantiHatasi:
                 pass
-        self.assertEqual(len(sureler), 2)   # ilk sorgu ve veritabani listesi; butce bitince katalog denetimleri calismadi
+        self.assertEqual(len(sureler), 2)   # the first query and the database list; when the budget ran out the catalog checks did not run
         self.assertTrue(all(0 < s <= 30 for s in sureler))
 
 
 @pg_yardimci.pg_testi(*pg_yardimci.dis_veya_gecici_var())
 class GercekPgOturumTests(unittest.TestCase):
-    """PG16'da: uretilen toplayicinin oturumu salt okunur, kilit ve sorgu zaman asimli; yazma reddedilir.
-    ALIG_TEST_PG_HOST varsa dis sunucu, yoksa tests/pg_yardimci.py gecici kumesi; ikisi de yoksa SKIP."""
+    """On PG16: the generated collector's session is read-only, with lock and query timeouts; writing is rejected.
+    An external server if ALIG_TEST_PG_HOST is set, otherwise the temporary cluster of tests/pg_yardimci.py; SKIP if neither exists."""
 
     @classmethod
     def setUpClass(cls):
@@ -357,8 +357,8 @@ class GercekPgOturumTests(unittest.TestCase):
 
     def test_yazma_denemesi_reddedilir(self):
         m = toplayici_modulu()
-        # sarmali kirip ikinci bir deyim eklemeye calisan (allowlist'in zaten reddettigi) metin: ikinci katman olarak oturum
-        # varsayilani yazmayi reddeder
+        # a text that tries to break the wrapper and add a second statement (which the allowlist already rejects): as a second layer the session
+        # default refuses to write
         kotu = "SELECT 1) t; CREATE TABLE alig_yazma_denemesi(i int); SELECT coalesce(json_agg(t),'[]'::json) FROM (SELECT 1"
         r = m.calistir("psql", self.baglanti(), kotu)
         self.assertEqual(r["durum"], "hata")
@@ -383,7 +383,7 @@ class GercekPgOturumTests(unittest.TestCase):
             self.assertTrue(r["durum"] == "ok" or r["neden"] in ("yetki", "yedek_sunucu"), (c["id"], r))
 
 
-# ---------------------------------------------------------------- (3) Kip B hedef dogrulamasi (tablo guduumlu)
+# ---------------------------------------------------------------- (3) Mode B target validation (table-driven)
 
 def sahte_cozumleyici(*adresler):
     def coz(ad, port, *a, **k):
@@ -406,35 +406,35 @@ def kod(ad, port=5432, coz=None):
 
 
 class HedefTablosuTests(unittest.TestCase):
-    # (girdi, beklenen kod). Girdi dogrudan "sunucu" alani; cozumleyici genel bir adres doner (cagrilmamali).
+    # (input, expected code). The input is directly the "sunucu" field; the resolver returns a public address (it must not be called).
     DOGRUDAN = [
         # loopback
         ("127.0.0.1", "ic_adres"), ("127.255.255.254", "ic_adres"), ("[::1]", "ic_adres"), ("[0:0:0:0:0:0:0:1]", "ic_adres"),
         ("[0000:0000:0000:0000:0000:0000:0000:0001]", "ic_adres"), ("127.0.0.1.", "ic_adres"),
-        # RFC1918, CGNAT, link-local, bulut meta veri
+        # RFC1918, CGNAT, link-local, cloud metadata
         ("10.0.0.1", "ic_adres"), ("10.255.255.255", "ic_adres"), ("172.16.0.1", "ic_adres"), ("172.31.255.255", "ic_adres"),
         ("192.168.0.1", "ic_adres"), ("100.64.0.1", "ic_adres"), ("100.127.255.255", "ic_adres"),
         ("169.254.169.254", "ic_adres"), ("169.254.0.1", "ic_adres"), ("[fe80::1]", "ic_adres"), ("[febf::1]", "ic_adres"),
         ("[fd00:ec2::254]", "ic_adres"),
-        # IPv6 ozel/yerel
+        # IPv6 private/local
         ("[fc00::1]", "ic_adres"), ("[fdff:ffff::1]", "ic_adres"), ("[::]", "ic_adres"), ("[ff02::1]", "ic_adres"),
         ("[2001:db8::1]", "ic_adres"),
-        # belirtilmemis, yayin, ayrilmis
+        # unspecified, broadcast, reserved
         ("0.0.0.0", "ic_adres"), ("255.255.255.255", "ic_adres"), ("224.0.0.1", "ic_adres"), ("240.0.0.1", "ic_adres"),
         ("192.0.0.1", "ic_adres"), ("198.51.100.1", "ic_adres"), ("203.0.113.1", "ic_adres"),
-        # IPv4 tasiyan IPv6 bicimleri
+        # IPv6 forms that carry IPv4
         ("[::ffff:127.0.0.1]", "ic_adres"), ("[::ffff:7f00:1]", "ic_adres"), ("[::ffff:10.0.0.1]", "ic_adres"),
         ("[::ffff:a00:1]", "ic_adres"), ("[::ffff:169.254.169.254]", "ic_adres"), ("[::ffff:a9fe:a9fe]", "ic_adres"),
         ("[0:0:0:0:0:ffff:7f00:1]", "ic_adres"), ("[::ffff:0:7f00:1]", "ic_adres"), ("[64:ff9b::7f00:1]", "ic_adres"),
         ("[64:ff9b::a00:1]", "ic_adres"), ("[64:ff9b:1::1]", "ic_adres"), ("[2002:7f00:1::]", "ic_adres"),
         ("[2002:a9fe:a9fe::1]", "ic_adres"), ("[::127.0.0.1]", "ic_adres"), ("[::7f00:1]", "ic_adres"),
-        # kapsam kimligi (zone id): hem dogrudan hem baglanti dizgisi enjeksiyonu
+        # scope id (zone id): both direct and connection string injection
         ("[fe80::1%eth0]", "ic_adres"), ("[fe80::1%25eth0]", "ic_adres"), ("[::1%lo]", "ic_adres"),
         ("[2606:2800:220:1::1%eth0]", "ad"), ("[2606:2800:220:1::1%x hostaddr=127.0.0.1]", "ad"),
         ("[2606:2800:220:1::1%x hostaddr=10.0.0.5 sslmode=disable]", "ad"),
         ("[2606:2800:220:1::1%x options=-c_default_transaction_read_only=off]", "ad"),
         ("[2606:2800:220:1::1%1]", "ad"),
-        # alisilmadik yazimlar ve ad hileleri
+        # unusual spellings and name tricks
         ("2130706433", "ad"), ("0x7f000001", "ad"), ("0177.0.0.1", "ad"), ("127.1", "ad"), ("0", "ad"), ("0x7f.1", "ad"),
         ("localhost", "ad"), ("LOCALHOST", "ad"), ("localhost.", "ad"), ("db.localhost", "ad"), ("metadata.google.internal", "ad"),
         ("db.ornek.com:5432", "ad"), ("db.ornek.com@127.0.0.1", "ad"), ("db.ornek.com/", "ad"), ("db.ornek.com\n", "ad"),
@@ -451,7 +451,7 @@ class HedefTablosuTests(unittest.TestCase):
             coz = sahte_cozumleyici("93.184.216.34")
             self.assertEqual(kod(girdi, 5432, coz), beklenen, repr(girdi))
             if beklenen == "ic_adres":
-                self.assertEqual(coz.cagri, 0, repr(girdi))   # IP yazimi cozumleyiciye hic gitmez
+                self.assertEqual(coz.cagri, 0, repr(girdi))   # an IP spelling never goes to the resolver
 
     def test_kabul_edilenler_dizgeye_guvenle_girer(self):
         for girdi in self.KABUL:
@@ -461,9 +461,9 @@ class HedefTablosuTests(unittest.TestCase):
             d = baglanti.baglanti_dizgisi(h, "postgres", "alig_hc")
             self.assertEqual(len(re.findall(r"\bhostaddr=", d)), 1, d)
             self.assertEqual(len(re.findall(r"\bhost=", d)), 1, d)
-            self.assertEqual(len(d.split()), 9, d)   # her alan bir sozcuk: bosluk ile alan eklenemez
+            self.assertEqual(len(d.split()), 9, d)   # each field is a single word: a field cannot be added with a space
 
-    # DNS yeniden baglama: cozumleme sonrasi adres denetimi
+    # DNS rebinding: address check after resolution
     COZUM = [
         (["10.0.0.5"], "ic_adres"), (["127.0.0.1"], "ic_adres"), (["169.254.169.254"], "ic_adres"), (["0.0.0.0"], "ic_adres"),
         (["::1"], "ic_adres"), (["fe80::1"], "ic_adres"), (["fe80::1%eth0"], "ic_adres"), (["fc00::1"], "ic_adres"),
@@ -492,7 +492,7 @@ class HedefTablosuTests(unittest.TestCase):
         h = hedef.dogrula("db.ornek.com", 5432, cozumleyici=degisen)
         d = baglanti.baglanti_dizgisi(h, "postgres", "alig_hc")
         self.assertIn("hostaddr=93.184.216.34", d)
-        self.assertEqual(len(yanitlar), 2)   # ad bir kez cozuldu
+        self.assertEqual(len(yanitlar), 2)   # the name was resolved once
 
     def test_yasak_aglar_ek_olarak_uygulanir(self):
         for adr, ag in (("203.0.114.9", "203.0.114.0/24"), ("2606:2800:220:1::1", "2606:2800:220::/48")):
@@ -524,7 +524,7 @@ class HedefTablosuTests(unittest.TestCase):
 
 
 class BaglantiDizgisiSavunmasi(unittest.TestCase):
-    """Hedef nesnesi baska bir yoldan (calistirici soketi) gelse bile dizgiye ek anahtar giremez."""
+    """Even if the target object comes through another path (the runner socket), no extra key can enter the string."""
 
     def test_enjeksiyonlu_hedef_dizgi_uretmez(self):
         for ad, ip in (("db.ornek.com", "2606:2800:220:1::1%x hostaddr=127.0.0.1"), ("db.ornek.com hostaddr=127.0.0.1", "93.184.216.34"),
@@ -555,7 +555,7 @@ class BaglantiDizgisiSavunmasi(unittest.TestCase):
 
 
 class CalistiriciHedefTests(unittest.TestCase):
-    """Calistirici web surecine guvenmez: ip alanindaki kapsam kimligi/enjeksiyon da reddedilir."""
+    """The runner does not trust the web process: a scope id/injection in the ip field is also rejected."""
 
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
@@ -582,15 +582,15 @@ class CalistiriciHedefTests(unittest.TestCase):
                 ("db.ornek.com", "127.0.0.1", "hedef"), ("db.ornek.com", "::ffff:10.0.0.1", "hedef"), ("db.ornek.com", "fe80::1%eth0", "hedef"),
                 ("db.ornek.com", "0.0.0.0", "hedef"), ("db.ornek.com", "169.254.169.254", "hedef"), ("db.ornek.com", "", "hedef"),
                 ("db.ornek.com", "ad", "hedef"), ("localhost", "93.184.216.34", "hedef"), ("db.ornek.com hostaddr=10.0.0.1", "93.184.216.34", "hedef"),
-                ("93.184.216.35", "93.184.216.34", "hedef")):   # ad bir IP ise ip ile ayni olmali
+                ("93.184.216.35", "93.184.216.34", "hedef")):   # if the name is an IP it must be the same as ip
             self.cagri.clear()
             self.assertEqual(self.kod(ad, ip), beklenen, (ad, ip))
-            self.assertEqual(len(self.cagri), 0 if beklenen else 1, (ad, ip))   # reddedilen istekte tarama calismaz
+            self.assertEqual(len(self.cagri), 0 if beklenen else 1, (ad, ip))   # in a rejected request the scan does not run
         self.assertEqual(self.kod("db.ornek.com", "93.184.216.34", 22), "hedef")
         self.assertEqual(self.kod("db.ornek.com", "93.184.216.34", "5432 hostaddr=1.1.1.1"), "hedef")
 
 
-# ---------------------------------------------------------------- (4) kaynak sinirlari
+# ---------------------------------------------------------------- (4) resource limits
 
 class SinirTests(unittest.TestCase):
     def test_sabit_degerler(self):
@@ -598,14 +598,14 @@ class SinirTests(unittest.TestCase):
         self.assertEqual(yukleme.MAX_DERINLIK, 8)
         self.assertEqual(yukleme.MAX_SATIR, 200)
         self.assertGreaterEqual(yukleme.MAX_SATIR_VT, yukleme.MAX_SATIR)
-        self.assertEqual(tserver.GOVDE_SINIRI, yukleme.MAX_BAYT + 64 * 1024)   # coklu bolum zarfina pay
+        self.assertEqual(tserver.GOVDE_SINIRI, yukleme.MAX_BAYT + 64 * 1024)   # margin for the multi-section envelope
         self.assertEqual(calistirici.YANIT_SINIRI, yukleme.MAX_BAYT + 64 * 1024)
         self.assertLessEqual(calistirici.ISTEK_SINIRI, 64 * 1024)
 
     def test_bayt_siniri_sinirda_kabul_ustunde_red(self):
         belge = json.dumps(temiz_belge()).encode()
         bosluk = b" " * (yukleme.MAX_BAYT - len(belge))
-        yukleme.coz(belge + bosluk)   # tam sinirda
+        yukleme.coz(belge + bosluk)   # at exactly the limit
         with self.assertRaises(yukleme.Gecersiz) as e:
             yukleme.coz(belge + bosluk + b" ")
         self.assertEqual(e.exception.kod, "buyuk")
@@ -622,7 +622,7 @@ class SinirTests(unittest.TestCase):
             self.assertEqual(kod_, None if n == yukleme.MAX_DERINLIK else "derin", n)
         with self.assertRaises(yukleme.Gecersiz):
             yukleme._derinlik_denetle(b"[" * (yukleme.MAX_DERINLIK + 1) + b"]" * (yukleme.MAX_DERINLIK + 1))
-        # metin icindeki ve kacisli parantezler sayilmaz
+        # brackets inside text and escaped brackets are not counted
         yukleme._derinlik_denetle(b'{"a":"' + b"[{" * 500 + b'"}')
         yukleme._derinlik_denetle(b'{"a":"\\"' + b"[{" * 500 + b'"}')
 
@@ -713,7 +713,7 @@ class SinirTests(unittest.TestCase):
 
 
 class CiktiSiniriTests(unittest.TestCase):
-    """Kip B: musterinin sectigi sunucu dusmanca olabilir; psql ciktisi bellekte sinirsiz birikmez."""
+    """Mode B: the server chosen by the customer may be hostile; psql output does not accumulate in memory without bound."""
 
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
@@ -735,7 +735,7 @@ class CiktiSiniriTests(unittest.TestCase):
         self.assertEqual(sonuc, {"durum": "ok", "satirlar": [{"a": 1}]})
 
 
-# ---------------------------------------------------------------- (5) Kip B varsayilan kapali
+# ---------------------------------------------------------------- (5) Mode B is off by default
 
 class KapaliTests(unittest.TestCase):
     def test_sunucu_sinifi_varsayilani_kapali(self):
@@ -762,7 +762,7 @@ class KapaliTests(unittest.TestCase):
 
 
 class KapaliUclarTests(unittest.TestCase):
-    """Sunucu calisirken Kip B uclari kapaliyken 404 doner (ve hicbir baglanti denenmez)."""
+    """While the server runs, the Mode B endpoints return 404 when off (and no connection is tried)."""
 
     def setUp(self):
         from http.server import ThreadingHTTPServer

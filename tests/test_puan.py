@@ -1,4 +1,4 @@
-"""Saglik puani ve kanit kapsami (tarama/puan.py): bilinmeyen durum puani yukseltmez, aciklanabilir, katsayilar ayarlanir."""
+"""Health score and evidence coverage (tarama/puan.py): an unknown status does not raise the score, it is explainable, the coefficients are adjustable."""
 import copy
 import json
 import os
@@ -25,7 +25,7 @@ def gercek(hesap):
 
 
 def ornekler():
-    """Degerlendirme ornekleri: temiz belgeler, gercek PostgreSQL 16 ciktilari, bulgulu ve bozuk belgeler."""
+    """Evaluation examples: clean documents, real PostgreSQL 16 outputs, documents with findings and corrupt documents."""
     b = test_tarama.temiz_belge()
     b["kontroller"]["pg_xid_yasi"]["satirlar"][0]["yas"] = 1700000000
     b["kontroller"]["pg_olu_satir"]["satirlar"] = [{"veritabani": "postgres", "schemaname": "s", "relname": "t", "canli": 1, "olu": 50000, "son_autovacuum": None}]
@@ -45,7 +45,7 @@ class PuanTests(unittest.TestCase):
             self.assertEqual(p.kayiplar, [])
 
     def test_bilinmeyen_durum_puani_yukseltmez(self):
-        """Olculen her kural tek tek bilinmiyor yapilir: puan hicbir zaman artmaz (kategori puani da)."""
+        """Every measured rule is made unknown one by one: the score never rises (the category score too)."""
         for belge in ornekler():
             s = kurallar.incele(belge)
             once = puan.hesapla(s)
@@ -62,8 +62,8 @@ class PuanTests(unittest.TestCase):
                     self.assertLessEqual(sonra.kapsam_ham, once.kapsam_ham)
 
     def test_belgeden_kanit_eksilince_puan_artmaz(self):
-        """Uctan uca: rastgele belgelerden denetim silinir, hataya cevrilir ya da hesap bilgisi kaldirilir. Genel puan,
-        kategori puanlari ve kapsam hicbir zaman artmaz (kaybolan kanit cozulmus sorun sayilmaz)."""
+        """End to end: from random documents a check is deleted, turned into an error, or the account information is removed. The overall score,
+        the category scores and the coverage never rise (vanished evidence is not counted as a resolved problem)."""
         r = random.Random(1113)
         for i in range(800):
             b = rastgele_pg(r) if i % 2 == 0 else rastgele_ms(r)
@@ -86,13 +86,13 @@ class PuanTests(unittest.TestCase):
         b = gercek("pg_monitor")
         once = puan.hesapla(kurallar.incele(b))
         self.assertEqual(kurallar.incele(b).kayitlar[[k.kimlik for k in kurallar.KURALLAR].index("PG-HA-001")]["durum"], "FAIL")
-        del b["kontroller"]["pg_slot"]   # basarisiz slot kurali artik olculemiyor
+        del b["kontroller"]["pg_slot"]   # the failed slot rule can no longer be measured
         sonra = puan.hesapla(kurallar.incele(b))
         self.assertLessEqual(sonra.ham, once.ham)
         self.assertLess(sonra.kapsam, once.kapsam)
 
     def test_formul_ve_dokum(self):
-        """puan = 100 * toplam(agirlik * kredi) / toplam(agirlik); kayiplarin toplami 100 - puan."""
+        """score = 100 * sum(weight * credit) / sum(weight); the sum of the losses is 100 - score."""
         for belge in ornekler():
             s = kurallar.incele(belge)
             p = puan.hesapla(s)
@@ -100,16 +100,16 @@ class PuanTests(unittest.TestCase):
             uyg = [k for k in s.kayitlar if k["durum"] != "NOT_APPLICABLE"]
             toplam = sum(agirlik[k["kural"]] for k in uyg)
             olculen = sum(1 for k in uyg if k["durum"] in ("PASS", "WARNING", "FAIL"))
-            self.assertEqual((p.kapsam_ham, p.kapsam), (100 * olculen / len(uyg), 100 * olculen // len(uyg)))   # kapsam asagi yuvarlanir
+            self.assertEqual((p.kapsam_ham, p.kapsam), (100 * olculen / len(uyg), 100 * olculen // len(uyg)))   # coverage is rounded down
             if not any(k["durum"] in ("PASS", "WARNING", "FAIL") and agirlik[k["kural"]] > 0 for k in uyg):
-                self.assertIsNone(p.genel)   # agirlikli kanit yok: puan hesaplanamadi
+                self.assertIsNone(p.genel)   # no weighted evidence: the score could not be computed
                 continue
             beklenen = 100 * sum(agirlik[k["kural"]] * puan.kredi(k) for k in uyg) / toplam
             self.assertAlmostEqual(p.ham, beklenen)
             self.assertAlmostEqual(sum(x["kayip"] for x in p.kayiplar), 100 - p.ham)
             self.assertAlmostEqual(p.bulgu_kaybi + p.kanit_kaybi, 100 - p.ham)
-            self.assertTrue(p.genel <= p.ham + 1e-9 < p.genel + 1)   # asagi yuvarlanir
-            self.assertEqual(p.genel == 100, not p.kayiplar)          # 100 yalniz kayip yoksa
+            self.assertTrue(p.genel <= p.ham + 1e-9 < p.genel + 1)   # rounded down
+            self.assertEqual(p.genel == 100, not p.kayiplar)          # 100 only if there is no loss
             self.assertTrue(all(x["kayip"] > 0 for x in p.kayiplar))
             self.assertEqual([x["kural"] for x in p.kayiplar if x["tur"] == "kanit"],
                              [x["kural"] for x in p.kayiplar if x["durum"] in ("UNKNOWN", "UNAVAILABLE")])
@@ -127,17 +127,17 @@ class PuanTests(unittest.TestCase):
             kayit = [k for k in s.kayitlar if k["kategori"] == kat and k["durum"] != "NOT_APPLICABLE"]
             self.assertEqual(d["uygulanabilir"], len(kayit), kat)
             self.assertEqual(d["olculen"], sum(1 for k in kayit if k["durum"] in ("PASS", "WARNING", "FAIL")), kat)
-        self.assertNotIn("konfigurasyon", p.kategoriler)   # PostgreSQL'de bu kategoride kural yok: puanlanmaz
+        self.assertNotIn("konfigurasyon", p.kategoriler)   # in PostgreSQL there is no rule in this category: not scored
         guv = [k for k in s.kayitlar if k["kategori"] == "guvenlik"]
         w = {k.kimlik: puan.VARSAYILAN["agirlik"][k.risk] for k in kurallar.KURALLAR}
         self.assertAlmostEqual(p.kategoriler["guvenlik"]["ham"], 100 * sum(w[k["kural"]] * puan.kredi(k) for k in guv) / sum(w[k["kural"]] for k in guv))
 
     def test_kucuk_kayip_100_gostermez(self):
         b = test_tarama.temiz_belge()
-        b["kontroller"]["pg_log_ayarlari"]["satirlar"][0]["setting"] = "off"   # yalniz dusuk riskli bir uyari
+        b["kontroller"]["pg_log_ayarlari"]["satirlar"][0]["setting"] = "off"   # only a low-risk warning
         p = puan.hesapla(kurallar.incele(b))
         self.assertEqual((p.genel, p.kapsam, [x["kural"] for x in p.kayiplar]), (99, 100, ["PG-SEC-007"]))
-        self.assertGreater(p.ham, 99.5)   # yukari yuvarlansa 100 gorunurdu
+        self.assertGreater(p.ham, 99.5)   # if rounded up it would show 100
 
     def test_kanit_yoksa_puan_yok(self):
         p = puan.hesapla(kurallar.incele({"motor": "postgresql", "kontroller": {}}))
@@ -149,8 +149,8 @@ class KatsayiTests(unittest.TestCase):
         s = kurallar.incele(gercek("pg_monitor"))
         varsayilan = puan.hesapla(s)
         k = puan.katsayi_dogrula({"agirlik": {"kritik": 30}})
-        self.assertEqual(k["agirlik"]["yuksek"], puan.VARSAYILAN["agirlik"]["yuksek"])   # verilmeyen varsayilan kalir
-        self.assertLess(puan.hesapla(s, k).ham, varsayilan.ham)   # kritik riskli kural basarisiz: agirligi artinca puan duser
+        self.assertEqual(k["agirlik"]["yuksek"], puan.VARSAYILAN["agirlik"]["yuksek"])   # a value not given stays at the default
+        self.assertLess(puan.hesapla(s, k).ham, varsayilan.ham)   # a critical-risk rule fails: the score drops when its weight increases
         k = puan.katsayi_dogrula({"kategori_carpani": {"ha_dr": 0}})
         self.assertNotEqual(puan.hesapla(s, k).ham, varsayilan.ham)
 
@@ -174,14 +174,14 @@ class KatsayiTests(unittest.TestCase):
         (d / "gecersiz.json").write_text('{"agirlik": {"kritik": -1}}', encoding="utf-8")
         (d / "buyuk.json").write_text(" " * 70000 + "{}", encoding="utf-8")
         (d / "bom.json").write_bytes(b"\xef\xbb\xbf" + json.dumps({"agirlik": {"kritik": 15}}).encode())
-        self.assertEqual(puan.ortamdan({"ALIG_PUAN_AYARI": str(d / "bom.json")})["agirlik"]["kritik"], 15)   # Windows duzenleyicisi
+        self.assertEqual(puan.ortamdan({"ALIG_PUAN_AYARI": str(d / "bom.json")})["agirlik"]["kritik"], 15)   # Windows editor
         for yol in (d / "bozuk.json", d / "yok.json", d / "nan.json", d / "cift.json", d / "gecersiz.json", d / "buyuk.json", d):
             with self.assertRaises(puan.PuanAyarHatasi):
                 puan.ortamdan({"ALIG_PUAN_AYARI": str(yol)})
 
 
 class BaslangicTests(unittest.TestCase):
-    """Gecersiz puan ayariyla iki servis de baslamaz; gecerli ayar etkin olur (rapor ve panel ayni katsayilari kullanir)."""
+    """With an invalid score setting neither service starts; a valid setting takes effect (the report and the panel use the same coefficients)."""
 
     def setUp(self):
         eski = puan.ETKIN
@@ -209,7 +209,7 @@ class BaslangicTests(unittest.TestCase):
             self.assertIn("agirlik.kritik", str(cm.exception))
             with self.assertRaises(SystemExit):
                 self.calistir(modul, ["--db", str(self.d / db)], "yok.json")
-            self.assertEqual(puan.ETKIN, puan.VARSAYILAN)   # hatali ayar etkin olmadi
+            self.assertEqual(puan.ETKIN, puan.VARSAYILAN)   # the faulty setting did not take effect
             sunucu = self.calistir(modul, ["--db", str(self.d / db)], "iyi.json")
             sunucu.return_value.serve_forever.assert_called_once_with()
             self.assertEqual(puan.ETKIN["agirlik"]["kritik"], 12)
@@ -227,7 +227,7 @@ class RiskTests(unittest.TestCase):
                 kural("PG-SEC-099", *kotu, [], {}, {})
 
     def test_bulgu_onemi_kural_riskini_asmaz(self):
-        """Rastgele gecerli belgelerde: kural, bildirdigi risk duzeyinden daha onemli bulgu uretmez; en yuksek risk de gorulur."""
+        """In random valid documents: a rule never produces a finding more severe than its declared risk level; the highest risk is also seen."""
         r = random.Random(20261113)
         risk = {k.kimlik: k.risk for k in TUM}
         gorulen = {}
@@ -260,12 +260,12 @@ class GosterimTests(unittest.TestCase):
         self.assertIn("%d%%" % p.kapsam, en)
         for kat in p.kategoriler:
             self.assertIn(rapor.M["tr"]["kategori"][kat], tr)
-        self.assertLess(tr.index("PG-HA-001"), tr.index("finding-card"))   # puani dusuren kural, bulgulardan once aciklamada
+        self.assertLess(tr.index("PG-HA-001"), tr.index("finding-card"))   # the rule that lowers the score, in the explanation before the findings
 
     def test_rapor_kanit_yoksa_puan_yazmaz(self):
         b = test_tarama.temiz_belge()
         b["kontroller"] = {cid: {"durum": "hata", "neden": "yetki"} for cid in b["kontroller"]}
-        b.pop("superuser", None)   # tarama hesabi kurali da kanitsiz kalsin
+        b.pop("superuser", None)   # let the scan account rule also stay without evidence
         tr = self.sayfa(b)
         self.assertIn("hesaplanamadı", tr)
         self.assertNotIn("/100", tr)

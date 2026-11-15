@@ -1,4 +1,4 @@
-"""Yuklenen toplama dosyasi guvenilmeyen girdidir: katı sema, bilinmeyen alan reddi, boyut ve tur sinirlari."""
+"""An uploaded collection file is untrusted input: strict schema, unknown-field rejection, size and type limits."""
 import json
 import math
 import re
@@ -8,7 +8,7 @@ from tarama.uret_toplayici import katalog_ozeti
 
 MAX_BAYT = 5 * 1024 * 1024
 MAX_SATIR = 200
-MAX_SATIR_VT = 5000     # veritabani basina denetimde tum veritabanlarinin toplami
+MAX_SATIR_VT = 5000     # per database; in an audit, the total across all databases
 MAX_ATLANAN = 1000
 MAX_METIN = 200
 ZAMAN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -18,7 +18,7 @@ UST_ALANLAR = {"format", "motor", "katalog_sha256", "olusturma_utc", "maskeli", 
 
 
 class Gecersiz(ValueError):
-    """mesaj: ic kayit icin. kod ve ek: musteriye gosterilen metni secmek icin (tarama/hata.py)."""
+    """mesaj: for the internal log. kod and ek: used to pick the text shown to the customer (tarama/hata.py)."""
 
     def __init__(self, mesaj, kod="bicim", ek=""):
         super().__init__(mesaj)
@@ -26,8 +26,8 @@ class Gecersiz(ValueError):
         self.ek = ek
 
 
-# Kolon turleri (PostgreSQL). None her kolonda kabul edilir (SQL NULL); eksik kolon None sayilir.
-# Kural motoru bu turlere guvenir; tur disi deger yuklemede reddedilir. SQL Server kurallari degerleri kendisi denetler.
+# Column types (PostgreSQL). None is accepted in every column (SQL NULL); a missing column counts as None.
+# The rule engine relies on these types; a value of a different type is rejected at upload. SQL Server rules check values themselves.
 TUR_DENETIMI = {
     "tamsayi": lambda v: isinstance(v, int) and not isinstance(v, bool),
     "sayi": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v),
@@ -64,58 +64,58 @@ TURLER = {
     "pg_eklentiler": {"veritabani": _M, "extname": _M, "extversion": _M},
 }
 
-MAX_DERINLIK = 8   # belge > kontroller > kontrol > satirlar > satir: 5 duzey; pay birakildi
+MAX_DERINLIK = 8   # document > checks > check > rows > row: 5 levels; some margin left
 
 
-MAX_YAPI = 100_000     # nesne ve dizi sayisi: en buyuk gecerli dosya (50 veritabani x 5000 satir) bunun altinda kalir
+MAX_YAPI = 100_000     # number of objects and arrays: the largest valid file (50 databases x 5000 rows) stays below this
 MAX_TIRNAK = 1_500_000
 MAX_KACIS = 100_000
 _YAPI_DISI = bytes(b for b in range(256) if b not in b'"\\[]{}')
 
 
 def _derinlik_denetle(veri):
-    """Ayristirmadan once yapi sayisini ve ic ice derinligi sinirlar (metin icindeki parantezler derinlige sayilmaz).
-    Sayimlar ve suzme C hizinda; Python dongusu yalniz tirnak, ters bolu ve parantez baytlari uzerinde doner."""
+    """Before parsing, limits the structure count and the nesting depth (brackets inside strings do not count toward depth).
+    Counting and filtering run at C speed; the Python loop iterates only over quote, backslash and bracket bytes."""
     if veri.count(b"[") + veri.count(b"{") > MAX_YAPI or veri.count(b'"') > MAX_TIRNAK or veri.count(b"\\") > MAX_KACIS:
-        raise Gecersiz("yapi sayisi cok fazla", "derin")
+        raise Gecersiz("too many structures", "derin")
     derinlik, metinde, kacis = 0, False, False
     for b in veri.translate(None, _YAPI_DISI):
         if metinde:
             if kacis:
                 kacis = False
-            elif b == 0x5C:      # ters bolu
+            elif b == 0x5C:      # backslash
                 kacis = True
-            elif b == 0x22:      # cift tirnak
+            elif b == 0x22:      # double quote
                 metinde = False
         elif b == 0x22:
             metinde = True
         elif b in (0x5B, 0x7B):  # [ {
             derinlik += 1
             if derinlik > MAX_DERINLIK:
-                raise Gecersiz("yapi cok derin", "derin")
+                raise Gecersiz("structure too deeply nested", "derin")
         elif b in (0x5D, 0x7D):  # ] }
             derinlik -= 1
 
 
 def _sabit_yok(ad):
-    raise ValueError("standart disi sabit: " + ad)
+    raise ValueError("non-standard constant: " + ad)
 
 
 def _tekil_anahtar(ciftler):
     d = dict(ciftler)
     if len(d) != len(ciftler):
-        raise ValueError("yinelenen anahtar")
+        raise ValueError("duplicate key")
     return d
 
 
 def coz(veri, motorlar=("postgresql",)):
     if len(veri) > MAX_BAYT:
-        raise Gecersiz("dosya cok buyuk", "buyuk")
+        raise Gecersiz("file too large", "buyuk")
     _derinlik_denetle(veri)
     try:
         belge = json.loads(veri.decode("utf-8"), parse_constant=_sabit_yok, object_pairs_hook=_tekil_anahtar)
     except (UnicodeDecodeError, ValueError, RecursionError):
-        raise Gecersiz("gecerli JSON degil", "json")
+        raise Gecersiz("not valid JSON", "json")
     return dogrula(belge, motorlar)
 
 
@@ -123,57 +123,57 @@ def _skaler(v):
     if v is None or isinstance(v, (bool, int)):
         return True
     if isinstance(v, float):
-        return math.isfinite(v)   # 1e999 JSON'da sonsuz olarak cozulur
+        return math.isfinite(v)   # 1e999 is decoded as infinity in JSON
     return isinstance(v, str) and len(v) <= MAX_METIN
 
 
 def dogrula(b, motorlar=("postgresql",)):
     if not isinstance(b, dict) or set(b) - UST_ALANLAR or not UST_ALANLAR - {"superuser", "maskeli"} <= set(b):
-        raise Gecersiz("beklenmeyen ust duzey alanlar", "alanlar")
+        raise Gecersiz("unexpected top-level fields", "alanlar")
     if b["format"] != katalog.FORMAT or not isinstance(b["motor"], str) or b["motor"] not in katalog.MOTORLAR:
-        raise Gecersiz("desteklenmeyen format ya da motor", "format")
+        raise Gecersiz("unsupported format or engine", "format")
     if b["motor"] not in motorlar:
-        raise Gecersiz("bu motor icin tarama acik degil: " + b["motor"], "motor_kapali")
+        raise Gecersiz("scanning is not enabled for this engine: " + b["motor"], "motor_kapali")
     if b["katalog_sha256"] != katalog_ozeti(b["motor"]):
-        raise Gecersiz("toplayici surumu eski: sitedeki guncel betigi indirin", "eski")
+        raise Gecersiz("collector version is old: download the current script from the site", "eski")
     if not isinstance(b["olusturma_utc"], str) or not ZAMAN.match(b["olusturma_utc"]):
-        raise Gecersiz("olusturma_utc gecersiz", "zaman")
+        raise Gecersiz("olusturma_utc is invalid", "zaman")
     for alan in ("superuser", "maskeli"):
         if alan in b and not isinstance(b[alan], bool):
-            raise Gecersiz(alan + " bool olmali", "alan_turu", alan)
+            raise Gecersiz(alan + " must be bool", "alan_turu", alan)
     k = b["kontroller"]
     if not isinstance(k, dict):
-        raise Gecersiz("kontroller nesne olmali", "alanlar")
+        raise Gecersiz("kontroller must be an object", "alanlar")
     for cid, e in k.items():
         c = katalog.MOTOR_BY_ID[b["motor"]].get(cid)
         if c is None:
-            raise Gecersiz("bilinmeyen kontrol: " + cid[:40], "kontrol", cid[:40])
+            raise Gecersiz("unknown check: " + cid[:40], "kontrol", cid[:40])
         if not isinstance(e, dict) or e.get("durum") not in DURUMLAR:
-            raise Gecersiz(cid + ": durum gecersiz", "durum", cid)
+            raise Gecersiz(cid + ": status is invalid", "durum", cid)
         if e["durum"] == "hata":
             if set(e) != {"durum", "neden"} or e["neden"] not in NEDENLER:
-                raise Gecersiz(cid + ": hata kaydi gecersiz", "hata_kaydi", cid)
+                raise Gecersiz(cid + ": error record is invalid", "hata_kaydi", cid)
             continue
         vt = c.get("kapsam") == "veritabani"
         if not {"durum", "satirlar"} <= set(e) <= ({"durum", "satirlar", "atlanan"} if vt else {"durum", "satirlar"}) \
                 or not isinstance(e["satirlar"], list) or len(e["satirlar"]) > (MAX_SATIR_VT if vt else MAX_SATIR):
-            raise Gecersiz(cid + ": satirlar gecersiz", "satirlar", cid)
+            raise Gecersiz(cid + ": rows are invalid", "satirlar", cid)
         if "atlanan" in e:
             at = e["atlanan"]
             if not isinstance(at, list) or len(at) > MAX_ATLANAN or not all(
                     isinstance(x, dict) and set(x) == {"veritabani", "neden"} and isinstance(x["veritabani"], str)
                     and len(x["veritabani"]) <= MAX_METIN and x["neden"] in NEDENLER for x in at):
-                raise Gecersiz(cid + ": atlanan veritabani kaydi gecersiz", "satirlar", cid)
+                raise Gecersiz(cid + ": skipped-database record is invalid", "satirlar", cid)
         izin = set(c["kolonlar"])
         turler = TURLER.get(cid, {}) if b["motor"] == "postgresql" else {}
         for s in e["satirlar"]:
             if not isinstance(s, dict) or set(s) - izin:
-                raise Gecersiz(cid + ": bilinmeyen kolon", "kolon", cid)
-            if turler and set(s) != izin:   # PostgreSQL toplayicisi (json_agg) her kolonu yazar; eksik kolon elle degistirilmis dosyadir
-                raise Gecersiz(cid + ": eksik kolon", "kolon", cid)
+                raise Gecersiz(cid + ": unknown column", "kolon", cid)
+            if turler and set(s) != izin:   # The PostgreSQL collector (json_agg) writes every column; a missing column means the file was edited by hand
+                raise Gecersiz(cid + ": missing column", "kolon", cid)
             if not all(_skaler(v) for v in s.values()):
-                raise Gecersiz(cid + ": deger turu ya da uzunlugu gecersiz", "deger", cid)
+                raise Gecersiz(cid + ": value type or length is invalid", "deger", cid)
             for kolon, v in s.items():
                 if v is not None and kolon in turler and not TUR_DENETIMI[turler[kolon]](v):
-                    raise Gecersiz("%s.%s: beklenen tur %s" % (cid, kolon, turler[kolon]), "deger", cid)
+                    raise Gecersiz("%s.%s: expected type %s" % (cid, kolon, turler[kolon]), "deger", cid)
     return b

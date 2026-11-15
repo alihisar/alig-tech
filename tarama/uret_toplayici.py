@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Katalogdan site/assets/alig-toplayici.py ve sorgu-katalogu.txt uretir.
-Kontrol: python3 tarama/uret_toplayici.py --kontrol (CI ve testler kullanir)."""
+"""Generates site/assets/alig-toplayici.py and sorgu-katalogu.txt from the catalog.
+Check: python3 tarama/uret_toplayici.py --kontrol (used by CI and tests)."""
 import hashlib
 import json
 import sys
@@ -12,7 +12,7 @@ from tarama import katalog  # noqa: E402
 
 
 def kontroller(motor="postgresql"):
-    """Toplayicinin calistirdigi alanlar; katalog ozeti bunlardan hesaplanir (kaynak ve yetki belgeleme icindir, girmez)."""
+    """Fields the collector runs; the catalog digest is computed from them (source and privilege are for documentation, they are not included)."""
     return [{k: c[k] for k in ("id", "sql", "kolonlar", "maske", "kapsam", "en_az", "en_cok", "eski_surum") if k in c}
             for c in katalog.MOTORLAR[motor]]
 
@@ -22,7 +22,7 @@ def katalog_ozeti(motor="postgresql"):
 
 
 def uret_mssql():
-    """On surum SQL Server toplayicisi: site/assets altina degil, tarama/onsurum altina yazilir."""
+    """Preview SQL Server collector: written not under site/assets but under tarama/onsurum."""
     doc = {"format": katalog.FORMAT, "motor": "mssql", "kontroller": kontroller("mssql")}
     sablon = (ROOT / "tarama" / "toplayici" / "sablon_mssql.py").read_text(encoding="utf-8")
     kod = sablon.replace("__KATALOG_JSON__", json.dumps(doc, ensure_ascii=False, sort_keys=True))
@@ -61,14 +61,14 @@ def main(argv):
         eski = [n for hedef, cikti in isler for n, v in cikti.items()
                 if not (hedef / n).exists() or (hedef / n).read_text(encoding="utf-8") != v]
         if eski:
-            print("guncel degil, calistirin: python3 tarama/uret_toplayici.py ->", ", ".join(eski))
+            print("out of date, run: python3 tarama/uret_toplayici.py ->", ", ".join(eski))
             return 1
         return 0
     for hedef, cikti in isler:
         hedef.mkdir(exist_ok=True)
         for n, v in cikti.items():
             (hedef / n).write_text(v, encoding="utf-8")
-            print("yazildi", hedef / n)
+            print("written", hedef / n)
     return 0
 
 

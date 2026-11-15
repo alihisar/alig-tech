@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Saglik taramasi uc noktalari. Yalnizca standart kutuphane.
+"""Health scan endpoints. Standard library only.
 
-POST /api/tarama/yukle   multipart/form-data: dosya (toplama JSON), dil (tr|en), yetki (onay kutusu)
-GET  /rapor/<token>/     rapor sayfasi
-POST /rapor/<token>/sil  raporu hemen siler
-Web sureci musteri veritabanina BAGLANMAZ; yalniz yuklenen dosyayi isler.
+POST /api/tarama/yukle   multipart/form-data: dosya (collection JSON), dil (tr|en), yetki (authorisation checkbox)
+GET  /rapor/<token>/     report page
+POST /rapor/<token>/sil  deletes the report immediately
+The web process does NOT connect to the customer's database; it only processes the uploaded file.
 """
 import argparse
 import email.parser
@@ -31,12 +31,12 @@ RateLimiter = _form.RateLimiter
 
 TOKEN = re.compile(r"^/rapor/([A-Za-z0-9_\-]{43})/(sil|dogrula)?$")
 ISTEK = re.compile(r"^/api/tarama/baglan/([A-Za-z0-9_\-]{43})$")
-TARAMA_YUVASI = threading.BoundedSemaphore(2)   # ayni anda en cok iki dogrudan tarama
+TARAMA_YUVASI = threading.BoundedSemaphore(2)   # at most two direct scans at the same time
 GOVDE_SINIRI = yukleme.MAX_BAYT + 64 * 1024
 
 
 def multipart(ctype, govde):
-    """{alan: bytes}. email ayristiricisi ile; cgi modulu yeni surumlerde yok."""
+    """{field: bytes}. Using the email parser; the cgi module is gone in newer versions."""
     msg = email.parser.BytesParser(policy=email.policy.HTTP).parsebytes(b"Content-Type: " + ctype.encode() + b"\r\n\r\n" + govde)
     if not msg.is_multipart():
         return {}
@@ -52,25 +52,25 @@ class H(BaseHTTPRequestHandler):
     db_yolu = "tarama.sqlite"
     sinir = RateLimiter(per_window=5)
     sirket_adet = depo.SINIR_ADET
-    motorlar = ("postgresql",)  # SQL Server on surumu: ALIG_MSSQL=1 ile acilir
-    dogrudan = False            # Kip B (dogrudan baglanti): ALIG_DOGRUDAN=1 ile acilir
+    motorlar = ("postgresql",)  # SQL Server preview: enabled with ALIG_MSSQL=1
+    dogrudan = False            # Mode B (direct connection): enabled with ALIG_DOGRUDAN=1
     psql = "psql"
     sslmode = "require"
-    yasak_aglar = ()            # kendi adres araliklarimiz: ALIG_YASAK_AGLAR
+    yasak_aglar = ()            # our own address ranges: ALIG_YASAK_AGLAR
     hedef_dogrula = staticmethod(hedef.dogrula)
-    tara = staticmethod(baglanti.tara)   # yalniz yerel gelistirme: calistirici_soketi yoksa surec ici
-    calistirici_soketi = None            # uretimde zorunlu: tarama ayri calistirici surecinde kosar
-    eposta_dogrulama = False             # ALIG_EPOSTA_DOGRULAMA=1: rapor baglantisi yalniz e-postayla gider
-    site_adresi = ""                     # e-postadaki baglantinin koku (ALIG_SITE_ADRESI)
-    portal = False                       # musteri portali (/portal/): ALIG_PORTAL=1 ve e-posta dogrulamasi acikken
-    portal_cerez_guvenli = True          # oturum cerezi Secure; yalniz yerel HTTP'de kapatilir
-    posta_adres_siniri = 3               # ayni adrese 24 saatte en cok posta
-    bekleyen_firma_siniri = 5            # bir firmada 24 saatte en cok dogrulanmamis rapor
-    # Kip B yanit suresi sabitleme: hedef reddi, DNS hatasi ve baglanti hatasi ayni alt sureye tamamlanir; boylece yanit suresi
-    # ic aginin taranmasina yardim etmez. Alt sinirdir: DNS ya da baglanti bu sureyi zaten asarsa ek bekleme olmaz.
-    SABIT_RED_SN = 6.0                   # baglanti formu: hedef reddedildi (adres, port, ad cozumu)
-    SABIT_BAGLANTI_SN = 12.0             # parola adimi: baglanti kurulamadi (psql connect_timeout=10 sn'yi kapsar)
-    saat = staticmethod(time.monotonic)  # testlerde sahte saatle degistirilir
+    tara = staticmethod(baglanti.tara)   # local development only: in-process if there is no calistirici_soketi
+    calistirici_soketi = None            # mandatory in production: the scan runs in a separate runner process
+    eposta_dogrulama = False             # ALIG_EPOSTA_DOGRULAMA=1: the report link goes only by email
+    site_adresi = ""                     # root of the link in the email (ALIG_SITE_ADRESI)
+    portal = False                       # customer portal (/portal/): when ALIG_PORTAL=1 and email verification is on
+    portal_cerez_guvenli = True          # session cookie is Secure; turned off only on local HTTP
+    posta_adres_siniri = 3               # at most this many emails to the same address in 24 hours
+    bekleyen_firma_siniri = 5            # at most this many unverified reports per company in 24 hours
+    # Mode B response-time pinning: target rejection, DNS failure and connection failure are all padded to the same lower bound, so the response time
+    # does not help to scan the internal network. It is a lower bound: if DNS or the connection already exceeds it, there is no extra wait.
+    SABIT_RED_SN = 6.0                   # connection form: target rejected (address, port, name resolution)
+    SABIT_BAGLANTI_SN = 12.0             # password step: connection could not be made (covers psql connect_timeout=10 s)
+    saat = staticmethod(time.monotonic)  # replaced with a fake clock in tests
     bekle = staticmethod(time.sleep)
     sys_version = ""
 
@@ -90,7 +90,7 @@ class H(BaseHTTPRequestHandler):
         return self.headers.get("X-Real-IP") or self.client_address[0]
 
     def _hata(self, kod, tur, dil=None, ayrinti=None, extra=()):
-        """Musteriye gosterilen hata sayfasi. Dil formdan, yoksa Referer'dan cikar."""
+        """Error page shown to the customer. The language comes from the form, otherwise from the Referer."""
         if dil not in ("tr", "en"):
             dil = "en" if "/en/" in (self.headers.get("Referer") or "") else "tr"
         self._send(kod, hata.sayfa(tur, dil, ayrinti).encode("utf-8"), "text/html; charset=utf-8", extra=extra)
@@ -115,13 +115,13 @@ class H(BaseHTTPRequestHandler):
         try:
             r = depo.rapor_getir(con, m.group(1))
             if r:
-                onceki = depo.onceki_rapor(con, r)   # ayni firma ve veritabani kimligi: karsilastirma (tarama/gecmis.py)
+                onceki = depo.onceki_rapor(con, r)   # same company and database identity: comparison (tarama/gecmis.py)
                 depo.denetim_ekle(con, "musteri", "rapor goruntulendi #%d%s" % (r["id"], " (karsilastirma #%d)" % onceki["id"] if onceki else ""),
                                   {"rapor": r["id"], "sonuc": "basarili"})
                 g = rapor.gorunum_sec((parse_qs(self.path.partition("?")[2]).get("gorunum") or [None])[0])
                 return self._send(200, rapor.sayfa(r, r["dil"], m.group(1), onceki=onceki, gorunum=g).encode("utf-8"), "text/html; charset=utf-8")
             b = depo.rapor_bekleyen_getir(con, m.group(1))
-            if b:  # e-postadaki baglanti: GET hicbir sey degistirmez, dogrulama dugmeyle (POST) yapilir
+            if b:  # link in the email: GET changes nothing, verification is done with the button (POST)
                 return self._send(200, hata.dogrulama_onay(b["dil"], m.group(1)).encode("utf-8"), "text/html; charset=utf-8")
             self._send(404, b"yok\n")
         finally:
@@ -175,7 +175,7 @@ class H(BaseHTTPRequestHandler):
         eposta_n = eposta.strip().lower()
         con = depo.baglan(self.db_yolu)
         try:
-            with depo.islem(con) as c:   # kayit, sinir sayimi, rapor ve denetim kaydi birlikte yazilir ya da hicbiri
+            with depo.islem(con) as c:   # the record, rate count, report and audit record are written together or not at all
                 sonuc = self._yukleme_isle(c, anahtar, anahtar_s, eposta, eposta_n, sirket, dil, belge)
         finally:
             con.close()
@@ -187,13 +187,13 @@ class H(BaseHTTPRequestHandler):
         return self._hata(kod, tur, dil, extra=extra)
 
     def _yukleme_isle(self, c, anahtar, anahtar_s, eposta, eposta_n, sirket, dil, belge):
-        """Acik islem icinde calisir. ("rapor",) | ("bekliyor",) | ("hata", kod, tur, ek_basliklar)"""
+        """Runs inside an open transaction. ("rapor",) | ("bekliyor",) | ("hata", code, type, extra_headers)"""
         firma = depo.firma_kaydet(c, depo.firma_anahtari(eposta), sirket, eposta, "tarama")
         if firma["durum"] != "aktif":
             depo.denetim_ekle(c, "sistem", "pasif firma yuklemesi reddedildi, firma #%d" % firma["id"], {"firma": firma["id"], "sonuc": "reddedildi", "neden": "pasif"})
             return ("hata", 403, "pasif", ())
         ozet = depo.belge_ozeti(belge)
-        tekrar = depo.kullanim_tekrar(c, anahtar_s, ozet)  # ayni dosya: hak harcanmaz
+        tekrar = depo.kullanim_tekrar(c, anahtar_s, ozet)  # same file: no allowance is spent
         if not tekrar and depo.kullanim_say(c, anahtar_s) >= self.sirket_adet:
             depo.denetim_ekle(c, "sistem", "sirket siniri asildi, istek reddedildi", {"firma": firma["id"], "sonuc": "reddedildi", "neden": "sinir"})
             return ("hata", 429, "sinir", (("Retry-After", str(depo.SINIR_GUN * 86400)),))
@@ -215,7 +215,7 @@ class H(BaseHTTPRequestHandler):
         return ("rapor",)
 
     def _dogrula(self, token):
-        """E-postadaki baglantidan gelen onay: hak burada harcanir, firma e-postasi dogrulanmis olur."""
+        """Confirmation coming from the link in the email: the allowance is spent here, and the company email becomes verified."""
         con = depo.baglan(self.db_yolu)
         try:
             with depo.islem(con) as c:
@@ -231,7 +231,7 @@ class H(BaseHTTPRequestHandler):
 
     def _dogrula_isle(self, c, token):
         if depo.rapor_getir(c, token):
-            return ("tamam",)   # zaten dogrulanmis: hak yeniden harcanmaz
+            return ("tamam",)   # already verified: the allowance is not spent again
         b = depo.rapor_bekleyen_getir(c, token)
         if not b:
             return ("yok",)
@@ -252,9 +252,9 @@ class H(BaseHTTPRequestHandler):
                           {"firma": firma["id"], "rapor": b["id"], "sonuc": "basarili", "neden": "tekrar" if tekrar else None})
         return ("tamam",)
 
-    # ---- Kip B: dogrudan baglanti (docs/kip-b-tasarim.md) ----
+    # ---- Mode B: direct connection (docs/kip-b-tasarim.md) ----
     def _form(self, sinir=8192):
-        """urlencoded govde -> {alan: metin}. Govde gunluge yazilmaz."""
+        """urlencoded body -> {field: text}. The body is not written to the log."""
         if not (self.headers.get("Content-Type") or "").lower().startswith("application/x-www-form-urlencoded"):
             return None
         try:
@@ -308,10 +308,10 @@ class H(BaseHTTPRequestHandler):
                 h = self.hedef_dogrula(f.get("sunucu", ""), f.get("port", ""), yasak_aglar=self.yasak_aglar)
             except hedef.Reddedildi as e:
                 depo.denetim_ekle(con, "sistem", "dogrudan baglanti hedefi reddedildi (%s), firma #%d" % (e.kod, firma["id"]), {"firma": firma["id"], "sonuc": "reddedildi", "neden": e.kod})
-                self._sabit_bekle(bas, self.SABIT_RED_SN)   # neden ne sure ne govdeyle soylenir
+                self._sabit_bekle(bas, self.SABIT_RED_SN)   # the reason is told neither by timing nor by body
                 return self._hata(422, "hedef", dil)
             anahtar, kanit = secrets.token_urlsafe(32), secrets.token_hex(16)
-            with depo.islem(con) as c:   # istek ve denetim kaydi birlikte
+            with depo.islem(con) as c:   # the request and the audit record together
                 depo.istek_ekle(c, anahtar, firma["id"], kanit, h.ad, h.ip, h.port, veritabani, kullanici,
                                 f.get("maskele", "") in ("on", "1"), dil)
                 depo.denetim_ekle(c, "musteri", "dogrudan baglanti istegi acildi, firma #%d, hedef=%s" % (firma["id"], h.ozet()[:16]), {"firma": firma["id"], "hedef": h.ozet()[:16], "sonuc": "basarili"})
@@ -321,7 +321,7 @@ class H(BaseHTTPRequestHandler):
 
     def _baglan_calistir(self, token):
         bas = self.saat()
-        f = self._form(sinir=3 * baglanti.CA_PEM_SINIRI + 4096)   # CA PEM'i url kodlamasiyla uc kata cikabilir
+        f = self._form(sinir=3 * baglanti.CA_PEM_SINIRI + 4096)   # the CA PEM can triple in size with url encoding
         con = depo.baglan(self.db_yolu)
         try:
             i = depo.istek_getir(con, token)
@@ -330,9 +330,9 @@ class H(BaseHTTPRequestHandler):
             dil = i["dil"]
             if f is None or not f.get("parola"):
                 return self._hata(422, "baglanti", dil)
-            ca = (f.get("ca_pem") or "").strip()   # istege bagli: verilirse sslmode=verify-full
+            ca = (f.get("ca_pem") or "").strip()   # optional: if given, sslmode=verify-full
             if ca:
-                try:   # deneme hakki harcanmadan ve hicbir baglanti acilmadan
+                try:   # without spending an attempt and without opening any connection
                     ca = baglanti.ca_dogrula(ca)
                 except baglanti.BaglantiHatasi:
                     return self._hata(422, "ca", dil)
@@ -349,7 +349,7 @@ class H(BaseHTTPRequestHandler):
             anahtar_s = depo.sirket_anahtari(firma["eposta"])
             if depo.kullanim_say(con, anahtar_s) >= self.sirket_adet:
                 return self._hata(429, "sinir", dil)
-            h = hedef.Hedef(i["ad"], i["ip"], i["port"])   # ad yeniden cozulmez: dogrulanmis IP kullanilir
+            h = hedef.Hedef(i["ad"], i["ip"], i["port"])   # the name is not resolved again: the validated IP is used
             if not TARAMA_YUVASI.acquire(blocking=False):
                 return self._hata(503, "mesgul", dil, extra=(("Retry-After", "120"),))
             basarisiz = None
@@ -363,15 +363,15 @@ class H(BaseHTTPRequestHandler):
             except baglanti.BaglantiHatasi as e:
                 depo.denetim_ekle(con, "sistem", "dogrudan tarama basarisiz (%s), firma #%d, hedef=%s" % (e.kod, firma["id"], h.ozet()[:16]))
                 basarisiz = {"kanit": "kanit", "super": "super", "zaman": "zaman", "mesgul": "mesgul", "calistirici": "mesgul",
-                             "ca": "ca"}.get(e.kod, "baglanti")   # hedef/bicim/baglanti: tek sayfa
+                             "ca": "ca"}.get(e.kod, "baglanti")   # target/format/connection: a single page
             finally:
                 TARAMA_YUVASI.release()
             if basarisiz:
                 if basarisiz == "baglanti":
-                    self._sabit_bekle(bas, self.SABIT_BAGLANTI_SN)   # tarama yuvasi birakildiktan sonra
+                    self._sabit_bekle(bas, self.SABIT_BAGLANTI_SN)   # after the scan slot is released
                 return self._hata({"zaman": 504, "mesgul": 503}.get(basarisiz, 422), basarisiz, dil)
             anahtar = secrets.token_urlsafe(32)
-            with depo.islem(con) as c:   # sinir sayimi, rapor, istek kapanisi ve denetim kaydi birlikte; tarama bu islemin disinda kostu
+            with depo.islem(con) as c:   # rate count, report, request closure and audit record together; the scan ran outside this transaction
                 asildi = depo.kullanim_say(c, anahtar_s) >= self.sirket_adet
                 if not asildi:
                     depo.kullanim_ekle(c, anahtar_s)
@@ -387,17 +387,17 @@ class H(BaseHTTPRequestHandler):
     def _sil(self, token):
         con = depo.baglan(self.db_yolu)
         try:
-            with depo.islem(con) as c:   # silme ve denetim kaydi birlikte
+            with depo.islem(con) as c:   # deletion and audit record together
                 n = depo.rapor_sil(c, token)
-                if n:  # olmayan rapor icin denetim kaydi yazilmaz: kimliksiz istekle silinmeyen zincir sisirilemesin
+                if n:  # no audit record is written for a nonexistent report: so the undeletable chain cannot be inflated by requests without identity
                     depo.denetim_ekle(c, "musteri", "rapor silindi", {"sonuc": "basarili"})
         finally:
             con.close()
         if not n:
-            print("rapor silme istegi: rapor yok", flush=True)
+            print("report deletion request: no such report", flush=True)
         self._send(303 if n else 404, extra=(("Location", "/"),) if n else ())
 
-    def log_message(self, fmt, *a):  # yol token icerir: yazma
+    def log_message(self, fmt, *a):  # the path contains the token: not written
         yol = self.path.split("?")[0]
         if yol.startswith("/rapor/"):
             yol = "/rapor/..."
@@ -407,7 +407,7 @@ class H(BaseHTTPRequestHandler):
 
 
 def dogrudan_ayarla(ortam, H):
-    """Kip B'yi yalniz ayri calistirici soketi verilmisse acar. Acildiysa True."""
+    """Enables Mode B only if a separate runner socket is given. True if enabled."""
     if ortam.get("ALIG_DOGRUDAN") != "1" or not ortam.get("ALIG_CALISTIRICI_SOKETI"):
         return False
     H.dogrudan = True
@@ -417,7 +417,7 @@ def dogrudan_ayarla(ortam, H):
 
 
 def eposta_ayarla(ortam, H):
-    """ALIG_EPOSTA_DOGRULAMA=1 ise dogrulamayi acar; site adresi https degilse ValueError (yanlis ayarla acilmaz)."""
+    """If ALIG_EPOSTA_DOGRULAMA=1, enables verification; ValueError if the site address is not https (it cannot be enabled with a wrong setting)."""
     if ortam.get("ALIG_EPOSTA_DOGRULAMA") != "1":
         H.eposta_dogrulama = False
         return False
@@ -425,19 +425,19 @@ def eposta_ayarla(ortam, H):
     u = urlparse(adres)
     yerel = u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1")
     if not ((u.scheme == "https" and u.netloc) or yerel) or u.path or u.query:
-        raise ValueError("ALIG_EPOSTA_DOGRULAMA=1 icin ALIG_SITE_ADRESI https://alan-adi biciminde olmali")
+        raise ValueError("for ALIG_EPOSTA_DOGRULAMA=1, ALIG_SITE_ADRESI must be in the form https://domain-name")
     H.eposta_dogrulama, H.site_adresi = True, adres
     return True
 
 
 def portal_ayarla(ortam, H):
-    """ALIG_PORTAL=1 ise portali acar, ama yalniz e-posta dogrulamasi aciksa: dogrulama olmadan bir adresin sahibi
-    dogrulanamaz, baskasinin firmasina hesap acilabilirdi. Acildiysa True; dogrulama kapaliyken ValueError."""
+    """If ALIG_PORTAL=1, enables the portal, but only if email verification is on: without verification the owner of an address
+    cannot be verified, and an account could be opened in another's company. True if enabled; ValueError when verification is off."""
     if ortam.get("ALIG_PORTAL") != "1":
         H.portal = False
         return False
     if not H.eposta_dogrulama:
-        raise ValueError("ALIG_PORTAL=1 icin ALIG_EPOSTA_DOGRULAMA=1 de acik olmali (e-posta sahipligi dogrulanmadan portal acilmaz)")
+        raise ValueError("for ALIG_PORTAL=1, ALIG_EPOSTA_DOGRULAMA=1 must also be on (the portal does not open without verifying email ownership)")
     H.portal = True
     H.portal_cerez_guvenli = H.site_adresi.startswith("https://")
     return True
@@ -451,19 +451,19 @@ def main(argv=None):
     a = ap.parse_args(argv)
     H.db_yolu = a.db
     if os.environ.get("ALIG_DOGRUDAN") == "1" and not dogrudan_ayarla(os.environ, H):
-        print("UYARI: ALIG_DOGRUDAN=1 ama ALIG_CALISTIRICI_SOKETI yok; dogrudan baglanti KAPALI kaldi", flush=True)
+        print("WARNING: ALIG_DOGRUDAN=1 but ALIG_CALISTIRICI_SOKETI is missing; direct connection stayed OFF", flush=True)
     if os.environ.get("ALIG_MSSQL") == "1":
         H.motorlar = ("postgresql", "mssql")
     try:
         depo.denetim_anahtari()
         saklama.dogrula()
-        puan.yukle()   # gecersiz puan ayariyla servis baslamaz (PuanAyarHatasi bir ValueError)
+        puan.yukle()   # the service does not start with an invalid score setting (PuanAyarHatasi is a ValueError)
         eposta_ayarla(os.environ, H)
         portal_ayarla(os.environ, H)
     except (depo.AnahtarHatasi, saklama.SaklamaHatasi, ValueError) as ex:
-        raise SystemExit("hata: %s" % ex)
+        raise SystemExit("error: %s" % ex)
     depo.baglan(a.db).close()
-    print("dinliyor %s:%d" % (a.host, a.port), flush=True)
+    print("listening %s:%d" % (a.host, a.port), flush=True)
     ThreadingHTTPServer((a.host, a.port), H).serve_forever()
 
 

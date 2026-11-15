@@ -1,5 +1,5 @@
-"""Ornek rapor sayfasi (yol haritasi madde 19): sentetik belgeden uretilir, acikca etiketlenir, eylem icermez.
-Uretilen dosyalar (site/uretilen/) elle duzenlenmez: tarama/uret_ornek_rapor.py ile uretilir, bu testler depodakini denetler."""
+"""Example report page (roadmap item 19): produced from a synthetic document, clearly labeled, contains no actions.
+The generated files (site/uretilen/) are not edited by hand: they are produced with tarama/uret_ornek_rapor.py, and these tests check what is in the repository."""
 import re
 import sys
 import tempfile

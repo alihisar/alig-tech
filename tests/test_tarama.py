@@ -25,7 +25,7 @@ def _zincire_yaz(yol, ad, n, q):
     for i in range(n):
         try:
             depo.denetim_ekle(con, ad, "olay %d" % i)
-        except Exception:  # noqa: BLE001 - sayilir, test hatayi sifir bekler
+        except Exception:  # noqa: BLE001 - it is counted, the test expects zero errors
             hata += 1
             con.rollback()
     q.put(hata)
@@ -41,7 +41,7 @@ def _goc_ac(yol, bariyer, q):
 
 
 def farkli_belge(n):
-    """Her n icin ayri icerikli (dolayisiyla ayri ozetli) temiz belge: yinelenen yukleme sayilmasin."""
+    """A clean document with different content (and therefore a different digest) for each n: so it is not counted as a duplicate upload."""
     b = temiz_belge()
     b["olusturma_utc"] = "2026-11-10T12:00:%02dZ" % n
     return json.dumps(b).encode()
@@ -51,9 +51,9 @@ def temiz_belge():
     k = {}
     for c in katalog.PG:
         k[c["id"]] = {"durum": "ok", "satirlar": []}
-    k["pg_surum"]["satirlar"] = [{"surum_num": 160015}]   # gercek sunucuda sinanan surum (katalog.SINANAN)
-    k["pg_sunucu_rolu"]["satirlar"] = [{"yedek": False}]   # birincil
-    k["pg_hesap"]["satirlar"] = [{"super_kullanici": False, "pg_read_all_stats": True, "pg_read_all_settings": True}]   # pg_monitor uyesi
+    k["pg_surum"]["satirlar"] = [{"surum_num": 160015}]   # a version tested on a real server (katalog.SINANAN)
+    k["pg_sunucu_rolu"]["satirlar"] = [{"yedek": False}]   # primary
+    k["pg_hesap"]["satirlar"] = [{"super_kullanici": False, "pg_read_all_stats": True, "pg_read_all_settings": True}]   # a member of pg_monitor
     k["pg_baglanti"]["satirlar"] = [{"kullanilan": 10, "ust": 100}]
     k["pg_arsiv"]["satirlar"] = [{"archive_mode": "on", "basarili": 5, "hatali": 0, "son_basari_utc": "2026-11-10T10:00:00Z", "son_hata_utc": None}]
     k["pg_tls_parola"]["satirlar"] = [{"ssl": "on", "password_encryption": "scram-sha-256", "ssl_min_protocol_version": "TLSv1.2"}]
@@ -61,7 +61,7 @@ def temiz_belge():
     k["pg_kapsam"]["satirlar"] = [{"veritabani": "postgres", "veritabani_sayisi": 1}]
     k["pg_log_ayarlari"]["satirlar"] = [{"name": "log_connections", "setting": "on"}, {"name": "log_disconnections", "setting": "on"}]
     k["pg_md5_roller"]["satirlar"] = [{"sayi": 0}]
-    # Gercek sunucuda her zaman satir donen sorgular: bos donmeleri "veri yok" demektir, temiz degil (tarama/kanit.py)
+    # Queries that always return rows on a real server: an empty return means "no data", not clean (tarama/kanit.py)
     k["pg_xid_yasi"]["satirlar"] = [{"datname": "postgres", "yas": 1000, "mxid_yas": 1, "freeze_max_age": 200000000, "mxid_freeze_max_age": 400000000}]
     k["pg_autovacuum"]["satirlar"] = [{"name": "autovacuum", "setting": "on"}, {"name": "track_counts", "setting": "on"}]
     k["pg_gecici_dosya"]["satirlar"] = [{"datname": "postgres", "dosya": 0, "bayt": 0, "sifirlama_utc": None}]
@@ -83,7 +83,7 @@ class AyristirmaTests(unittest.TestCase):
         self.assertEqual(self.kod(b"[" * 200000), "derin")
         self.assertEqual(self.kod(b'{"a":' * 100000), "derin")
         self.assertEqual(self.kod(b'{"a":' * (yukleme.MAX_DERINLIK + 1) + b"1" + b"}" * (yukleme.MAX_DERINLIK + 1)), "derin")
-        ic = b'{"x": "[[[[[[[[[[[[[[[[[[[[ {{{{{{{{{{{{{{{{{{{{{{ \\" [[[["}'   # metin icindeki parantez sayilmaz
+        ic = b'{"x": "[[[[[[[[[[[[[[[[[[[[ {{{{{{{{{{{{{{{{{{{{{{ \\" [[[["}'   # brackets inside a string are not counted
         self.assertEqual(self.kod(ic), "alanlar")
 
     def test_standart_disi_json_reddedilir(self):
@@ -101,7 +101,7 @@ KOTU_DEGERLER = ("x", "", None, -1, 0, True, 1.5, 10 ** 30)
 
 
 class BozukDegerTests(unittest.TestCase):
-    """Yuklenen dosya guvenilmeyen girdidir: semaya uyan ama turu yanlis deger rapor ya da paneli dusurmemeli."""
+    """An uploaded file is untrusted input: a value that fits the schema but has the wrong type must not take the report or the panel down."""
 
     def test_kurallar_hicbir_degerle_cokmez(self):
         for cid, c in katalog.PG_BY_ID.items():
@@ -134,7 +134,7 @@ class BozukDegerTests(unittest.TestCase):
     def test_yukleme_bos_ve_eksik_degeri_kabul_eder(self):
         b = temiz_belge()
         b["kontroller"]["pg_slot"] = {"durum": "ok", "satirlar": [{"slot_name": "a", "active": False, "wal_status": None, "geri_bayt": None}]}
-        b["kontroller"]["pg_sequence"] = {"durum": "ok", "satirlar": [{"veritabani": "d", "schemaname": "a", "sequencename": "b", "oran": 1}]}  # float8 1.0 JSON'da 1 yazilabilir
+        b["kontroller"]["pg_sequence"] = {"durum": "ok", "satirlar": [{"veritabani": "d", "schemaname": "a", "sequencename": "b", "oran": 1}]}  # float8 1.0 can be written as 1 in JSON
         yukleme.dogrula(b)
 
     def test_yukleme_eksik_kolonu_reddeder(self):
@@ -146,18 +146,18 @@ class BozukDegerTests(unittest.TestCase):
 
     def test_cok_sayida_yapi_hizla_reddedilir(self):
         import time as _t
-        ham = b'{"a":[' + b"[]," * 1_500_000 + b"[]]}"   # gecerli JSON: ayristirilsa 1,5 milyon liste kurulurdu
+        ham = b'{"a":[' + b"[]," * 1_500_000 + b"[]]}"   # valid JSON: if parsed, a list of 1.5 million items would be built
         bas = _t.monotonic()
         with self.assertRaises(yukleme.Gecersiz) as ctx:
             yukleme.coz(ham)
         self.assertEqual(ctx.exception.kod, "derin")
         self.assertLess(_t.monotonic() - bas, 0.2)
-        for ham in (b"[" + b'"",' * 1_700_000 + b"1]", b'["' + b"\\\\" * 2_000_000 + b'"]'):   # cok tirnak, cok kacis
+        for ham in (b"[" + b'"",' * 1_700_000 + b"1]", b'["' + b"\\\\" * 2_000_000 + b'"]'):   # many quotes, many escapes
             bas = _t.monotonic()
             with self.assertRaises(yukleme.Gecersiz):
                 yukleme.coz(ham)
             self.assertLess(_t.monotonic() - bas, 0.2)
-        metinde = b'{"a":"' + b"[" * 50 + b'"}'   # metin icindeki parantez derinlige sayilmaz
+        metinde = b'{"a":"' + b"[" * 50 + b'"}'   # brackets inside a string do not count toward depth
         with self.assertRaises(yukleme.Gecersiz) as ctx:
             yukleme.coz(metinde)
         self.assertNotEqual(ctx.exception.kod, "derin")
@@ -211,7 +211,7 @@ VT_KONTROLLERI = {"pg_kapsam", "pg_olu_satir", "pg_gecersiz_indeks", "pg_kullani
 
 
 class VeritabaniKapsamTests(unittest.TestCase):
-    """Tablo, indeks ve sequence denetimleri baglanilabilen her veritabaninda calisir."""
+    """Table, index and sequence checks run in every database that can be connected to."""
 
     def test_katalogda_veritabani_basina_denetimler_isaretli(self):
         self.assertEqual({c["id"] for c in katalog.PG if c.get("kapsam") == "veritabani"}, VT_KONTROLLERI)
@@ -235,7 +235,7 @@ class VeritabaniKapsamTests(unittest.TestCase):
             with self.assertRaises(yukleme.Gecersiz, msg=repr(kotu)):
                 yukleme.dogrula(b)
         b = temiz_belge()
-        b["kontroller"]["pg_surum"]["atlanan"] = []   # sunucu geneli denetimde atlanan olmaz
+        b["kontroller"]["pg_surum"]["atlanan"] = []   # there is no skipped database in a server-wide check
         with self.assertRaises(yukleme.Gecersiz):
             yukleme.dogrula(b)
 
@@ -271,8 +271,8 @@ class VeritabaniKapsamTests(unittest.TestCase):
         b["kontroller"]["pg_olu_satir"] = {"durum": "ok", "satirlar": [], "atlanan": list(at)}
         b["kontroller"]["pg_gecersiz_indeks"] = {"durum": "ok", "satirlar": [], "atlanan": at + [{"veritabani": "postgres", "neden": "yetki"}]}
         _, olcul = kurallar.degerlendir(b)
-        # Taranmayan veritabani temiz sayilmaz: veritabani basina her kural bilinmiyor (atlananlar raporun kapsam
-        # bolumunde bir kez listelenir). Gecmis karsilastirmasinda kaybolan kanit cozulmus sayilmasin diye.
+        # An unscanned database is not counted as clean: every rule per database is unknown (the skipped ones are listed once in the report's scope
+        # section). So that vanished evidence is not counted as resolved in the history comparison.
         vt = [k.kimlik for k in kurallar.KURALLAR if any(katalog.PG_BY_ID.get(x.kontrol, {}).get("kapsam") == "veritabani" for x in k.kaynaklar)]
         self.assertEqual(sorted(x for x in olcul if x[1] == "kismi_veritabani"), sorted((k, "kismi_veritabani") for k in vt))
         self.assertEqual(len(olcul), len(vt))
@@ -318,7 +318,7 @@ sys.exit(1)
 
 
 class ToplayiciTaban(unittest.TestCase):
-    """Musterinin calistirdigi toplayici, sahte psql ile (test icermez; tests/test_surum.py de kullanir)."""
+    """The collector run by the customer, with a fake psql (contains no tests; tests/test_surum.py uses it too)."""
 
     def setUp(self):
         import stat as _stat
@@ -348,19 +348,19 @@ class ToplayiciTaban(unittest.TestCase):
 
 
 class ToplayiciVeritabaniTests(ToplayiciTaban):
-    """Toplayici her veritabanini dolasir, atlananlari yazar."""
+    """The collector visits every database and writes the skipped ones."""
 
     def test_her_veritabani_taranir_atlananlar_yazilir(self):
         b, cikti = self.calistir()
-        yukleme.dogrula(b)   # sunucu dogrulamasindan gecer
+        yukleme.dogrula(b)   # passes server validation
         olu = b["kontroller"]["pg_olu_satir"]
         self.assertEqual([x["veritabani"] for x in olu["satirlar"]], ["satis db"])
         self.assertEqual(olu["atlanan"], [{"veritabani": "arsiv", "neden": "yetki"}])
         gi = b["kontroller"]["pg_gecersiz_indeks"]
         self.assertEqual(sorted(x["veritabani"] for x in gi["atlanan"]), ["arsiv", "satis db"])
         self.assertEqual([x["veritabani"] for x in b["kontroller"]["pg_kapsam"]["satirlar"]], ["postgres", "satis db"])
-        self.assertNotIn("arsiv", {g["db"] for g in self.gunluk()})   # yetkisiz veritabanina baglanmaya calisilmaz
-        self.assertIn("satis db", {g["db"] for g in self.gunluk()})   # bosluklu ad tirnakla gecer
+        self.assertNotIn("arsiv", {g["db"] for g in self.gunluk()})   # no attempt is made to connect to an unprivileged database
+        self.assertIn("satis db", {g["db"] for g in self.gunluk()})   # a name with spaces passes with quotes
         self.assertIn("dbname='satis db'", {g["ci"].split(" sslmode")[0] for g in self.gunluk()})
         self.assertEqual(oct(cikti.stat().st_mode)[-3:], "600")
         bulgu, _ = kurallar.degerlendir(b)
@@ -388,7 +388,7 @@ class ToplayiciVeritabaniTests(ToplayiciTaban):
         self.assertEqual(oct(esleme.stat().st_mode)[-3:], "600")
         self.assertIn("satis db", harita.values())
         self.assertIn(b["kontroller"]["pg_olu_satir"]["satirlar"][0]["veritabani"], harita)
-        with self.assertRaises(yukleme.Gecersiz):   # esleme dosyasi yanlislikla yuklenirse reddedilir
+        with self.assertRaises(yukleme.Gecersiz):   # if the mapping file is uploaded by mistake it is rejected
             yukleme.coz(esleme.read_bytes())
 
     def test_sifresiz_baglantida_uyari(self):
@@ -399,7 +399,7 @@ class ToplayiciVeritabaniTests(ToplayiciTaban):
 
 class MetinTests(unittest.TestCase):
     def test_sinir_metinleri_sabitlerle_uyumlu(self):
-        """Sinir degisirse statik sayfalardaki metin de degismeli: bu test unutulani yakalar."""
+        """If the limit changes the text on the static pages must change too: this test catches what is forgotten."""
         import json as _j
         tr = _j.loads((ROOT / "site" / "i18n" / "tr.json").read_text(encoding="utf-8"))
         en = _j.loads((ROOT / "site" / "i18n" / "en.json").read_text(encoding="utf-8"))
@@ -425,7 +425,7 @@ class KatalogTests(unittest.TestCase):
     def test_katalog_yalniz_select_ve_yasakli_sozcuk_yok(self):
         yasakli = [w.strip() for w in katalog.YASAKLI]
         for c in katalog.PG:
-            for sorgu in katalog.sorgular(c):   # eski surum bicimleri de
+            for sorgu in katalog.sorgular(c):   # old version forms too
                 sql = re.sub(r"'[^']*'", "''", sorgu).lower()
                 self.assertTrue(sql.lstrip().startswith("select"), c["id"])
                 self.assertNotIn(";", sql, c["id"])
@@ -443,7 +443,7 @@ class KatalogTests(unittest.TestCase):
         self.assertEqual(uret_toplayici.main(["--kontrol"]), 0)
 
     def test_toplayici_dosyasinda_baglanti_yok(self):
-        # toplayici parola argumani kabul etmez
+        # the collector does not accept a password argument
         kod = (ROOT / "site" / "assets" / "alig-toplayici.py").read_text(encoding="utf-8")
         self.assertNotIn("--password", kod)
         self.assertNotIn("--parola", kod)
@@ -471,7 +471,7 @@ class KuralTests(unittest.TestCase):
         self.assertEqual(onem["pg_gecersiz_indeks"], "yuksek")
         self.assertEqual(onem["pg_xid_yasi"], "kritik")
         self.assertEqual(onem["pg_slot"], "kritik")
-        self.assertEqual([x["onem"] for x in b], sorted([x["onem"] for x in b], key=kurallar.ONEM.index))  # onem sirasi
+        self.assertEqual([x["onem"] for x in b], sorted([x["onem"] for x in b], key=kurallar.ONEM.index))  # severity order
 
     def test_olculemedi_temiz_degildir(self):
         d = temiz_belge()
@@ -589,7 +589,7 @@ class DepoTests(unittest.TestCase):
     def test_anahtarli_zincir_ve_eski_kayitlar(self):
         c = self.con()
         c.execute("INSERT INTO denetim(seq, zaman_utc, aktor, olay, onceki, ozet, mod) VALUES(1,'2026-01-01T00:00:00Z','a','eski','',?,0)",
-                  (depo.ozet_hesapla(1, "a", "eski", ""),))  # surum oncesi (alansiz, anahtarsiz) kayit
+                  (depo.ozet_hesapla(1, "a", "eski", ""),))  # pre-version record (no fields, no key)
         c.commit()
         anahtar = "k" * 40
         with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: anahtar}):
@@ -598,7 +598,7 @@ class DepoTests(unittest.TestCase):
             self.assertIsNone(depo.denetim_dogrula(c))
             self.assertEqual(depo.denetim_durum(c, anahtar.encode())["anahtarli"], True)
         self.assertEqual(c.execute("SELECT mod FROM denetim ORDER BY seq").fetchall(), [(0,), (3,), (3,)])
-        d = depo.denetim_durum(c)  # anahtar yok: baglanti saglam, HMAC denetlenemedi
+        d = depo.denetim_durum(c)  # no key: the link is sound, HMAC could not be checked
         self.assertIsNone(d["bozuk"])
         self.assertEqual(d["dogrulanamayan"], 2)
         self.assertIn("anahtar olmadan", depo.denetim_metni(d))
@@ -609,7 +609,7 @@ class DepoTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: anahtar.decode()}):
             for i in range(3):
                 depo.denetim_ekle(c, "a", "o%d" % i)
-        # saldirgan 2. kaydi degistirip zinciri SHA-256 ile bastan uretir, mod=1 birakir
+        # the attacker changes record 2 and regenerates the chain from the start with SHA-256, leaving mod=1
         c.execute("UPDATE denetim SET olay='sahte' WHERE seq=2")
         onceki = ""
         for seq, aktor, olay in c.execute("SELECT seq, aktor, olay FROM denetim ORDER BY seq").fetchall():
@@ -617,9 +617,9 @@ class DepoTests(unittest.TestCase):
             c.execute("UPDATE denetim SET onceki=?, ozet=? WHERE seq=?", (onceki, oz, seq))
             onceki = oz
         self.assertEqual(depo.denetim_dogrula(c, anahtar), 1)
-        # mod=0'a cevirirse: anahtarli kayitlardan sonra anahtarsiz kayit olmaz, ama hepsi 0 ise bas dosyasi yakalar
+        # if turned to mod=0: there can be no keyless record after keyed ones, but if all are 0 the head file catches it
         c.execute("UPDATE denetim SET mod=0")
-        self.assertIsNone(depo.denetim_dogrula(c, anahtar))  # tek basina yetmez: bu yuzden zincir basi disa aktarilir
+        self.assertIsNone(depo.denetim_dogrula(c, anahtar))  # alone it is not enough: that is why the chain head is exported
 
     def test_zincir_basi_disa_aktarilir_ve_bastan_uretim_yakalanir(self):
         c = self.con()
@@ -634,27 +634,27 @@ class DepoTests(unittest.TestCase):
             oz = depo.ozet_hesapla(seq, aktor, olay, onceki, None, al)
             c.execute("UPDATE denetim SET onceki=?, ozet=? WHERE seq=?", (onceki, oz, seq))
             onceki = oz
-        self.assertIsNone(depo.denetim_durum(c)["bozuk"])  # bas olmadan yakalanamaz
-        self.assertEqual(depo.denetim_durum(c, None, bas)["bozuk"], 3)  # bas ile yakalanir
-        c.execute("DELETE FROM denetim WHERE seq=3")  # son kayitlarin kesilmesi
+        self.assertIsNone(depo.denetim_durum(c)["bozuk"])  # cannot be caught without the head
+        self.assertEqual(depo.denetim_durum(c, None, bas)["bozuk"], 3)  # caught with the head
+        c.execute("DELETE FROM denetim WHERE seq=3")  # truncation of the last records
         self.assertEqual(depo.denetim_durum(c, None, bas)["bozuk"], 3)
 
     def test_yapisal_alanlar_ozete_dahil_ve_kisitli(self):
         c = self.con()
         depo.denetim_ekle(c, "sistem", "x", {"firma": 3, "sonuc": "reddedildi", "neden": None, "serbest": "yok", "hedef": "h" * 500})
         al = json.loads(c.execute("SELECT alanlar FROM denetim").fetchone()[0])
-        self.assertEqual(set(al), {"firma", "sonuc", "hedef"})  # izinli anahtarlar, bos deger yok
+        self.assertEqual(set(al), {"firma", "sonuc", "hedef"})  # allowed keys, no empty values
         self.assertEqual(len(al["hedef"]), depo.ALAN_UZUNLUK)
         self.assertIsNone(depo.denetim_dogrula(c))
         c.execute("UPDATE denetim SET alanlar=? WHERE seq=1", (json.dumps({"firma": 4, "sonuc": "reddedildi", "hedef": al["hedef"]}),))
-        self.assertEqual(depo.denetim_dogrula(c), 1)  # alan degistirilince zincir kirilir
+        self.assertEqual(depo.denetim_dogrula(c), 1)  # when a field is changed the chain breaks
 
     def test_alansiz_surume_dusurme_yakalanir(self):
         c = self.con()
         depo.denetim_ekle(c, "a", "bir", {"sonuc": "basarili"})
         c.execute("INSERT INTO denetim(seq, zaman_utc, aktor, olay, onceki, ozet, mod) VALUES(2,'2026-01-01T00:00:00Z','a','iki',(SELECT ozet FROM denetim WHERE seq=1),?,0)",
                   (depo.ozet_hesapla(2, "a", "iki", c.execute("SELECT ozet FROM denetim WHERE seq=1").fetchone()[0]),))
-        self.assertEqual(depo.denetim_dogrula(c), 2)  # yapisal kayittan sonra alansiz kayit gelmez
+        self.assertEqual(depo.denetim_dogrula(c), 2)  # a record without fields does not come after a structured record
 
     def test_ip_ozeti_duz_adres_icermez_ve_anahtarla_degisir(self):
         a = depo.ip_ozeti("203.0.113.7", None)
@@ -664,7 +664,7 @@ class DepoTests(unittest.TestCase):
         self.assertEqual(depo.ip_ozeti("203.0.113.7", b"k" * 40), depo.ip_ozeti("203.0.113.7", b"k" * 40))
 
     def test_eszamanli_surecler_zinciri_bozmaz_kayit_kaybetmez(self):
-        """Tarama sunucusu, yonetim paneli ve bakim ayni tarama.sqlite zincirine yazar."""
+        """The scan server, the admin panel and maintenance write to the same tarama.sqlite chain."""
         import multiprocessing as mp
         yol = str(Path(tempfile.mkdtemp()) / "t.sqlite")
         depo.baglan(yol).close()
@@ -694,7 +694,7 @@ class DepoTests(unittest.TestCase):
 
     def test_acik_islem_icinde_denetim_ekle_calisir(self):
         c = self.con()
-        c.execute("INSERT INTO kullanim(anahtar_sha256, zaman_utc) VALUES('a','2026-01-01T00:00:00Z')")  # acik islem
+        c.execute("INSERT INTO kullanim(anahtar_sha256, zaman_utc) VALUES('a','2026-01-01T00:00:00Z')")  # open transaction
         self.assertTrue(c.in_transaction)
         depo.denetim_ekle(c, "a", "islem icinde")
         self.assertFalse(c.in_transaction)
@@ -706,7 +706,7 @@ class DepoTests(unittest.TestCase):
         b = depo.firma_kaydet(c, "b.com", "B", "x@b.com", "tarama")
         depo.firma_sil(c, b["id"])
         yeni = depo.firma_kaydet(c, "c.com", "C", "x@c.com", "tarama")
-        self.assertGreater(yeni["id"], b["id"])   # denetimdeki "firma #N" hep ayni firmayi gosterir
+        self.assertGreater(yeni["id"], b["id"])   # "firma #N" in the audit always points to the same company
         depo.rapor_ekle(c, "t1", "postgresql", "tr", {"a": 1}, a["id"])
         depo.rapor_ekle(c, "t2", "postgresql", "tr", {"a": 1}, a["id"])
         eski = max(r["id"] for r in depo.rapor_listele(c))
@@ -753,7 +753,7 @@ class DepoTests(unittest.TestCase):
         self.assertEqual(calis("dogrula", yol).returncode, 0)
         ort2 = {k: v for k, v in ort.items() if k != depo.ANAHTAR_ORTAM}
         r = subprocess.run([sys.executable, str(ROOT / "tarama" / "depo.py"), "dogrula", yol], capture_output=True, text=True, env=ort2)
-        self.assertEqual(r.returncode, 1)  # anahtarli kayit anahtar olmadan dogrulanamadi
+        self.assertEqual(r.returncode, 1)  # a keyed record could not be verified without the key
 
     def test_token_saklanmaz_ve_sure(self):
         c = self.con()
@@ -829,7 +829,7 @@ class SunucuTests(_SunucuTaban):
         self.assertIsNone(depo.denetim_dogrula(con))
         olaylar = [x[0] for x in con.execute("SELECT olay FROM denetim")]
         self.assertTrue(any("yuklendi" in o for o in olaylar) and any("silindi" in o for o in olaylar))
-        self.assertFalse(any(yol.split("/")[2] in o for o in olaylar))  # token denetim kaydina yazilmaz
+        self.assertFalse(any(yol.split("/")[2] in o for o in olaylar))  # the token is not written to the audit record
 
     def test_dusmanca_json_sunucuyu_dusurmez(self):
         for veri in (b"[" * 200000, b'{"a":' * 100000, b'{"format": NaN}', b'{"format": Infinity}',
@@ -837,7 +837,7 @@ class SunucuTests(_SunucuTaban):
             r = self.yukle(veri)
             self.assertEqual(r.status, 422, veri[:20])
             self.assertIn("<html", r.govde)
-        self.assertEqual(self.yukle(json.dumps(temiz_belge()).encode()).status, 303)   # sunucu ayakta
+        self.assertEqual(self.yukle(json.dumps(temiz_belge()).encode()).status, 303)   # server is up
 
     def test_hata_sayfasi_kurumsal_ve_iki_dilli(self):
         r = self.yukle(b"{bozuk")
@@ -892,7 +892,7 @@ class SunucuTests(_SunucuTaban):
         self.assertEqual(kodlar, [303, 303, 429, 303])
         con = depo.baglan(self.db)
         self.assertIsNone(depo.denetim_dogrula(con))
-        self.assertNotIn("ornek.com", json.dumps(con.execute("SELECT * FROM kullanim").fetchall()))  # sinir tablosunda duz adres yok
+        self.assertNotIn("ornek.com", json.dumps(con.execute("SELECT * FROM kullanim").fetchall()))  # there is no plain address in the rate table
 
     def test_sirket_siniri_ucretsiz_posta_adrese_gore(self):
         for n in (1, 2):
@@ -902,15 +902,15 @@ class SunucuTests(_SunucuTaban):
 
     def test_ayni_dosya_ikinci_hak_harcamaz(self):
         veri = farkli_belge(7)
-        for _ in range(4):  # ayni dosya sinira takilmaz, her seferinde ayri rapor baglantisi uretilir
+        for _ in range(4):  # the same file does not hit the limit, a separate report link is produced each time
             self.assertEqual(self.yukle(veri, eposta="t@tekrar.com").status, 303)
         con = depo.baglan(self.db)
         self.assertEqual(con.execute("SELECT count(*) FROM kullanim").fetchone()[0], 1)
         self.assertEqual(con.execute("SELECT count(*) FROM rapor").fetchone()[0], 4)
         olaylar = [o[0] for o in con.execute("SELECT olay FROM denetim")]
         self.assertEqual(len([o for o in olaylar if "ayni dosya (hak harcanmadi)" in o]), 3)
-        self.assertRegex(con.execute("SELECT belge_sha256 FROM kullanim").fetchone()[0], r"^[0-9a-f]{64}$")  # icerik degil ozet saklanir
-        for n in (8, 9):  # farkli dosyalar ise hak harcar: 1 kullanildi, 2. hak var, 3. yok
+        self.assertRegex(con.execute("SELECT belge_sha256 FROM kullanim").fetchone()[0], r"^[0-9a-f]{64}$")  # the digest is stored, not the content
+        for n in (8, 9):  # different files spend allowance: 1 used, the 2nd allowance exists, the 3rd does not
             self.assertEqual(self.yukle(farkli_belge(n), eposta="t@tekrar.com").status, 303 if n == 8 else 429)
 
     def test_tekrar_baska_sirkette_hak_acmaz_ve_sinir_asilinca_tekrar_yine_gecer(self):
@@ -918,8 +918,8 @@ class SunucuTests(_SunucuTaban):
         self.assertEqual(self.yukle(a, eposta="x@bir.com").status, 303)
         self.assertEqual(self.yukle(b, eposta="x@bir.com").status, 303)
         self.assertEqual(self.yukle(farkli_belge(3), eposta="x@bir.com").status, 429)
-        self.assertEqual(self.yukle(a, eposta="x@bir.com").status, 303)  # daha once yuklenmis dosya
-        self.assertEqual(self.yukle(a, eposta="x@iki.com").status, 303)  # baska sirket kendi hakkini kullanir
+        self.assertEqual(self.yukle(a, eposta="x@bir.com").status, 303)  # a file uploaded before
+        self.assertEqual(self.yukle(a, eposta="x@iki.com").status, 303)  # another company uses its own allowance
         con = depo.baglan(self.db)
         self.assertEqual(con.execute("SELECT count(*) FROM kullanim").fetchone()[0], 3)
 
@@ -931,20 +931,20 @@ class SunucuTests(_SunucuTaban):
         c.request("POST", yol + "sil")
         self.assertEqual(c.getresponse().status, 303)
         for kosul in (yol, yol.rstrip("/"), yol + "sil"):
-            self.assertEqual(self.get(kosul)[0].status, 404, kosul)  # GET ile silme ucu da 404
+            self.assertEqual(self.get(kosul)[0].status, 404, kosul)  # the deletion endpoint with GET is also 404
         c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
         c.request("POST", yol + "sil")
-        self.assertEqual(c.getresponse().status, 404)  # ikinci silme: rapor yok
+        self.assertEqual(c.getresponse().status, 404)  # second deletion: no report
         con = depo.baglan(self.db)
         once = con.execute("SELECT count(*) FROM denetim").fetchone()[0]
-        for _ in range(5):  # kimliksiz istek denetim zincirini sisiremez
+        for _ in range(5):  # a request without identity cannot inflate the audit chain
             c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
             c.request("POST", "/rapor/%s/sil" % ("B" * 43))
             self.assertEqual(c.getresponse().status, 404)
         self.assertEqual(con.execute("SELECT count(*) FROM denetim").fetchone()[0], once)
         c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
         c.request("HEAD", yol)
-        self.assertNotEqual(c.getresponse().status, 200)  # HEAD desteklenmez; icerik sizmaz
+        self.assertNotEqual(c.getresponse().status, 200)  # HEAD is not supported; content does not leak
         con = depo.baglan(self.db)
         self.assertEqual(con.execute("SELECT count(*) FROM rapor").fetchone()[0], 0)
         self.assertNotIn("belge_json", "".join(str(x) for x in con.execute("SELECT olay FROM denetim")))
@@ -960,7 +960,7 @@ class SunucuTests(_SunucuTaban):
         con = depo.baglan(self.db)
         con.execute("UPDATE rapor SET bitis_utc='2000-01-01T00:00:00Z'")
         con.commit()
-        self.assertEqual(self.get(l2)[0].status, 404)  # silinmeden once de, suresi dolunca erisilmez
+        self.assertEqual(self.get(l2)[0].status, 404)  # not reachable before deletion either, nor after expiry
 
     def test_firma_silinince_raporlari_baglantiyla_erisilmez(self):
         l1 = self.yukle(farkli_belge(1), eposta="a@bir.com").getheader("Location")
@@ -984,7 +984,7 @@ class SunucuTests(_SunucuTaban):
                 self.post(yol + "sil")
             except Exception:  # noqa: BLE001
                 pass
-        self.assertEqual(self.get(yol)[0].status, 200)   # silme geri alindi
+        self.assertEqual(self.get(yol)[0].status, 200)   # deletion was rolled back
 
     def test_gecersiz_dosya_hak_harcamaz(self):
         for _ in range(3):
@@ -1013,9 +1013,9 @@ class SunucuTests(_SunucuTaban):
         self.assertEqual(self.yukle(veri, eposta="mehmet@firma.com.tr", sirket="Baska Ad").status, 303)
         con = depo.baglan(self.db)
         firmalar = depo.firma_listele(con)
-        self.assertEqual(len(firmalar), 1)  # ayni alan adi tek firma
+        self.assertEqual(len(firmalar), 1)  # the same domain is a single company
         f = firmalar[0]
-        # dogrulanmamis ikinci yukleme kayitli e-postayi degistirmez; her raporda yukleyen adres ayri durur
+        # an unverified second upload does not change the registered email; the uploader address stays separate on each report
         self.assertEqual((f["anahtar"], f["ad"], f["eposta"], f["durum"], f["rapor_sayisi"]), ("firma.com.tr", "Firma <b>AS</b>", "ayse@firma.com.tr", "aktif", 2))
         self.assertIsNone(f["eposta_dogrulama_utc"])
         self.assertEqual({r["firma_id"] for r in depo.rapor_listele(con)}, {f["id"]})
@@ -1034,7 +1034,7 @@ class SunucuTests(_SunucuTaban):
         depo.firma_durum_yaz(con, fid, "pasif")
         self.assertEqual(self.yukle(veri, eposta="b@pasif.com").status, 403)
         self.assertEqual(len(depo.rapor_listele(con)), 1)
-        self.assertEqual(depo.kullanim_say(con, depo.sirket_anahtari("a@pasif.com")), 1)  # reddedilen istek hak harcamaz
+        self.assertEqual(depo.kullanim_say(con, depo.sirket_anahtari("a@pasif.com")), 1)  # a rejected request does not spend an allowance
         depo.firma_durum_yaz(con, fid, "aktif")
         self.assertEqual(self.yukle(veri, eposta="b@pasif.com").status, 303)
         with self.assertRaises(ValueError):
@@ -1082,7 +1082,7 @@ def _baglanti(metin):
 
 
 class EpostaDogrulamaTests(_SunucuTaban):
-    """ALIG_EPOSTA_DOGRULAMA=1: rapor baglantisi yalniz e-postayla gider; hak, e-postadaki baglantiyla dogrulayinca harcanir."""
+    """ALIG_EPOSTA_DOGRULAMA=1: the report link goes only by email; the allowance is spent when verified through the link in the email."""
     H_EK = {"eposta_dogrulama": True, "site_adresi": "https://alig.test"}
 
     def con(self):
@@ -1100,18 +1100,18 @@ class EpostaDogrulamaTests(_SunucuTaban):
         self.assertEqual(r.status, 200)
         self.assertIsNone(r.getheader("Location"))
         self.assertIn("ali@ornek.com.tr", r.govde)
-        self.assertNotIn("/rapor/", r.govde)  # baglanti sayfada yok, yalniz e-postada
+        self.assertNotIn("/rapor/", r.govde)  # the link is not on the page, only in the email
         p = self.postalar()
         self.assertEqual(len(p), 1)
         self.assertEqual(p[0][0], "ali@ornek.com.tr")
         self.assertIsNotNone(_baglanti(p[0][2]))
-        self.assertEqual(self.kullanim("ali@ornek.com.tr"), 0)  # hak henuz harcanmadi
+        self.assertEqual(self.kullanim("ali@ornek.com.tr"), 0)  # the allowance has not been spent yet
         self.assertEqual(self.con().execute("SELECT dogrulandi FROM rapor").fetchone()[0], 0)
 
     def test_get_dogrulamaz_post_dogrular(self):
         self.yukle(farkli_belge(1), eposta="ali@ornek.com.tr")
         t = _baglanti(self.postalar()[0][2])
-        g, govde = self.get("/rapor/%s/" % t)  # e-posta tarayicilari baglantiyi kendiliginden acar: GET bir sey degistirmez
+        g, govde = self.get("/rapor/%s/" % t)  # email scanners open links on their own: GET changes nothing
         self.assertEqual(g.status, 200)
         self.assertIn('action="/rapor/%s/dogrula"' % t, govde.decode())
         self.assertNotIn("Sağlık taraması raporu", govde.decode())
@@ -1125,7 +1125,7 @@ class EpostaDogrulamaTests(_SunucuTaban):
         self.assertIsNotNone(f["eposta_dogrulama_utc"])
         self.assertEqual(f["eposta"], "ali@ornek.com.tr")
         self.assertTrue(any("e-posta dogrulandi" in o[0] for o in self.con().execute("SELECT olay FROM denetim")))
-        r, _ = self.post("/rapor/%s/dogrula" % t)  # ikinci dogrulama hak harcamaz
+        r, _ = self.post("/rapor/%s/dogrula" % t)  # a second verification does not spend an allowance
         self.assertEqual(r.status, 303)
         self.assertEqual(self.kullanim("ali@ornek.com.tr"), 1)
         self.assertIsNone(depo.denetim_dogrula(self.con()))
@@ -1134,9 +1134,9 @@ class EpostaDogrulamaTests(_SunucuTaban):
         for n in range(3):
             self.assertEqual(self.yukle(farkli_belge(n), eposta="ceo@kurban.com").status, 200)
         r = self.yukle(farkli_belge(9), eposta="ceo@kurban.com")
-        self.assertEqual(r.status, 429)  # ayni adrese 24 saatte en cok 3 posta
+        self.assertEqual(r.status, 429)  # at most 3 emails to the same address in 24 hours
         self.assertEqual(len(self.postalar("ceo@kurban.com")), 3)
-        self.assertEqual(self.kullanim("dba@kurban.com"), 0)  # kurbanin hakki yerinde
+        self.assertEqual(self.kullanim("dba@kurban.com"), 0)  # the victim's allowance is intact
         self.assertEqual(self.yukle(farkli_belge(5), eposta="dba@kurban.com").status, 200)
         t = _baglanti(self.postalar("dba@kurban.com")[0][2])
         self.assertEqual(self.post("/rapor/%s/dogrula" % t)[0].status, 303)
@@ -1171,7 +1171,7 @@ class EpostaDogrulamaTests(_SunucuTaban):
             self.yukle(farkli_belge(n), eposta="a@uc.com")
         t = [_baglanti(p[2]) for p in self.postalar()]
         self.assertEqual([self.post("/rapor/%s/dogrula" % x)[0].status for x in t], [303, 303, 429])
-        self.assertEqual(self.get("/rapor/%s/" % t[2])[0].status, 200)  # hala onay sayfasi; rapor gosterilmez
+        self.assertEqual(self.get("/rapor/%s/" % t[2])[0].status, 200)  # still the confirmation page; the report is not shown
         self.assertNotIn("Sağlık taraması raporu", self.get("/rapor/%s/" % t[2])[1].decode())
 
     def test_ayni_dosya_dogrulamada_hak_harcamaz(self):
@@ -1211,8 +1211,8 @@ class EpostaAyarTests(unittest.TestCase):
 
 @pg_yardimci.pg_testi(*pg_yardimci.dis_veya_gecici_var())
 class GercekPgTests(unittest.TestCase):
-    """ALIG_TEST_PG_HOST (soket dizini ya da host), ALIG_TEST_PG_PORT, ALIG_TEST_PG_USER varsa dis sunucu; yoksa
-    tests/pg_yardimci.py gecici kumesi (alig_hc: pg_monitor, salt okunur). Sistem PostgreSQL de yoksa SKIP."""
+    """If ALIG_TEST_PG_HOST (socket directory or host), ALIG_TEST_PG_PORT, ALIG_TEST_PG_USER are set, an external server; otherwise
+    the temporary cluster of tests/pg_yardimci.py (alig_hc: pg_monitor, read-only). SKIP if there is no system PostgreSQL either."""
 
     @classmethod
     def setUpClass(cls):
@@ -1235,7 +1235,7 @@ class GercekPgTests(unittest.TestCase):
         self.assertTrue(len(b) + len(o) > 0)
 
     def test_salt_okunur(self):
-        # katalogdaki sorgular salt okunur oturumda calisir; yazma ayni ayarla reddedilir
+        # the catalog queries run in a read-only session; writing is rejected with the same setting
         r = subprocess.run(["psql", "-X", "-A", "-t", "-h", self.pg_host, "-p", self.pg_port,
                             "-U", self.pg_kullanici, "-d", "postgres", "-c", "CREATE TABLE alig_yazma_denemesi(i int)"],
                            capture_output=True, text=True, env=dict(os.environ, PGOPTIONS="-c default_transaction_read_only=on"))

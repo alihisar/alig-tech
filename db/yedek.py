@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""PostgreSQL fiziksel yedek ve geri yukleme (ALIG-DB-005). Yalniz standart kutuphane; PostgreSQL istemci araclarini
-(pg_basebackup, pg_verifybackup) alt surecle cagirir. Uygulamaya ve SQLite yedek araci deploy/bakim.py'ye bagli degildir.
+"""PostgreSQL physical backup and restore (ALIG-DB-005). Standard library only; calls the PostgreSQL client tools
+(pg_basebackup, pg_verifybackup) as subprocesses. Not tied to the application or to the SQLite backup tool deploy/bakim.py.
 
   python3 db/yedek.py al --kok /yedek/pg [--bicim duz|tar] [--kullanici alig_backup]
-  python3 db/yedek.py dogrula --yedek /yedek/pg/pg-<UTC zaman>
-  python3 db/yedek.py geri-yukle --yedek /yedek/pg/pg-<zaman> --hedef /bos/dizin [--wal-arsivi /wal] [--hedef-zaman "2026-11-15 10:00:00+00"] [--evet]
+  python3 db/yedek.py dogrula --yedek /yedek/pg/pg-<UTC time>
+  python3 db/yedek.py geri-yukle --yedek /yedek/pg/pg-<time> --hedef /bos/dizin [--wal-arsivi /wal] [--hedef-zaman "2026-11-15 10:00:00+00"] [--evet]
   python3 db/yedek.py eskileri-sil --kok /yedek/pg --sakla 7 [--evet]
   python3 db/yedek.py arsiv-onerisi --wal-arsivi /wal
 
-Baglanti ortam degiskenlerindendir (PGHOST, PGPORT); parola komut satirina KONMAZ (PGPASSFILE ya da peer/soket).
-PITR icin WAL arsivi gerekir (archive_command; `arsiv-onerisi` metni yazar, sunucuya DOKUNMAZ). Yalniz yedek dizini ile
-zamana donus yapilamaz; pg_dump ile PITR iddia edilmez. Yedek sifrelenmez: standart kutuphanede simetrik sifre yok
-(karar DB-K6, docs/kararlar.md); yedek dizini sifreli hacimde ve 0700 olmalidir. Hicbir komut calisan bir kumenin
-uzerine yazmaz: geri yukleme yalniz bos hedef dizine acar ve --evet olmadan yalniz plani yazar.
-Cikis kodu: 0 basarili (ya da kuru calistirma), 1 hata (hedefe/yedege dokunulmadi), 2 kullanim hatasi."""
+The connection comes from environment variables (PGHOST, PGPORT); the password is NOT put on the command line (PGPASSFILE or peer/socket).
+PITR needs a WAL archive (archive_command; `arsiv-onerisi` writes the text, it does NOT touch the server). Point-in-time recovery cannot be done
+with the backup directory alone; PITR is not claimed with pg_dump. The backup is not encrypted: there is no symmetric cipher in the standard library
+(decision DB-K6, docs/kararlar.md); the backup directory must be on an encrypted volume and be 0700. No command overwrites a running
+cluster: restore opens only into an empty target directory and, without --evet, writes only the plan.
+Exit code: 0 success (or dry run), 1 error (the target/backup was not touched), 2 usage error."""
 import argparse
 import os
 import re
@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 YEDEK_AD = re.compile(r"^pg-(\d{8}T\d{6}Z)$")
-GUVENLI_YOL = re.compile(r"^/[A-Za-z0-9_./-]+$")   # restore_command / archive_command icine gomulen yollar
+GUVENLI_YOL = re.compile(r"^/[A-Za-z0-9_./-]+$")   # paths embedded in restore_command / archive_command
 ZAMAN = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)$")
 ZAMAN_ASIMI = 3600
 VARSAYILAN_ROL = "alig_backup"
@@ -37,7 +37,7 @@ class YedekHatasi(Exception):
 
 
 def _arac(ad):
-    """Arac yolu: ALIG_PG_BIN verilmisse oradan, yoksa PATH."""
+    """Tool path: from ALIG_PG_BIN if given, otherwise from PATH."""
     d = os.environ.get("ALIG_PG_BIN")
     return str(Path(d) / ad) if d else ad
 
@@ -46,26 +46,26 @@ def _calistir(argv, **kw):
     try:
         return subprocess.run(argv, capture_output=True, text=True, timeout=ZAMAN_ASIMI, **kw)
     except FileNotFoundError:
-        raise YedekHatasi("arac bulunamadi: %s (PostgreSQL istemci araclari PATH'te ya da ALIG_PG_BIN'de olmali)" % argv[0])
+        raise YedekHatasi("tool not found: %s (the PostgreSQL client tools must be in PATH or in ALIG_PG_BIN)" % argv[0])
     except subprocess.TimeoutExpired:
-        raise YedekHatasi("zaman asimi: %s" % argv[0])
+        raise YedekHatasi("timeout: %s" % argv[0])
 
 
 def basebackup_argv(hedef, bicim="duz", kullanici=VARSAYILAN_ROL):
-    """pg_basebackup komutu. Parola yok (-w: asla sorma); WAL ayni baglantida akitilir (-X stream); SHA-256 manifest."""
+    """The pg_basebackup command. No password (-w: never prompt); WAL is streamed on the same connection (-X stream); SHA-256 manifest."""
     return [_arac("pg_basebackup"), "-D", str(hedef), "-F", "t" if bicim == "tar" else "p", "-X", "stream",
             "-c", "fast", "--manifest-checksums=SHA256", "-U", kullanici, "-w"]
 
 
 def _guvenli(arsiv):
     if not GUVENLI_YOL.match(str(arsiv)):
-        raise YedekHatasi("arsiv yolu mutlak olmali ve yalniz [A-Za-z0-9_./-] icermeli: %s" % arsiv)
+        raise YedekHatasi("the archive path must be absolute and contain only [A-Za-z0-9_./-]: %s" % arsiv)
     return str(arsiv).rstrip("/")
 
 
 def arsiv_komutu(arsiv):
-    """Onerilen archive_command: var olan dosyanin ustune yazmaz, once gecici ada kopyalar sonra atomik tasir.
-    (Belge ve test kumesi icin; canli sunucu degistirilmez.)"""
+    """Recommended archive_command: does not overwrite an existing file, first copies to a temporary name and then moves atomically.
+    (For documentation and the test cluster; the live server is not changed.)"""
     a = _guvenli(arsiv)
     return "test ! -f %s/%%f && cp %%p %s/%%f.gecici && mv %s/%%f.gecici %s/%%f" % (a, a, a, a)
 
@@ -80,15 +80,15 @@ def _sa(deger):
 
 
 def kurtarma_ayarlari(arsiv=None, hedef_zaman=None):
-    """postgresql.auto.conf'a eklenecek satirlar. archive_mode=off: geri yuklenen kume ayni arsive yazip onu bozmasin."""
+    """Lines to be appended to postgresql.auto.conf. archive_mode=off: so the restored cluster does not write to the same archive and corrupt it."""
     if hedef_zaman and not arsiv:
-        raise YedekHatasi("--hedef-zaman icin --wal-arsivi gerekir (yalniz yedekle zamana donulemez)")
+        raise YedekHatasi("--hedef-zaman needs --wal-arsivi (a point in time cannot be restored with the backup alone)")
     satirlar = ["archive_mode = off"]
     if arsiv:
         satirlar.append("restore_command = " + _sa(restore_komutu(arsiv)))
     if hedef_zaman:
         if not ZAMAN.match(hedef_zaman):
-            raise YedekHatasi("hedef zaman bicimi gecersiz (saat dilimi zorunlu, ornek '2026-11-15 10:00:00+00'): %s" % hedef_zaman)
+            raise YedekHatasi("target time format is invalid (time zone is mandatory, example '2026-11-15 10:00:00+00'): %s" % hedef_zaman)
         satirlar += ["recovery_target_time = " + _sa(hedef_zaman), "recovery_target_action = 'promote'"]
     return satirlar
 
@@ -97,7 +97,7 @@ def _pg_surum(arac):
     r = _calistir([_arac(arac), "--version"])
     m = re.search(r"\(PostgreSQL\)\s+(\d+)", r.stdout) if r.returncode == 0 else None
     if not m:
-        raise YedekHatasi("%s surumu okunamadi" % arac)
+        raise YedekHatasi("could not read the version of %s" % arac)
     return int(m.group(1))
 
 
@@ -107,11 +107,11 @@ def bicim_bul(yedek):
 
 
 def tar_ac(yedek, hedef):
-    """tar bicimli yedegi (base.tar, pg_wal.tar) `hedef` dizinine acar. Tablespace tar'i ve sikistirilmis tar desteklenmez."""
+    """Extracts a tar-format backup (base.tar, pg_wal.tar) into the `hedef` directory. Tablespace tar and compressed tar are not supported."""
     y, hedef = Path(yedek), Path(hedef)
     diger = sorted(p.name for p in y.iterdir() if p.name not in ("base.tar", "pg_wal.tar", "backup_manifest"))
     if diger or not (y / "base.tar").is_file():
-        raise YedekHatasi("desteklenmeyen tar yedegi (tablespace ya da sikistirma): %s" % ", ".join(diger or ["base.tar yok"]))
+        raise YedekHatasi("unsupported tar backup (tablespace or compression): %s" % ", ".join(diger or ["base.tar missing"]))
     for ad, alt in (("base.tar", hedef), ("pg_wal.tar", hedef / "pg_wal")):
         if (y / ad).is_file():
             alt.mkdir(parents=True, exist_ok=True)
@@ -121,8 +121,8 @@ def tar_ac(yedek, hedef):
 
 
 def dogrula(yedek):
-    """pg_verifybackup. Duz bicimde dogrudan; tar bicimi PG18'den once dogrudan dogrulanamaz, gecici dizine acilip dogrulanir
-    (yedek degismez). (tamam, cikti) doner."""
+    """pg_verifybackup. Directly for the plain format; the tar format cannot be verified directly before PG18, so it is extracted to a temporary directory and verified
+    (the backup does not change). Returns (ok, output)."""
     y = Path(yedek)
     if not (y / "backup_manifest").is_file():
         return False, "backup_manifest yok: yedek tamamlanmamis ya da bozuk"
@@ -146,22 +146,22 @@ def _simdi():
 
 
 def al(kok, bicim="duz", kullanici=VARSAYILAN_ROL):
-    """Tam yedek. Once '.devam' dizinine yazilir; pg_verifybackup gecerse son ada tasinir. Basarisizsa yarim dizin silinir."""
+    """Full backup. First written to a '.devam' (in progress) directory; if pg_verifybackup passes it is moved to the final name. If it fails the partial directory is deleted."""
     kok = Path(kok)
     kok.mkdir(parents=True, exist_ok=True)
     kok.chmod(0o700)
     ad = "pg-" + _simdi()
     gecici, son = kok / (ad + ".devam"), kok / ad
     if son.exists() or gecici.exists():
-        raise YedekHatasi("ayni saniyede ikinci yedek: %s" % ad)
+        raise YedekHatasi("second backup in the same second: %s" % ad)
     gecici.mkdir(mode=0o700)
     try:
         r = _calistir(basebackup_argv(gecici, bicim, kullanici))
         if r.returncode != 0:
-            raise YedekHatasi("pg_basebackup basarisiz:\n%s" % r.stderr.strip())
+            raise YedekHatasi("pg_basebackup failed:\n%s" % r.stderr.strip())
         tamam, cikti = dogrula(gecici)
         if not tamam:
-            raise YedekHatasi("yedek dogrulamasi basarisiz (yedek silindi):\n%s" % cikti)
+            raise YedekHatasi("backup verification failed (backup deleted):\n%s" % cikti)
         gecici.rename(son)
     except BaseException:
         shutil.rmtree(gecici, ignore_errors=True)
@@ -183,18 +183,18 @@ def hedef_bos_mu(hedef):
 
 
 def geri_yukle(yedek, hedef, arsiv=None, hedef_zaman=None, evet=False, yaz=print):
-    """Plan yazar; evet ise hedef bos dizine yedegi acar ve kurtarma ayarlarini ekler. Dolu hedefte YedekHatasi."""
+    """Writes the plan; if evet, extracts the backup into an empty target directory and adds the recovery settings. YedekHatasi on a non-empty target."""
     y, h = Path(yedek).resolve(), Path(hedef).absolute()
     if not y.is_dir() or not (y / "backup_manifest").is_file():
-        raise YedekHatasi("yedek dizini gecersiz (backup_manifest yok): %s" % y)
+        raise YedekHatasi("invalid backup directory (no backup_manifest): %s" % y)
     if h == y or y in h.parents or h in y.parents:
-        raise YedekHatasi("hedef ile yedek ic ice olamaz")
+        raise YedekHatasi("the target and the backup cannot be nested")
     bos, neden = hedef_bos_mu(h)
     if not bos:
         raise YedekHatasi(neden)
     ayarlar = kurtarma_ayarlari(arsiv, hedef_zaman)
     if arsiv and not Path(arsiv).is_dir():
-        raise YedekHatasi("WAL arsivi dizini yok: %s" % arsiv)
+        raise YedekHatasi("WAL archive directory does not exist: %s" % arsiv)
     tar = bicim_bul(y) == "tar"
     yaz("PLAN geri yukleme: yedek=%s bicim=%s hedef=%s (%s)" % (y, "tar" if tar else "duz", h, neden))
     if arsiv:
@@ -209,7 +209,7 @@ def geri_yukle(yedek, hedef, arsiv=None, hedef_zaman=None, evet=False, yaz=print
         return None
     tamam, cikti = dogrula(y)
     if not tamam:
-        raise YedekHatasi("yedek dogrulamasi basarisiz, geri yukleme yapilmadi:\n%s" % cikti)
+        raise YedekHatasi("backup verification failed, no restore was done:\n%s" % cikti)
     h.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
         if tar:
@@ -224,14 +224,14 @@ def geri_yukle(yedek, hedef, arsiv=None, hedef_zaman=None, evet=False, yaz=print
         if arsiv:
             (h / "recovery.signal").write_text("")
     except BaseException:
-        shutil.rmtree(h, ignore_errors=True)   # yarim acilmis hedef; hedef baslangicta bostu
+        shutil.rmtree(h, ignore_errors=True)   # a partially extracted target; the target was empty at the start
         raise
     yaz("GERI YUKLENDI: %s (baslatmadan once port/soket ayarlarini denetleyin: kopya, kaynak kumenin yapilandirmasini tasir)" % h)
     return h
 
 
 def yedekleri_listele(kok):
-    """Tamamlanmis yedekler, eskiden yeniye. Yalniz pg-<zaman> adli, backup_manifest'i olan, sembolik olmayan dizinler."""
+    """Completed backups, oldest to newest. Only directories named pg-<time>, that have a backup_manifest, and that are not symlinks."""
     kok = Path(kok)
     if not kok.is_dir():
         return []
@@ -240,9 +240,9 @@ def yedekleri_listele(kok):
 
 
 def eskileri_sil(kok, sakla, evet=False):
-    """En yeni `sakla` yedek kalir. sakla >= 1 (hepsini silmek reddedilir). Silinecekler listesi doner; evet yoksa silinmez."""
+    """The newest `sakla` backups remain. sakla >= 1 (deleting all is refused). Returns the list to be deleted; nothing is deleted without evet."""
     if sakla < 1:
-        raise YedekHatasi("--sakla en az 1 olmali")
+        raise YedekHatasi("--sakla must be at least 1")
     liste = yedekleri_listele(kok)
     silinecek = liste[:-sakla] if len(liste) > sakla else []
     if evet:
@@ -257,50 +257,50 @@ def main(argv=None):
             s.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError):
             pass
-    ap = argparse.ArgumentParser(description="PostgreSQL yedek ve geri yukleme (pg_basebackup + WAL arsivi)")
+    ap = argparse.ArgumentParser(description="PostgreSQL backup and restore (pg_basebackup + WAL archive)")
     alt = ap.add_subparsers(dest="komut", required=True)
-    a = alt.add_parser("al", help="tam yedek al ve dogrula")
+    a = alt.add_parser("al", help="take a full backup and verify it")
     a.add_argument("--kok", required=True)
     a.add_argument("--bicim", choices=("duz", "tar"), default="duz")
     a.add_argument("--kullanici", default=VARSAYILAN_ROL)
     d = alt.add_parser("dogrula", help="pg_verifybackup")
     d.add_argument("--yedek", required=True)
-    g = alt.add_parser("geri-yukle", help="bos hedef dizine ac (--evet olmadan yalniz plan)")
+    g = alt.add_parser("geri-yukle", help="extract into an empty target directory (without --evet, plan only)")
     g.add_argument("--yedek", required=True)
     g.add_argument("--hedef", required=True)
     g.add_argument("--wal-arsivi")
     g.add_argument("--hedef-zaman")
     g.add_argument("--evet", action="store_true")
-    e = alt.add_parser("eskileri-sil", help="en yeni N yedegi sakla (--evet olmadan yalniz listeler)")
+    e = alt.add_parser("eskileri-sil", help="keep the newest N backups (without --evet, only lists)")
     e.add_argument("--kok", required=True)
     e.add_argument("--sakla", type=int, required=True)
     e.add_argument("--evet", action="store_true")
-    o = alt.add_parser("arsiv-onerisi", help="archive_command onerisi yazar (sunucuya dokunmaz)")
+    o = alt.add_parser("arsiv-onerisi", help="writes an archive_command suggestion (does not touch the server)")
     o.add_argument("--wal-arsivi", required=True)
     args = ap.parse_args(argv)
     try:
         if args.komut == "al":
-            print("yedek alindi ve dogrulandi: %s" % al(args.kok, args.bicim, args.kullanici))
+            print("backup taken and verified: %s" % al(args.kok, args.bicim, args.kullanici))
         elif args.komut == "dogrula":
             tamam, cikti = dogrula(args.yedek)
-            print(cikti or ("yedek dogrulandi" if tamam else "yedek dogrulanamadi"))
+            print(cikti or ("backup verified" if tamam else "backup could not be verified"))
             return 0 if tamam else 1
         elif args.komut == "geri-yukle":
             geri_yukle(args.yedek, args.hedef, args.wal_arsivi, args.hedef_zaman, args.evet)
         elif args.komut == "eskileri-sil":
             s = eskileri_sil(args.kok, args.sakla, args.evet)
             for p in s:
-                print(("silindi: " if args.evet else "silinecek: ") + str(p))
+                print(("deleted: " if args.evet else "to be deleted: ") + str(p))
             if not s:
-                print("silinecek yedek yok")
+                print("no backup to delete")
             elif not args.evet:
-                print("KURU CALISTIRMA: hicbir sey silinmedi; --evet ile silinir")
+                print("DRY RUN: nothing was deleted; use --evet to delete")
         else:
             print("archive_mode = on")
             print("archive_command = " + _sa(arsiv_komutu(args.wal_arsivi)))
-            print("# WAL arsiv dizini sunucu kullanicisina ait, 0700 ve sifreli hacimde olmali; sunucuya bu komut dokunmaz.")
+            print("# The WAL archive directory must belong to the server user, be 0700 and be on an encrypted volume; this command does not touch the server.")
     except YedekHatasi as ex:
-        print("hata: %s" % ex, file=sys.stderr)
+        print("error: %s" % ex, file=sys.stderr)
         return 1
     return 0
 
