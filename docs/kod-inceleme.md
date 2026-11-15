@@ -145,3 +145,88 @@ Her satırda koruma geçici bir kopyada kaldırıldı ve ilgili test modülü ç
 | `channel_binding` ve firma eşitleme işareti | Önce kaçtı: ilkinde mutasyon kalıbı koddaki değil yorumdaki metne denk geldi; ikincisinde test verisi tek talep içerdiği için fark görünmüyordu. Kalıp düzeltildi, test beş talebe çıkarıldı; ikisi de yakalandı |
 | TOTP girişinde kilit | Önce üç denemenin yalnız birinde yakalandı (yarışa bağlı). Test, kod denetimini yavaşlatarak yarış penceresini genişletecek biçimde değiştirildi; üç denemenin üçünde yakalandı |
 
+
+## ALIG-SEC-001: yönetim ve rapor erişim güvenliği denetimi (2026-11-16)
+
+Kapsam: `tarama/server.py` rapor uçları, `tarama/portal.py` ve `portal_depo.py`, `yonetim/server.py`, `yonetim/depo.py`, `yonetim/guvenlik.py`, `yonetim/kullanici.py`, `tarama/rapor.py` kaçışı. Yöntem: düşmanca okuma ve negatif testler (`tests/test_erisim_guvenligi.py`, 47 test): erişimin olmaması gereken her yol sınandı, sonra koruma geçici bir kopyada kaldırılıp testin kırmızıya düşüp düşmediğine bakıldı (aşağıda). Çalışma zamanı SQLite'tır; PostgreSQL'e dokunulmadı.
+
+Özet: 1 açık bulgu (ORTA, karar bekliyor), 1 düzeltilen (DÜŞÜK), 3 kabul edilen sınır (BİLGİ/DÜŞÜK), 1 belge eksiği (kapatıldı). Firma izolasyonunda, belirteç ömründe, CSV'de, oturumsuz erişimde ve kaçışta açık bulunmadı: bunlar "doğrulandı" tablosunda testle kanıtlıdır.
+
+### S1 `yonetim/depo.py` `kullanici.totp` — TOTP sırrı veritabanında düz metin — AÇIK (karar SEC-K1, ORTA)
+
+- **BULGU:** `kullanici.totp` sütunu base32 sırrı olduğu gibi tutar. Parola scrypt ile özetlenir; TOTP (HMAC-SHA1, RFC 6238) ise sunucuda sırrın kendisini ister, özetlenemez. Standart kütüphanede simetrik şifre yoktur (`hashlib`, `hmac`, `secrets` var; AES yok), bu yüzden bu iş kod yazılarak çözülmedi. `yonetim/kullanici.py kod <ad>` komutu da sırrı veritabanından okuyup anlık kod basar (yalnız yerel deneme için yazılmıştır).
+- **KANIT:** `tests/test_erisim_guvenligi.py::TotpSirriSizmazTests::test_sir_veritabaninda_duz_metin_oldugu_belgelenmis_bulgudur`: sütun, `kullanici_ekle`in döndürdüğü sırla aynıdır. Sızdırmama yönü de sınandı (`test_sir_panelde_csvde_denetimde_ve_cli_listesinde_yok`): sır panel sayfalarında, CSV'lerde, iki denetim zincirinde ve `liste` çıktısında yoktur; yalnız `ekle` ve `totp-yenile` çıktısında bir kez yazılır. Yedekler `deploy/bakim.py` ile 0600 alınır ama içerik düz sırdır (runbook: başka yere kopyalarken şifreleyin). `veri_dizini` Ansible'da 0750, servisler `UMask=0077`.
+- **RİSK:** `yonetim.sqlite` dosyasına (disk, yedek kopyası, sökülen ya da elden çıkan disk, kök erişimi) ulaşan biri TOTP kodlarını üretebilir. Tek başına giriş sağlamaz: parola scrypt ile korunur (`n=2^15`), ikinci etken olarak yalnız TOTP düşer. Parola özeti de aynı dosyadadır; ikisi birlikte kırılırsa panel (müşteri raporları, CSV'ler) açılır.
+- **ÖNERİ:** Seçenekler, artı ve eksileriyle:
+  1. **Veri dizini 0700 ve dosya 0600** (kod gerektirmez; `veri_dizini` 0750'den 0700'e, dosyalar `UMask=0077` ve S2 düzeltmesiyle 0600). Yedekleme ve kök kullanıcıya karşı koruma sağlamaz.
+  2. **Disk şifreleme** (LUKS ya da sağlayıcının birim şifrelemesi) ve yedeklerin şifreli kopyalanması: çalınan ya da elden çıkan diske ve yedek ortamına karşı koruma sağlar; çalışan sunucuda kök erişimine karşı sağlamaz. Kod gerektirmez.
+  3. **systemd-creds ile sır dosyası** (`systemd-creds encrypt`, birimde `LoadCredentialEncrypted=`): sırlar veritabanından çıkıp sunucunun anahtarıyla (TPM2 varsa onunla) şifrelenmiş bir kimlik bilgisi dosyasına gider, yalnız servis süreci çözülmüş hâlini `$CREDENTIALS_DIRECTORY` altında görür. Kod değişikliği ister (`kullanici.py` sırları o dosyaya yazar, `giris` oradan okur; sır yenilemede servis yeniden başlar), systemd sürümü ve sunucu işletim sistemi bilinmeden (WEB-K4) seçilemez.
+  Varsayılan (SEC-K1, Ali'yi bekliyor): seçenek 1 ve 2; disk şifreleme önerisi `docs/runbook.md`de, kod yok. Seçenek 3 Ali kararından sonra ayrı madde olur.
+
+### S2 `yonetim/kullanici.py` — CLI, gevşek umask'ta `yonetim.sqlite`'ı herkesçe okunur oluşturuyordu — DÜZELTİLDİ (DÜŞÜK)
+
+- **BULGU:** Uygulama dosya izni ayarlamaz; izni umask belirler. Servisler `UMask=0077` ile çalışır, ama runbook'taki `sudo -u alig-web python3 .../kullanici.py ...` çağrısı çağıranın umask'ını (çoğunlukla 022) devralır. Veritabanını ilk oluşturan CLI ise dosya 0644 olur.
+- **KANIT:** Sonda: `umask 022; python3 yonetim/kullanici.py --db y.sqlite liste` → `-rw-r--r--`. Dosya parola özetlerini ve TOTP sırlarını (S1) taşır. Hafifletici: `veri_dizini` 0750 ve sahibi servis kullanıcısı, yani dosyaya yalnız o grup ulaşırdı.
+- **RİSK:** Dizin izni gevşetilirse ya da dosya başka yere taşınırsa sırlar herkesçe okunurdu; savunma tek katmana düşüyordu.
+- **ÖNERİ / DÜZELTME:** `kullanici.py` başlarken `os.umask(0o077)` (yalnız komut satırı çalıştırmasında; kütüphane olarak içe aktarılınca süreç umask'ı değişmez). Test: `CliDosyaIzniTests` (alt süreç, umask 022 → hiçbir dosyada grup ya da diğer biti yok). Mutasyonda koruma kaldırılınca kırmızı.
+
+### S3 `yonetim/server.py` — rol ayrımı yok: "yetkili" geçerli oturum demektir — KABUL EDİLDİ (BİLGİ)
+
+- **BULGU:** Her panel kullanıcısı her sayfayı, iki CSV'yi, rapor silmeyi ve firma silmeyi kullanabilir; salt okunur ya da yalnız-CSV rolü yoktur.
+- **KANIT:** `YonetimOturumsuzTests::test_yetki_modeli_tek_rol_belgelenmis_varsayim` (ikinci kullanıcı da CSV alır). Her CSV indirmesi yönetim denetim zincirine satır sayısıyla yazılır (`firmalar csv indirildi, N satir`); denetime yetkisiz deneme yazılmaz (`test_csv_yalniz_oturumlu_ve_indirme_denetime_yazilir`).
+- **RİSK:** Bugün tek yönetici olduğu için etkisi yok. Kullanıcı sayısı artarsa, kişisel veri (iletişim talepleri, e-postalar) içeren CSV'yi alabilecek kişi sayısı da artar.
+- **ÖNERİ:** İkinci kullanıcı eklenmeden önce rol tasarımı (en az: yalnız görüntüleme, CSV ve silme ayrı hak). Şimdilik `kullanici.py liste` ile kullanıcılar gözden geçirilir.
+
+### S4 `yonetim/depo.py` `giris_engelli` — kullanıcı başına kilit, adı bilinen yöneticiyi 15 dakika dışarıda tutabilir — KABUL EDİLDİ (DÜŞÜK)
+
+- **BULGU:** 15 dakikada 5 hatalı denemeden sonra kullanıcı, doğru bilgiyle bile girişten engellenir. Kullanıcı adını bilen biri yöneticiyi kilitleyebilir.
+- **KANIT:** `GirisTests::test_kilitleme`; `TotpKurtarmaTests::test_kilitli_kullanici_yenilemeden_sonra_sure_dolana_kadar_kilitli_kalir`: `totp-yenile` deneme sayacını sıfırlamaz, engel süre dolunca kalkar.
+- **RİSK:** Yalnız erişilebilirlik; kapı nginx IP izin listesi ya da SSH tünelinin arkasındadır (`yonetim_izinli_ipler`). IP başına sınır (10) ayrıca vardır. Parola tahmini bu yolla hızlanmaz.
+- **ÖNERİ:** Kabul; brute force'a karşı bilinçli takas. Kilitte beklemek 15 dakika sürer (runbook'ta yazılı); sayacı sıfırlayan bir CLI komutu eklenmedi, çünkü saldırgan kilidi kaldırtmaya zorlayamaz ama komut yanlış kullanılırsa korumayı zayıflatır.
+
+### S5 `tarama/server.py` `_sil` — süresi dolmuş belirteçle silme ucu, temizlik çalışana kadar satırı siler — KABUL EDİLDİ (BİLGİ)
+
+- **BULGU:** Okuma ucu ve `/dogrula` ucu `bitis_utc > şimdi` arar; `rapor_sil` aranmaz. Süresi dolmuş ama henüz `suresi_dolanlari_sil` ile temizlenmemiş raporun `/sil` ucu `303` döner ve satırı siler.
+- **KANIT:** `RaporBelirteciTests::test_bitis_sonrasi_hicbir_uc_veri_vermez`: bitişten sonra GET (iki görünüm), `/dogrula` `404`; `/sil` yanıtında rapor içeriği yok ve sonrasında yine `404`.
+- **RİSK:** Veri sızmaz; silme istenen sonuçtur (saklama süresi zaten dolmuştur). Belirteç sahibi için "var mıydı" farkı görünür, belirteç zaten sahibindedir.
+- **ÖNERİ:** Değişiklik gerekmez. Test yalnız "içerik gelmez" der; durum kodunu sabitlemez, ileride `404`e çevrilirse test kırılmaz.
+
+### S6 `docs/runbook.md` — TOTP cihazı kaybı prosedürü tek cümleydi — DÜZELTİLDİ (ORTA, belge)
+
+- **BULGU:** Runbook yalnız "telefon kaybolursa `totp-yenile` ile yeni anahtar üretin" diyordu. Hangi kullanıcıyla, hangi sırayla, kaybolan cihaz çalınmış olabilirse ne yapılacağı, kilit süresi ve doğrulama yoktu.
+- **KANIT:** `yonetim/kullanici.py` `totp-yenile` yeni sırrı üretir, sayacı sıfırlar, kullanıcının açık oturumlarını kapatır ve `cli` aktörüyle denetime yazar (`TotpKurtarmaTests`: eski cihaz girmez, yeni anahtar girer, parola aynı kalır, olmayan ya da geçersiz ad kayıt bırakmaz). Kod yeterliydi; eksik yalnız prosedürdü.
+- **RİSK:** Acil durumda yanlış sıra (örneğin cihaz çalınmışken yalnız TOTP yenilemek, parolayı bırakmak) ya da anahtarın terminal kaydına düşmesi.
+- **ÖNERİ / DÜZELTME:** `docs/runbook.md` "Doğrulama cihazı kaybı" bölümü eklendi (kimlik doğrulama, komut sırası, çalıntı cihaz için parola yenileme, kilit, doğrulama, denetim kaydı).
+
+### ALIG-SEC-001: erişimin olmaması gereken yollar — doğrulandı (açık bulunmadı)
+
+| Gereklilik | Sonuç | Kanıt (`tests/test_erisim_guvenligi.py`, ek olarak mevcut `test_portal.py`) |
+| --- | --- | --- |
+| Firma A belirteci firma B raporunu açamaz | Doğrulandı | `RaporBelirteciTests` (43 konumda tek karakter değişimi, kısaltma, uzatma, büyük/küçük harf, yol ve sorgu hileleri, A belirteciyle B silinemez/doğrulanamaz); portal: `IzolasyonTests`, `test_rapor_izolasyonu_http` |
+| Rapor belirteci ömrü: `bitis_utc` sonrası erişim yok; silinen rapor yeniden açılmaz | Doğrulandı | `test_bitis_sonrasi_hicbir_uc_veri_vermez`, `test_bitis_siniri_saniye_hassasiyetinde`, `test_silinen_rapor_belirteci_yeniden_yuklemeyle_dirilmez`, `BekleyenRaporSureTests` (bekleyen rapor: süre dolunca onay sayfası da `404`, doğrulama hak harcamaz) |
+| Yönetim CSV yalnız oturumlu | Doğrulandı | `test_csv_yalniz_oturumlu_ve_indirme_denetime_yazilir`, `test_oturum_baska_yollarla_gecersiz_olunca_acilmaz` (kullanıcı silindi, parola değişti, anahtar yenilendi) |
+| Yönetim uçlarının tamamı oturumsuz kapalı | Doğrulandı | Tablo güdümlü: menü ve kaynak yolları tabloda olmak zorundadır (`test_tablo_menu_ve_kaynak_yollarini_kapsar`); 25 GET ve 10 POST yolu × 10 geçersiz kimlik durumu (çerezsiz, sahte, boş, bozuk, `__Host-` önekisiz, özet çerezi, boşta ve toplam süresi dolmuş, çıkış yapılmış) |
+| Rapor HTML'inde kaçış | Doğrulandı | `RaporKacisTests`, `RaporKacisSunucuTests`, `PortalKacisTests`, `YonetimKacisTests`: tüm denetimlerin her metin kolonunda etiket, tırnak ve varlık içeren nesne adı; iki dil, iki görünüm, müşteri/portal/yönetim, depolanmış ve yansıyan değerler |
+| TOTP tekrar kullanım engeli | Doğrulandı | `TotpTekrarVeOturumOzetiTests` (aynı kod iki IP'den, daha eski pencere kodu, yanlış parola kodu yakmaz, anahtar yenilenince sayaç sıfırlanır); mevcut yarış testi `test_ayni_dogrulama_kodu_es_zamanli_iki_giriste_bir_kez_gecer` |
+| Oturum kodu yalnız SHA-256 özetiyle saklanır | Doğrulandı | `test_oturum_kodu_yalniz_sha256_ozetiyle_saklanir` (veritabanı dosyalarında ham kod baytı yok; özet çerez olarak kabul edilmez), `test_portal_oturum_kodu_da_yalniz_ozetle_saklanir` |
+
+Sınırlar: testler SQLite çalışma zamanına karşıdır; PostgreSQL'de aynı davranış `ALIG-DB-003` maddelerinde yeniden sınanacak. Gerçek bir tarayıcı, nginx ya da gerçek sunucu kullanılmadı: HTTP testleri yerel `ThreadingHTTPServer`'a karşıdır (nginx IP izin listesi, `X-Real-IP` yazımı sınanmadı).
+
+### ALIG-SEC-001 mutasyon denemesi
+
+Her satırda koruma geçici bir kopyada kaldırıldı ve `tests.test_erisim_guvenligi` çalıştırıldı.
+
+| Koruma | İlk kırılan test |
+| --- | --- |
+| Rapor okumada `bitis_utc` denetimi (`rapor_getir`) | `test_bitis_siniri_saniye_hassasiyetinde` |
+| Bekleyen raporda `bitis_utc` denetimi (`rapor_bekleyen_getir`) | `test_suresi_dolan_bekleyen_rapor_dogrulanamaz_ve_hak_harcamaz` |
+| Yönetim GET uçlarında oturum denetimi | `test_csv_yalniz_oturumlu_ve_indirme_denetime_yazilir` |
+| Yönetim POST'ta CSRF kodu | `test_oturumlu_ama_csrf_ya_da_kaynak_yanlis_post_reddedilir` |
+| Oturum özetinin çerez olarak reddi | `test_oturum_kodu_yalniz_sha256_ozetiyle_saklanir` |
+| TOTP tekrar koruması (`s > son_sayac`) | `test_ayni_kod_ikinci_kez_hicbir_yolla_gecmez` |
+| Rapor kanıt listesinde kaçış | `test_portal_sayfalari` |
+| `totp-yenile` oturumları kapatması | `test_totp_yenile_yeni_anahtar_verir_oturumlari_kapatir_parolayi_degistirmez` |
+| CLI `umask` (S2) | `test_cli_gevsek_umask_altinda_bile_dosyayi_0600_olusturur` |
+| CSV indirmesinin denetime yazılması | `test_csv_yalniz_oturumlu_ve_indirme_denetime_yazilir` |
+
+10/10 yakalandı (test koşusu ilk hatada durduruldu; her satırda yalnız ilk kırılan test yazıldı). Kaçan mutasyon olmadı. Mutasyon betiği depoya girmedi (geçici kopyada çalıştı).

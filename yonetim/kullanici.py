@@ -6,6 +6,7 @@
 """
 import argparse
 import getpass
+import os
 import sys
 import time
 from pathlib import Path
@@ -61,4 +62,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    os.umask(0o077)   # sudo -u ile gelen gevsek umask yonetim.sqlite'i (parola ozeti, TOTP sirri) okunur olusturmasin
     sys.exit(main())

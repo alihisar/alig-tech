@@ -108,11 +108,33 @@ sudo -u alig-web python3 /srv/alig/current/yonetim/kullanici.py --db /var/lib/al
 ... parola ali | totp-yenile ali | sil ali      # parola ve anahtar değişince açık oturumlar kapanır
 ```
 
-Giriş: kullanıcı adı, parola ve 6 haneli doğrulama kodu. 15 dakikada 5 hatalı denemeden sonra kullanıcı, 10 denemeden sonra IP adresi 15 dakika engellenir. Oturum 30 dakika boşta kalınca ya da 8 saat sonra kapanır. Telefon kaybolursa `totp-yenile` ile yeni anahtar üretin.
+Giriş: kullanıcı adı, parola ve 6 haneli doğrulama kodu. 15 dakikada 5 hatalı denemeden sonra kullanıcı, 10 denemeden sonra IP adresi 15 dakika engellenir. Oturum 30 dakika boşta kalınca ya da 8 saat sonra kapanır. Doğrulama cihazı kaybolursa aşağıdaki "Doğrulama cihazı kaybı" bölümünü izleyin.
 
 Firmalar sayfası, sağlık taraması yükleyen ve iletişim formu dolduran şirketleri tek listede gösterir. Düğmeler: Pasif et / Aktif et (pasif firma yeni tarama yükleyemez, mevcut raporları durur), Tarama hakkını sıfırla (30 günlük sayımı siler), Not, Kalıcı olarak sil (firma kaydı ve raporları; iletişim talepleri kalır).
 
 Paneldeki her işlem (giriş, talep ve rapor görüntüleme, durum değişikliği, silme) yönetim denetim zincirine yazılır; müşteri raporuna erişim ayrıca tarama zincirine `yonetici:<ad>` olarak düşer. `yonetim.sqlite` doğrulama anahtarlarını içerir: yedekleri bu yüzden 0600 izinlidir, başka yere kopyalarken şifreleyin.
+
+### Doğrulama cihazı kaybı
+
+Kullanıcı doğrulama uygulamasının bulunduğu telefonu kaybetti ya da değiştirdi. Panelden yapılacak bir şey yok: sunucuda, servis kullanıcısıyla `yonetim/kullanici.py` çalıştırılır. Bu yüzden sunucuya SSH ile girebilen başka bir yönetici gerekir; sunucuya kimse giremiyorsa önce sunucu erişimi kurtarılır (bu bölüm onu kapsamaz).
+
+1. **Kimliği doğrulayın.** Talep eden kişinin kendisi olduğundan emin olun (telefonla geri arama ya da yüz yüze). Yönetici hesabı için yalnızca e-posta ya da mesajla gelen istekle anahtar yenilenmez.
+2. **Cihaz kayıp mı, çalındı mı?** Yalnızca değiştirildiyse 3. adım yeter. Çalınmış ya da başkasının eline geçmiş olabilirse 3. adımdan sonra 4. adımı da yapın: telefondaki uygulama bir kişiyi tek başına içeri almaz ama ikinci etkeni verir, parola da bilinmiş olabilir.
+3. **Anahtarı yenileyin.** Terminal kaydı almayan bir SSH oturumunda (`script`, oturum kaydı ya da ekran paylaşımı kapalı):
+   ```sh
+   sudo -u alig-web python3 /srv/alig/current/yonetim/kullanici.py --db /var/lib/alig/yonetim.sqlite totp-yenile ali
+   ```
+   Komut yeni anahtarı ve `otpauth://` adresini bir kez yazar; kullanıcı bunu yeni cihazına ekler. Anahtarı sohbete, e-postaya ya da bilet sistemine yapıştırmayın; kullanıcıya yüz yüze ya da yalnızca kendisinin göreceği bir ekranda verin. Eski anahtar hemen geçersiz olur, sayaç sıfırlanır, kullanıcının açık oturumları kapanır.
+4. **Çalıntı olasılığında parolayı da yenileyin:** `... kullanici.py --db /var/lib/alig/yonetim.sqlite parola ali` (parolayı terminalden sorar; açık oturumları yine kapatır). Yönetim denetim kaydında (`/yonetim/denetim?kaynak=yonetim`) kullanıcının son girişlerine ve "yeni IP'den giriş yapıldı" satırlarına bakın; tanımadığınız bir giriş varsa olay olarak ele alın.
+5. **Doğrulayın.** `... kullanici.py --db /var/lib/alig/yonetim.sqlite liste` kullanıcıyı gösterir. Kullanıcı yeni cihazla giriş yapar. Yönetim denetim zincirinde `dogrulama kodu anahtari yenilendi: <ad>` satırı (aktör `cli`) ve çözülen olaya göre `parola degisti, oturumlar kapatildi: <ad>` bulunmalıdır.
+
+Bilinen sınırlar:
+
+- Kullanıcı eski cihazla çok sayıda hatalı kod denediyse 15 dakika engellenmiştir. `totp-yenile` bu sayacı sıfırlamaz; 15 dakika bekleyin. Engel süre dolunca kendiliğinden kalkar.
+- Aynı 6 haneli kod iki kez kabul edilmez. Yeni cihazı ekledikten sonra ilk kodu denerken bir önceki pencerenin kodunu yazmayın, bir sonraki kodu bekleyin.
+- `yonetim.sqlite` TOTP sırlarını düz metin tutar (`docs/kod-inceleme.md` ALIG-SEC-001 S1, karar SEC-K1). Bu yüzden `/var/lib/alig` dizini ve yedekler yalnızca servis kullanıcısına açık olmalıdır (0700 hedeflenir; dosyalar 0600). Disk ve yedek ortamı şifrelenmelidir; yedeği başka yere kopyalarken ayrıca şifreleyin. Komut satırı aracı gevşek umask'ta bile dosyaları 0600 oluşturur.
+- `kullanici.py kod <ad>` sırrı veritabanından okuyup anlık kod yazar; yalnızca yerel deneme içindir, canlı sunucuda kullanmayın.
+- Tüm yönetici hesapları kaybedildiyse ya da veritabanı yoksa: `ekle` ile yeni hesap açılır (varsa `--db` dosyası yedekten geri yüklenir, "Yedekten geri yükleme" bölümü).
 
 ## Sağlık puanı katsayıları
 
