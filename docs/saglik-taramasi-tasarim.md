@@ -1,80 +1,80 @@
-# Sağlık taraması: tasarım ve tehdit modeli
+# Health scan: design and threat model
 
-Durum: Kip A PostgreSQL için yayında. SQL Server için Kip A ön sürüm olarak kodlandı, gerçek sunucuda sınanmadı ve varsayılan olarak kapalı (`docs/mssql-onsurum.md`). Kip B, e-posta doğrulama ve dil modeli özeti sonraki dilimlerde.
+Status: Mode A is live for PostgreSQL. Mode A for SQL Server is coded as a preview, has not been tested on a real server and is off by default (`docs/mssql-onsurum.md`). Mode B, e-mail verification and the language model summary come in later slices.
 
-## Varsayılan kararlar (sizden yanıt gelene kadar)
+## Default decisions (until a reply arrives from you)
 
-| Konu | Varsayılan | Değiştirmek için |
+| Topic | Default | To change it |
 | --- | --- | --- |
-| Ürün adı | Yok, sayfada "alig.tech Sağlık taraması" | i18n anahtarları `tarama_*` |
-| Dil modeli | Kapalı (`LLM_PROVIDER=none`), kod yok | Sonraki dilim |
-| Ücretsiz tarama sınırı | IP başına saatte 5 yükleme. Şirket başına sınır e-posta doğrulamasıyla gelecek | `tarama/server.py` `RateLimiter` |
-| Rapor saklama | 30 gün, "şimdi sil" düğmesi | `SAKLAMA_GUN` |
-| Çıkış IP adresi | Kip B yok, gerekmiyor | Kip B dilimi |
-| E-posta gönderimi | Yok. Rapor bağlantısı yükleme yanıtında gösterilir | Gönderim yöntemi seçilince |
-| MySQL | Yok, arayüzde "yol haritasında" | Katalog motor başına, eklemesi kolay |
+| Product name | None; the page says "alig.tech Sağlık taraması" (health scan) | i18n keys `tarama_*` |
+| Language model | Off (`LLM_PROVIDER=none`), no code | Later slice |
+| Free scan limit | 5 uploads per hour per IP. A per-company limit will come with e-mail verification | `tarama/server.py` `RateLimiter` |
+| Report retention | 30 days, with a "delete now" button | `SAKLAMA_GUN` |
+| Egress IP address | No Mode B, not needed | Mode B slice |
+| E-mail sending | None. The report link is shown in the upload response | When a sending method is chosen |
+| MySQL | None, shown as "on the roadmap" in the UI | The catalog is per engine, easy to add |
 
-## Veri akışı (Kip A)
+## Data flow (Mode A)
 
-1. Firma `alig-toplayici.py` dosyasını siteden indirir (sabit SHA-256 sayfada yazar) ve kendi ağında çalıştırır.
-2. Betik `psql` ile sabit sorgu kataloğunu çalıştırır, tek bir JSON dosyası yazar. Ağa hiçbir şey göndermez.
-3. Firma dosyayı okur (isterse `--maskele` ile nesne adlarını takma adla değiştirmiştir) ve siteye yükler.
-4. Sunucu dosyayı katı şemayla doğrular, kurallarla bulgu ve her kural için bir kanıt kaydı üretir (aşağıda), raporu saklar, rastgele bağlantı verir.
-5. Her adım SHA-256 zincirli denetim kaydına yazılır.
+1. The company downloads `alig-toplayici.py` (the collector) from the site (the fixed SHA-256 is written on the page) and runs it on its own network.
+2. The script runs the fixed query catalog with `psql` and writes a single JSON file. It sends nothing to the network.
+3. The company reads the file (if it wishes, it has replaced object names with aliases using `--maskele`) and uploads it to the site.
+4. The server validates the file with a strict schema, produces findings with the rules and one evidence record for every rule (below), stores the report, and gives a random link.
+5. Every step is written to the SHA-256 chained audit record.
 
-Web süreci hiçbir müşteri veritabanına bağlanmaz. Kip A'da bağlanan tek şey firmanın kendi makinesindeki betiktir.
+The web process connects to no customer database. In Mode A the only thing that connects is the script on the company's own machine.
 
-## Kanıt modeli ve durumlar
+## Evidence model and statuses
 
-Her kural (`PG-SEC-001` gibi kalıcı kimlikle) her taramada tek bir kanıt kaydı üretir: durum, önem, kategori, güven
-düzeyi, okunan kaynak, toplama zamanı, gözlenen değerler ve bulgular (`tarama/kanit.py`). İki motor aynı biçimi kullanır.
-Kural listesi, kategoriler, güven düzeyleri ve geçme koşulları: `docs/kural-katalogu.md` (koddan üretilir, test denetler).
+Every rule (with a permanent ID such as `PG-SEC-001`) produces a single evidence record in each scan: status, severity, category, confidence
+level, the source read, collection time, observed values and findings (`tarama/kanit.py`). Both engines use the same format.
+The rule list, categories, confidence levels and pass conditions: `docs/kural-katalogu.md` (generated from the code, checked by a test).
 
-- **PASS** yalnızca bütün kaynaklar eksiksiz geldiğinde ve bulgu olmadığında çıkar. Toplama denetimi çalışmadıysa
-  **UNAVAILABLE**; veri geldi ama biçim bozuk, zorunlu değer boş, beklenen satır yok, bir veritabanı taranmadı ya da ek
-  kaynak gelmediyse **UNKNOWN**. Geçmiş karşılaştırmasında kaybolan kanıt bu yüzden çözülmüş sayılmaz.
-- Bulgu varsa kapsam kısmi olsa da **FAIL** (kritik, yüksek) ya da **WARNING** (orta, düşük, bilgi) döner.
-- **NOT_APPLICABLE** yalnız veriye dayanır: replikasyon slotu yok, Always On yok, Azure yönetilen hizmet, TCP bağlantısı yok.
-- Güven düzeyi kanıtı olan durumlarda verilir. SQL Server ön sürüm olduğu için raporda en çok MEDIUM gösterilir.
-- Kayıtlar saklanmaz; bulgular gibi okunurken `belge_json` üzerinden yeniden üretilir.
+- **PASS** appears only when all sources arrived completely and there are no findings. If the collection check did not run, it is
+  **UNAVAILABLE**; if data arrived but the format is broken, a required value is empty, an expected row is missing, a database was not scanned or an additional
+  source did not arrive, it is **UNKNOWN**. For this reason evidence that disappears in a comparison with history is not counted as resolved.
+- If there is a finding, even when coverage is partial, **FAIL** (critical, high) or **WARNING** (medium, low, info) is returned.
+- **NOT_APPLICABLE** rests only on data: no replication slot, no Always On, an Azure managed service, no TCP connection.
+- A confidence level is given in cases that have evidence. Because SQL Server is a preview, the report shows at most MEDIUM.
+- Records are not stored; like findings, they are regenerated from `belge_json` when read.
 
-## Sürüm ve yetki matrisi
+## Version and privilege matrix
 
-Toplayıcı ve Kip B sunucunun ana sürümünü okur; her denetimin `en_az`, `en_cok` ve `eski_surum` alanlarına göre o sürümün
-sorgusunu seçer, desteklenmeyen sürümde sorguyu hiç çalıştırmaz (`desteklenmiyor`). Her denetimin `yetki` alanı doğru sonuç
-için gereken rolü yazar; `pg_hesap` denetimi tarama hesabının rollerini okur ve rol eksikse o kaynağı kullanan kural Geçti
-olamaz. Gerçek PostgreSQL 16'da yetkisiz bir hesap başka kullanıcıların oturumlarını göremedi; bu yüzden boşta işlem ve
-bağlantı doluluğu kuralları `pg_read_all_stats` ister. Matris ve doğrulama: `docs/surum-matrisi.md`.
+The collector and Mode B read the server's major version; according to each check's `en_az` (minimum), `en_cok` (maximum) and `eski_surum` (old version) fields they pick the
+query for that version, and on an unsupported version they do not run the query at all (`desteklenmiyor`, unsupported). The `yetki` (privilege) field of each check writes the role needed for a correct
+result; the `pg_hesap` check reads the roles of the scan account and if a role is missing, a rule using that source cannot be
+Passed. On real PostgreSQL 16 an unprivileged account could not see other users' sessions; for this reason the idle transaction and
+connection saturation rules need `pg_read_all_stats`. Matrix and verification: `docs/surum-matrisi.md`.
 
-## Veri modeli (SQLite, WAL, UTC)
+## Data model (SQLite, WAL, UTC)
 
-- `rapor(id, token_sha256, olusturma_utc, bitis_utc, motor, surum_num, dil, belge_json)`: `belge_json` doğrulanmış toplama dosyasıdır. Bulgular okunurken yeniden üretilir; böylece kural düzeltmeleri eski raporlara da uygulanır.
-- `firma(id, anahtar, ad, eposta, durum, kaynak, aciklama, kayit_utc, son_utc)`: anahtar kurumsal adreste alan adı, ücretsiz postada tam adres. `durum` aktif ya da pasif; pasif firma yükleme yapamaz (403). `rapor.firma_id` ile eşleşir.
-- `kullanim(anahtar_sha256, zaman_utc)`: 30 günde 2 tarama sınırı için sayım.
-- `denetim(seq, zaman_utc, aktor, olay, onceki, ozet)`: ozet = SHA-256(`seq|aktor|olay|onceki`). Doğrulama: `python3 tarama/depo.py dogrula <db>`.
-- Şema sürümü `PRAGMA user_version` ile tutulur, yalnız ileri yönlü göç.
+- `rapor(id, token_sha256, olusturma_utc, bitis_utc, motor, surum_num, dil, belge_json)`: `belge_json` is the validated collection file. Findings are regenerated when read; this way rule fixes also apply to old reports.
+- `firma(id, anahtar, ad, eposta, durum, kaynak, aciklama, kayit_utc, son_utc)`: the key is the domain name for a corporate address and the full address for free mail. `durum` (status) is aktif (active) or pasif (inactive); an inactive company cannot upload (403). It matches `rapor.firma_id`.
+- `kullanim(anahtar_sha256, zaman_utc)`: counting for the limit of 2 scans in 30 days.
+- `denetim(seq, zaman_utc, aktor, olay, onceki, ozet)`: ozet = SHA-256(`seq|aktor|olay|onceki`). Verification: `python3 tarama/depo.py dogrula <db>`.
+- The schema version is kept with `PRAGMA user_version`, forward-only migration.
 
-## Tehdit modeli
+## Threat model
 
-| Tehdit | Önlem | Test |
+| Threat | Measure | Test |
 | --- | --- | --- |
-| Müşteri veritabanında yazma | Katalog statik denetimi (yalnız `SELECT`, yasaklı sözcük listesi), `default_transaction_read_only=on`, 15 sn sorgu zaman aşımı | `test_katalog_*` |
-| Süper kullanıcıyla çalıştırma | Betik uyarır ve toplama dosyasına `superuser:true` yazar, raporda bulgu olur | `test_superuser_bulgusu` |
-| Satır verisi sızıntısı | Kullanıcı tablosu sorgusu katalogda yok; kolonlar şemada sabit; yükleme bilinmeyen kolonu reddeder | `test_yukleme_bilinmeyen_kolon` |
-| Nesne adlarında HTML ya da talimat | Rapor tüm değerleri `html.escape` ile yazar. Model yok. Kolon değerleri 200 karakterle sınırlı | `test_rapor_kacis` |
-| Kötü niyetli ya da dev yükleme | 5 MB sınırı, içerik türü denetimi, katı şema, satır sayısı sınırı, tür denetimi | `test_yukleme_*` |
-| Rapor bağlantısı tahmini | 32 bayt `secrets.token_urlsafe`, veritabanında yalnız SHA-256 | `test_token_saklanmaz` |
-| Hizmet engelleme | IP başına hız sınırı, gövde sınırı, tek iş parçacığı CPU'su düşük işlem | `test_hiz_siniri` |
-| Denetim kaydı kurcalama | SHA-256 zinciri, doğrulama komutu | `test_zincir_*` |
-| Parola sızıntısı | Betik parola almaz (`PGPASSFILE`/ortam), toplama dosyasında bağlantı bilgisi yok | `test_toplayici_dosyasinda_baglanti_yok` |
-| Eski toplayıcı sürümü | Katalog özeti uyuşmazsa yükleme reddedilir | `test_yukleme_katalog_ozeti` |
+| Writes on the customer database | Static checking of the catalog (only `SELECT`, a forbidden word list), `default_transaction_read_only=on`, 15 s query timeout | `test_katalog_*` |
+| Running as a superuser | The script warns and writes `superuser:true` to the collection file, and it becomes a finding in the report | `test_superuser_bulgusu` |
+| Leak of row data | There is no user table query in the catalog; columns are fixed in the schema; the upload rejects an unknown column | `test_yukleme_bilinmeyen_kolon` |
+| HTML or instructions in object names | The report writes all values with `html.escape`. There is no model. Column values are limited to 200 characters | `test_rapor_kacis` |
+| Malicious or huge upload | 5 MB limit, content type check, strict schema, row count limit, type check | `test_yukleme_*` |
+| Guessing the report link | 32 bytes of `secrets.token_urlsafe`, only the SHA-256 in the database | `test_token_saklanmaz` |
+| Denial of service | Per-IP rate limit, body limit, low CPU of the single-threaded work | `test_hiz_siniri` |
+| Tampering with the audit record | SHA-256 chain, verification command | `test_zincir_*` |
+| Password leak | The script does not take a password (`PGPASSFILE`/environment), there is no connection information in the collection file | `test_toplayici_dosyasinda_baglanti_yok` |
+| Old collector version | If the catalog digest does not match the upload is rejected | `test_yukleme_katalog_ozeti` |
 
-Kip B (doğrudan bağlantı) için tehdit modeli ve karar bekleyenler: `docs/kip-b-tasarim.md`. Kod yazılmadı.
+The threat model and pending decisions for Mode B (direct connection): `docs/kip-b-tasarim.md`. No code was written.
 
-## Bilinen sınırlar
+## Known limits
 
-- `pg_authid` (MD5 roller) ve `pg_hba_file_rules` yalnız süper kullanıcıyla okunur. `pg_monitor` yetkili rolde PG-SEC-003 "Alınamadı: yetki yok" (UNAVAILABLE) döner. Bu bilerek böyle: temiz değil, ölçülemedi.
-- Tarama hesabının bağlanamadığı veritabanı (yönetilen hizmetlerin iç veritabanları dahil) veritabanı başına kuralları UNKNOWN yapar. Raporun kapsam bölümü atlanan veritabanlarını nedeniyle listeler.
-- Yedeğin geri dönülebilirliği, işletim sistemi, ağ ve uygulama sorguları taramanın dışındadır; raporda yazar.
-- Bazı eşikler resmî belgede yoktur; `tarama/kurallar.py` içinde `MUHENDISLIK` işaretlidir ve `docs/doldurulacak.md` listesindedir.
-- SQL Server'da oturum düzeyinde salt okunur kip yoktur. Yazmayı engelleyen şey girişin yetkileridir (yalnızca `VIEW SERVER STATE` ve `VIEW ANY DEFINITION`) ve kataloğun statik denetimidir (`tests/test_mssql.py`).
+- `pg_authid` (MD5 roles) and `pg_hba_file_rules` can be read only by a superuser. With a `pg_monitor` privileged role, PG-SEC-003 returns "Could not be obtained: no privilege" (UNAVAILABLE). This is deliberate: it is not clean, it could not be measured.
+- A database the scan account cannot connect to (including the internal databases of managed services) makes the per-database rules UNKNOWN. The report's scope section lists the skipped databases with their reasons.
+- Backup recoverability, the operating system, the network and application queries are outside the scan; the report says so.
+- Some thresholds are not in an official document; they are marked `MUHENDISLIK` (engineering judgement) in `tarama/kurallar.py` and are in the list in `docs/doldurulacak.md`.
+- SQL Server has no session-level read-only mode. What prevents writing is the privileges of the login (only `VIEW SERVER STATE` and `VIEW ANY DEFINITION`) and the static check of the catalog (`tests/test_mssql.py`).

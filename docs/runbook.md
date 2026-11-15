@@ -1,130 +1,130 @@
-# İşletim el kitabı
+# Operations runbook
 
-Hedef: Ubuntu 24.04 tek sunucu, nginx (TLS), iki Python servisi (`alig-form` 8090, `alig-tarama` 8091, yalnız 127.0.0.1), systemd zamanlayıcıları.
+Target: a single Ubuntu 24.04 server, nginx (TLS), two Python services (`alig-form` 8090, `alig-tarama` 8091, bound to 127.0.0.1 only), systemd timers.
 
-## Ne nerede
+## What is where
 
-| Şey | Yol |
+| Item | Path |
 | --- | --- |
-| Sürümler | `/srv/alig/releases/<sürüm>`, `current` ve `onceki` bağlantıları |
-| Veri (SQLite) | `/var/lib/alig/form.sqlite`, `/var/lib/alig/tarama.sqlite` |
-| Yedek | `/var/backups/alig/` (günlük 02:17 UTC, son 14 adet, 0600) |
-| Gizli tuz ve denetim anahtarı | `/etc/alig/env` (`ALIG_FORM_SALT`, `ALIG_DENETIM_ANAHTARI`; yalnız root ve servis grubu okur) |
-| nginx günlükleri | `/var/log/nginx/alig-*.log` (30 gün; rapor bağlantısı kodu yazılmaz) |
+| Releases | `/srv/alig/releases/<version>`, with `current` and `onceki` (previous) links |
+| Data (SQLite) | `/var/lib/alig/form.sqlite`, `/var/lib/alig/tarama.sqlite` |
+| Backups | `/var/backups/alig/` (daily 02:17 UTC, last 14, 0600) |
+| Secret salt and audit key | `/etc/alig/env` (`ALIG_FORM_SALT`, `ALIG_DENETIM_ANAHTARI`; readable only by root and the service group) |
+| nginx logs | `/var/log/nginx/alig-*.log` (30 days; the report link token is not logged) |
 
-## İlk kurulum
+## First installation
 
 ```sh
 cd deploy/ansible
 ansible-galaxy collection install -r requirements.yml
-cp inventory.example.ini inventory.ini           # adresi yazın
+cp inventory.example.ini inventory.ini           # write the address
 # group_vars/all.yml: certbot_eposta, yonetim_kullanici
-# Yönetim kullanıcısının ~/.ssh/authorized_keys dosyası dolu olmalı, yoksa SSH sertleştirme durur.
-ansible-playbook site.yml --check --diff         # önce kuru çalıştırma
+# The admin user's ~/.ssh/authorized_keys must be populated, otherwise SSH hardening stops.
+ansible-playbook site.yml --check --diff         # dry run first
 ansible-playbook site.yml
 ```
 
-## Yayın
+## Release
 
 ```sh
-python3 deploy/paketle.py --surum 1.0.0 --release     # doldurulacak alan varsa durur
+python3 deploy/paketle.py --surum 1.0.0 --release     # stops if any placeholder field remains
 cd deploy/ansible
 ansible-playbook yayin.yml -e surum=1.0.0 -e paket=../../dist/alig-site-1.0.0.tar.gz
 ```
 
-Akış: paket özeti doğrulanır, açılır, manifest doğrulanır, `current` atomik değişir, servisler yeniden başlar, yerel duman testi (5 deneme) ve alan adı üzerinden `/surum.txt` kontrolü yapılır. Herhangi bir adım başarısız olursa `current` önceki sürüme döner, servisler yeniden başlar, yayın hata ile biter. İlk yayında dönülecek sürüm yoktur; bu durum mesajda yazar.
+Flow: the package digest is verified, the package is unpacked, the manifest is verified, `current` is switched atomically, the services restart, then a local smoke test (5 attempts) and a `/surum.txt` check through the domain name are run. If any step fails, `current` returns to the previous release, the services restart, and the release ends with an error. On the first release there is no release to return to; the message says so.
 
-## Geri alma (elle)
+## Rollback (manual)
 
 ```sh
-ansible-playbook geri-al.yml        # "onceki" sürüme döner, duman testi yapar
+ansible-playbook geri-al.yml        # returns to the "onceki" (previous) release, runs the smoke test
 ```
 
-Veritabanı şeması yalnız ileri göçle değişir; sürüm geri alınırken veri geri alınmaz. Şema değiştiren bir sürümden önce yedeği elle alın: `sudo -u alig-web python3 /srv/alig/current/deploy/bakim.py --veri /var/lib/alig --yedek /var/backups/alig`.
+The database schema changes only through forward migrations; data is not rolled back when a release is rolled back. Before a release that changes the schema, take a backup by hand: `sudo -u alig-web python3 /srv/alig/current/deploy/bakim.py --veri /var/lib/alig --yedek /var/backups/alig`.
 
-## Yedekten geri yükleme
+## Restoring from a backup
 
-Komut yedeği önce doğrular: SQLite bütünlük denetimi, tablo ve şema sürümü (yedek koddan yeni olamaz), denetim zincirinin sağlamlığı. Doğrulama gerçek dosyaya dokunmaz, geçici kopyada çalışır. `--evet` olmadan hiçbir şey değişmez.
+The command first validates the backup: SQLite integrity check, tables and schema version (a backup cannot be newer than the code), and the integrity of the audit chain. Validation does not touch the real file; it runs on a temporary copy. Without `--evet` (yes) nothing changes.
 
 ```sh
 sudo systemctl stop alig-form alig-tarama alig-yonetim
-# 1) kontrol (kuru calistirma); anahtar ve zincir basi varsa verin
+# 1) check (dry run); provide the key and the chain head if you have them
 sudo -u alig-web bash -c 'set -a; . /etc/alig/env; \
   python3 /srv/alig/current/deploy/bakim.py geri-yukle --veri /var/lib/alig \
-  --dosya /var/backups/alig/tarama-<zaman>.sqlite --bas /guvenli/yer/bas.json'
-# 2) ayni komut --evet ile gercekten yukler
+  --dosya /var/backups/alig/tarama-<time>.sqlite --bas /safe/place/bas.json'
+# 2) the same command with --evet really restores
 sudo systemctl start alig-form alig-tarama alig-yonetim
-python3 /srv/alig/current/tarama/depo.py dogrula /var/lib/alig/tarama.sqlite   # zincir, anahtarla
+python3 /srv/alig/current/tarama/depo.py dogrula /var/lib/alig/tarama.sqlite   # chain, with the key
 ```
 
-Davranış:
-- Hedef dosyayı (ya da `-wal`, `-shm`) açık tutan başka bir süreç varsa komut durur; önce servisleri durdurun. Denetim `/proc` üzerinden yapılır, bu yüzden komutu servislerle aynı kullanıcıyla (`alig-web`) ya da root ile çalıştırın; başka kullanıcıların süreçleri görülemez.
-- Mevcut dosya silinmez, `<ad>.onceki-<zaman>` olarak yanında kalır; sorun çıkarsa geri koyabilirsiniz. Gereksiz olunca elle silin.
-- Komutu `alig-web` kullanıcısıyla çalıştırın; root ile çalışırsa dosya sahibi önceki dosyanınki olarak korunur.
-- Eski `-wal` ve `-shm` dosyaları kaldırılır, yeni dosya 0600 izinli yazılır, yükleme sonrası bütünlük ve içerik özeti yedekle karşılaştırılır; uyuşmazlıkta önceki dosya geri konur.
-- Çıkış kodu: 0 başarılı ya da kuru çalıştırma, 1 doğrulama ya da yükleme hatası (hiçbir şey değişmedi), 2 kullanım hatası.
-- Anahtarlı kayıtlar anahtar olmadan doğrulanamaz ve uyarı verilir; yanlış anahtarda yedek reddedilir. Zincir başı verilmezse baştan üretilmiş ya da son kayıtları kesilmiş yedek yakalanamaz, komut bunu uyarı olarak yazar.
-- Geri yükleme yedeğin alındığı andan sonraki kayıtları (rapor, talep, denetim) geri getirmez.
+Behaviour:
+- If another process holds the target file (or `-wal`, `-shm`) open, the command stops; stop the services first. The check is done through `/proc`, so run the command as the same user as the services (`alig-web`) or as root; processes of other users cannot be seen.
+- The existing file is not deleted; it stays next to the new one as `<name>.onceki-<time>`, so you can put it back if something goes wrong. Delete it by hand when it is no longer needed.
+- Run the command as the `alig-web` user; if run as root, the file owner is kept as that of the previous file.
+- The old `-wal` and `-shm` files are removed, the new file is written with 0600 permissions, and after loading, the integrity and a content digest are compared with the backup; on a mismatch the previous file is put back.
+- Exit code: 0 success or dry run, 1 validation or restore error (nothing changed), 2 usage error.
+- Keyed records cannot be verified without the key and a warning is given; with a wrong key the backup is rejected. If the chain head is not given, a backup that was produced from scratch or whose last records were truncated cannot be caught; the command writes this as a warning.
+- A restore does not bring back records (reports, requests, audit) made after the moment the backup was taken.
 
-Yedek, sunucuyla aynı diskte durur: sunucu kaybına karşı koruma sağlamaz. Yedek dizinini düzenli olarak başka bir yere kopyalayın `[doldurulacak: uzak yedek hedefi]`. Sunucu kaybında boş bir veri dizinine de yüklenebilir (hedef dosya yoksa doğrudan yazılır).
+The backup sits on the same disk as the server: it gives no protection against losing the server. Copy the backup directory regularly to another place `[doldurulacak: uzak yedek hedefi]` (to be filled in: remote backup target). It can also be restored into an empty data directory after a server loss (if the target file does not exist it is written directly).
 
-**Durum:** birim testleri geçici dizinde geri yüklemeyi dener (bozulma, kesilmiş zincir, yanlış anahtar, kullanımdaki hedef). Gerçek sunucuda, systemd servisleri durdurulup başlatılarak henüz denenmedi.
+**Status:** unit tests try the restore in a temporary directory (corruption, truncated chain, wrong key, target in use). It has not yet been tried on a real server, by stopping and starting the systemd services.
 
-### Denetim zinciri: anahtar ve zincir başı
+### Audit chain: key and chain head
 
-Kayıtların `alanlar` sütunu (firma, hedef, sonuç, neden, IP özeti) özete dahildir; değiştirilirse zincir kırılır. Yönetici yeni bir IP'den girince denetime "yeni IP'den giriş yapıldı" yazılır (kullanıcının ilk girişi uyarı sayılmaz). IP'ler düz yazılmaz: 16 karakterlik özet olarak tutulur, denetim anahtarı varsa HMAC ile.
+The `alanlar` (fields) column of the records (company, target, result, reason, IP digest) is part of the digest; if it is changed, the chain breaks. When an administrator logs in from a new IP, "login from a new IP" is written to the audit (a user's first login does not count as a warning). IPs are not written in plain text: they are kept as a 16-character digest, with HMAC if there is an audit key.
 
-Yeni denetim kayıtları `ALIG_DENETIM_ANAHTARI` ile HMAC-SHA-256 olarak yazılır; anahtar yoksa eski SHA-256 biçimi kullanılır. Eski kayıtlar bozulmaz. Anahtarlı kayıtlardan sonra anahtarsız kayıt gelirse zincir kırık sayılır. Anahtar en az 32 karakter olmalı, kısa anahtarla servisler başlamaz.
+New audit records are written as HMAC-SHA-256 with `ALIG_DENETIM_ANAHTARI`; if there is no key, the old SHA-256 format is used. Old records are not broken. If a keyless record follows keyed records, the chain is counted as broken. The key must be at least 32 characters; with a short key the services do not start.
 
-Doğrulama anahtarı ortamdan okur: `sudo bash -c 'set -a; . /etc/alig/env; python3 /srv/alig/current/tarama/depo.py dogrula /var/lib/alig/tarama.sqlite'`. Anahtar olmadan çalıştırılırsa bağlantı denetlenir, HMAC denetlenemez ve komut 1 döner.
+Verification reads the key from the environment: `sudo bash -c 'set -a; . /etc/alig/env; python3 /srv/alig/current/tarama/depo.py dogrula /var/lib/alig/tarama.sqlite'`. If run without the key, the linkage is checked, the HMAC cannot be checked, and the command returns 1.
 
-Anahtar ve veritabanı aynı sunucuda durduğu sürece, sunucuya tam erişen biri zinciri yeniden üretebilir. Bunu yakalamak için zincir başını düzenli olarak sunucu dışına yazın: `python3 /srv/alig/current/tarama/depo.py bas /var/lib/alig/tarama.sqlite > bas.json`. Sonradan `dogrula <db> --bas bas.json` ile kontrol edilir; zincir başı değişmişse ya da son kayıtlar kesilmişse zincir kırık çıkar. Zincir başının nereye gideceği `[doldurulacak: zincir başı hedefi]` olarak açık duruyor. Anahtarı yedeklerden ayrı saklayın; anahtar kaybolursa eski anahtarlı kayıtlar doğrulanamaz.
+As long as the key and the database are on the same server, someone with full access to the server can regenerate the chain. To catch this, write the chain head off the server regularly: `python3 /srv/alig/current/tarama/depo.py bas /var/lib/alig/tarama.sqlite > bas.json`. Later it is checked with `dogrula <db> --bas bas.json`; if the chain head has changed or the last records have been truncated, the chain comes out broken. Where the chain head will go remains open as `[doldurulacak: zincir başı hedefi]` (to be filled in: chain head target). Keep the key apart from the backups; if the key is lost, old keyed records cannot be verified.
 
-Yedek, sunucuyla aynı diskte durur: sunucu kaybına karşı koruma sağlamaz. Yedek dizinini düzenli olarak başka bir yere kopyalayın `[doldurulacak: uzak yedek hedefi]`.
+The backup sits on the same disk as the server: it gives no protection against losing the server. Copy the backup directory regularly to another place `[doldurulacak: uzak yedek hedefi]`.
 
-## PostgreSQL yedek ve geri yükleme (geçiş sonrası)
+## PostgreSQL backup and restore (after the migration)
 
-Bu bölüm PostgreSQL'e geçildikten sonra içindir; bugün çalışma zamanı SQLite'tır ve yukarıdaki `bakim.py` yedeği geçerlidir. Araç `db/yedek.py`, uygulamadan bağımsızdır. **Durum:** PG16 geçici kümesinde tatbikat geçti (`tests/test_pg_yedek.py`); canlı sunucuda denenmedi, `BACKUP_RESTORE_VERIFIED = false`. RPO/RTO hedefi yoktur (karar DB-K5); süre yalnız tatbikatla ölçülür. `pg_dump` PITR sağlamaz; zamana dönüş yalnız temel yedek + WAL arşiviyle yapılır.
+This section is for after the move to PostgreSQL; today the runtime is SQLite and the `bakim.py` backup above applies. The tool is `db/yedek.py` and is independent of the application. **Status:** the drill passed on a temporary PG16 cluster (`tests/test_pg_yedek.py`); it has not been tried on a live server, `BACKUP_RESTORE_VERIFIED = false`. There is no RPO/RTO target (decision DB-K5); the duration is measured only by drills. `pg_dump` provides no PITR; point-in-time recovery is done only with a base backup plus a WAL archive.
 
-Varsayılanlar (şifreleme kararı DB-K6 gelene kadar):
-- Yedek ve WAL arşivi dizinleri **şifreli hacimde**, sahibi sunucu kullanıcısı, izin **0700**. Şifreli hacim yoksa yedek şifreli sayılmaz; araç şifrelemez.
-- Yedek, veritabanıyla aynı diskte durmaz ve başka bir yere kopyalanır `[doldurulacak: uzak yedek hedefi]`.
-- `alig_backup` rolünün parolası `PGPASSFILE` ile (0600); komut satırına parola konmaz. `pg_hba.conf`'a `replication` satırı gerekir (DB-K2).
+Defaults (until the encryption decision DB-K6 arrives):
+- The backup and WAL archive directories are on an **encrypted volume**, owned by the server user, with permissions **0700**. If there is no encrypted volume, the backup is not counted as encrypted; the tool does not encrypt.
+- The backup does not sit on the same disk as the database and is copied elsewhere `[doldurulacak: uzak yedek hedefi]`.
+- The `alig_backup` role's password goes through `PGPASSFILE` (0600); no password is put on the command line. A `replication` line is needed in `pg_hba.conf` (DB-K2).
 
-WAL arşivi (sunucu yöneticisi `postgresql.conf`'a koyar; araç sunucuya dokunmaz). Metni üretmek için:
+WAL archive (the server administrator puts it in `postgresql.conf`; the tool does not touch the server). To generate the text:
 
 ```sh
 python3 db/yedek.py arsiv-onerisi --wal-arsivi /var/backups/alig-pg/wal
 # archive_mode = on ; archive_command = 'test ! -f .../%f && cp %p .../%f.gecici && mv .../%f.gecici .../%f'
 ```
 
-Günlük yedek, doğrulama ve saklama (operatör ya da zamanlayıcı, sunucu kullanıcısıyla):
+Daily backup, verification and retention (operator or timer, as the server user):
 
 ```sh
 export PGHOST=/var/run/postgresql PGPASSFILE=/etc/alig/pgpass
-python3 db/yedek.py al --kok /var/backups/alig-pg/temel            # pg_basebackup + pg_verifybackup, bozuksa yedek silinir
-python3 db/yedek.py dogrula --yedek /var/backups/alig-pg/temel/pg-<UTC zaman>
-python3 db/yedek.py eskileri-sil --kok /var/backups/alig-pg/temel --sakla 7          # once listeler
+python3 db/yedek.py al --kok /var/backups/alig-pg/temel            # pg_basebackup + pg_verifybackup, the backup is deleted if corrupt
+python3 db/yedek.py dogrula --yedek /var/backups/alig-pg/temel/pg-<UTC time>
+python3 db/yedek.py eskileri-sil --kok /var/backups/alig-pg/temel --sakla 7          # lists first
 python3 db/yedek.py eskileri-sil --kok /var/backups/alig-pg/temel --sakla 7 --evet
 ```
 
-`eskileri-sil` WAL arşivini silmez; arşivi en eski saklanan yedeğin başlangıç WAL'ına göre `pg_archivecleanup` ile elle temizleyin, yoksa disk dolar.
+`eskileri-sil` (delete old) does not delete the WAL archive; clean the archive by hand with `pg_archivecleanup` according to the start WAL of the oldest retained backup, otherwise the disk fills up.
 
-Geri yükleme (her zaman **yeni, boş dizine**; mevcut kümenin üzerine yazılmaz, araç dolu dizinde durur):
+Restore (always into a **new, empty directory**; an existing cluster is never overwritten, the tool stops on a non-empty directory):
 
 ```sh
-# 1) kuru calistirma: plan yazilir, hicbir sey degismez
-python3 db/yedek.py geri-yukle --yedek .../pg-<zaman> --hedef /var/lib/postgresql/geri --wal-arsivi .../wal --hedef-zaman "2026-11-15 10:00:00+03"
-# 2) ayni komut --evet ile
+# 1) dry run: the plan is written, nothing changes
+python3 db/yedek.py geri-yukle --yedek .../pg-<time> --hedef /var/lib/postgresql/geri --wal-arsivi .../wal --hedef-zaman "2026-11-15 10:00:00+03"
+# 2) the same command with --evet
 ```
 
-Sonra: dizinin sahibi sunucu kullanıcısı olmalı; kopya kaynak kümenin yapılandırmasını taşır, bu yüzden **başlatmadan önce port ve soket yolunu** kaynaktan farklı yapın (aynı makinede iken). `archive_mode = off` yazılır; geri yüklenen küme kaynağın arşivine yazmaz. Kümeyi başlatın, `pg_is_in_recovery()` `f` olana kadar bekleyin; hedef zamandan sonraki değişiklikler gelmez. Zamanı saat dilimiyle yazın. Hedef zamandan sonrasını kapsayan WAL arşivde yoksa kurtarma hata verir (kaçırılan arşiv segmenti `pg_switch_wal()` ile tamamlanır). Denetim zincirlerini doğrulayın (`alig.denetim`, `alig.yonetim_denetim`). Geri yüklenen kümeye uygulamayı bağlamak ayrı ve elle bir karardır.
+Afterwards: the directory must be owned by the server user; the copy carries the configuration of the source cluster, so **before starting it, make the port and socket path different** from the source (if on the same machine). `archive_mode = off` is written; the restored cluster does not write to the source's archive. Start the cluster and wait until `pg_is_in_recovery()` is `f`; changes after the target time do not arrive. Write the time with the time zone. If the WAL covering the time after the target is not in the archive, recovery gives an error (a missed archive segment is completed with `pg_switch_wal()`). Verify the audit chains (`alig.denetim`, `alig.yonetim_denetim`). Connecting the application to the restored cluster is a separate, manual decision.
 
-Tatbikat: aynı adımlar PG16 geçici kümesinde otomatik koşar (`python3 -m unittest tests.test_pg_yedek -v`; süre test çıktısının sonunda). Canlı sunucuda düzenli tatbikat ve ölçülen sürenin kaydı gerekir (sıklık Ali'nin kararıdır); ölçülmeyen RTO "karşılanıyor" diye yazılmaz.
+Drill: the same steps run automatically on a temporary PG16 cluster (`python3 -m unittest tests.test_pg_yedek -v`; the duration is at the end of the test output). On the live server a regular drill and a record of the measured duration are needed (the frequency is Ali's decision); an unmeasured RTO is not written as "met".
 
-## İzleme
+## Monitoring
 
-`alig-izleme.timer` 5 dakikada bir duman testini çalıştırır (`http://127.0.0.1:8081`). Başarısızlıkta `alig-uyari.service` sistem günlüğüne kritik kayıt yazar. Bildirim yolu (e-posta ya da mesaj) `[doldurulacak: bildirim yöntemi]`; `/etc/systemd/system/alig-uyari.service` içindeki `ExecStart` değiştirilerek bağlanır.
+`alig-izleme.timer` runs the smoke test every 5 minutes (`http://127.0.0.1:8081`). On failure `alig-uyari.service` writes a critical entry to the system log. The notification path (e-mail or message) is `[doldurulacak: bildirim yöntemi]` (to be filled in: notification method); it is connected by changing `ExecStart` in `/etc/systemd/system/alig-uyari.service`.
 
 ```sh
 systemctl list-timers 'alig-*'
@@ -132,53 +132,53 @@ journalctl -u alig-izleme -n 50
 journalctl -u alig-form -u alig-tarama -n 100
 ```
 
-## Yönetim paneli
+## Admin panel
 
-Servis `alig-yonetim` yalnız `127.0.0.1:8092` üzerinde dinler. İki erişim yolu var (`group_vars/all.yml`, `yonetim_izinli_ipler`):
+The `alig-yonetim` service listens only on `127.0.0.1:8092`. There are two access paths (`group_vars/all.yml`, `yonetim_izinli_ipler`, allowed IPs):
 
-- **Boş (varsayılan):** Panel internete açılmaz, nginx `/yonetim` için 404 döner. Erişim SSH tüneliyle: `ssh -L 8092:127.0.0.1:8092 deploy@sunucu`, sonra tarayıcıda `http://localhost:8092/yonetim/`. Stil ve logo dosyalarını panel servisi kendisi sunar.
-- **IP listesi dolu:** nginx yalnız o adreslere `https://alig.tech/yonetim/` yolunu açar, diğerlerine 403 döner. Ofis ya da VPN çıkış adresinizi yazın.
+- **Empty (default):** The panel is not exposed to the internet; nginx returns 404 for `/yonetim`. Access is through an SSH tunnel: `ssh -L 8092:127.0.0.1:8092 deploy@server`, then `http://localhost:8092/yonetim/` in the browser. The panel service serves the style and logo files itself.
+- **IP list filled in:** nginx opens the path `https://alig.tech/yonetim/` only to those addresses and returns 403 to others. Write your office or VPN exit address.
 
-Kullanıcı yönetimi sunucuda, servis kullanıcısıyla:
+User management is done on the server, as the service user:
 
 ```sh
 sudo -u alig-web python3 /srv/alig/current/yonetim/kullanici.py --db /var/lib/alig/yonetim.sqlite ekle ali
-#   parola sorar (en az 12 karakter), doğrulama uygulaması için anahtarı bir kez gösterir
+#   asks for a password (at least 12 characters), shows the key for the authenticator app once
 sudo -u alig-web python3 /srv/alig/current/yonetim/kullanici.py --db /var/lib/alig/yonetim.sqlite liste
-... parola ali | totp-yenile ali | sil ali      # parola ve anahtar değişince açık oturumlar kapanır
+... parola ali | totp-yenile ali | sil ali      # when the password or key changes, open sessions are closed
 ```
 
-Giriş: kullanıcı adı, parola ve 6 haneli doğrulama kodu. 15 dakikada 5 hatalı denemeden sonra kullanıcı, 10 denemeden sonra IP adresi 15 dakika engellenir. Oturum 30 dakika boşta kalınca ya da 8 saat sonra kapanır. Doğrulama cihazı kaybolursa aşağıdaki "Doğrulama cihazı kaybı" bölümünü izleyin.
+Login: username, password and a 6-digit verification code. After 5 failed attempts in 15 minutes the user is blocked, and after 10 attempts the IP address is blocked, for 15 minutes. A session closes after 30 minutes idle or after 8 hours. If the verification device is lost, follow the "Verification device loss" section below.
 
-Firmalar sayfası, sağlık taraması yükleyen ve iletişim formu dolduran şirketleri tek listede gösterir. Düğmeler: Pasif et / Aktif et (pasif firma yeni tarama yükleyemez, mevcut raporları durur), Tarama hakkını sıfırla (30 günlük sayımı siler), Not, Kalıcı olarak sil (firma kaydı ve raporları; iletişim talepleri kalır).
+The Firmalar (companies) page shows, in one list, the companies that upload a health scan and that fill in the contact form. The buttons (Turkish UI labels): Pasif et / Aktif et (make inactive / active; an inactive company cannot upload a new scan, its existing reports stay), Tarama hakkını sıfırla (reset the scan allowance; clears the 30-day count), Not (note), Kalıcı olarak sil (delete permanently: the company record and its reports; contact requests stay).
 
-Paneldeki her işlem (giriş, talep ve rapor görüntüleme, durum değişikliği, silme) yönetim denetim zincirine yazılır; müşteri raporuna erişim ayrıca tarama zincirine `yonetici:<ad>` olarak düşer. `yonetim.sqlite` doğrulama anahtarlarını içerir: yedekleri bu yüzden 0600 izinlidir, başka yere kopyalarken şifreleyin.
+Every action in the panel (login, viewing requests and reports, status changes, deletion) is written to the admin audit chain; access to a customer report additionally lands in the scan chain as `yonetici:<name>`. `yonetim.sqlite` contains verification keys: for this reason its backups are 0600; encrypt them when copying elsewhere.
 
-### Doğrulama cihazı kaybı
+### Verification device loss
 
-Kullanıcı doğrulama uygulamasının bulunduğu telefonu kaybetti ya da değiştirdi. Panelden yapılacak bir şey yok: sunucuda, servis kullanıcısıyla `yonetim/kullanici.py` çalıştırılır. Bu yüzden sunucuya SSH ile girebilen başka bir yönetici gerekir; sunucuya kimse giremiyorsa önce sunucu erişimi kurtarılır (bu bölüm onu kapsamaz).
+The user lost or replaced the phone that holds the authenticator app. There is nothing to do from the panel: `yonetim/kullanici.py` is run on the server, as the service user. For this reason another administrator who can SSH into the server is needed; if nobody can get into the server, server access is recovered first (this section does not cover that).
 
-1. **Kimliği doğrulayın.** Talep eden kişinin kendisi olduğundan emin olun (telefonla geri arama ya da yüz yüze). Yönetici hesabı için yalnızca e-posta ya da mesajla gelen istekle anahtar yenilenmez.
-2. **Cihaz kayıp mı, çalındı mı?** Yalnızca değiştirildiyse 3. adım yeter. Çalınmış ya da başkasının eline geçmiş olabilirse 3. adımdan sonra 4. adımı da yapın: telefondaki uygulama bir kişiyi tek başına içeri almaz ama ikinci etkeni verir, parola da bilinmiş olabilir.
-3. **Anahtarı yenileyin.** Terminal kaydı almayan bir SSH oturumunda (`script`, oturum kaydı ya da ekran paylaşımı kapalı):
+1. **Verify identity.** Make sure the requester is who they say they are (a call back by phone, or in person). For an administrator account the key is not renewed on a request that arrives only by e-mail or message.
+2. **Lost or stolen?** If it was only replaced, step 3 is enough. If it may have been stolen or may have fallen into someone else's hands, do step 4 as well after step 3: the app on the phone alone does not let one person in, but it provides the second factor, and the password may also be known.
+3. **Renew the key.** In an SSH session that does not take a terminal recording (`script`, session recording or screen sharing off):
    ```sh
    sudo -u alig-web python3 /srv/alig/current/yonetim/kullanici.py --db /var/lib/alig/yonetim.sqlite totp-yenile ali
    ```
-   Komut yeni anahtarı ve `otpauth://` adresini bir kez yazar; kullanıcı bunu yeni cihazına ekler. Anahtarı sohbete, e-postaya ya da bilet sistemine yapıştırmayın; kullanıcıya yüz yüze ya da yalnızca kendisinin göreceği bir ekranda verin. Eski anahtar hemen geçersiz olur, sayaç sıfırlanır, kullanıcının açık oturumları kapanır.
-4. **Çalıntı olasılığında parolayı da yenileyin:** `... kullanici.py --db /var/lib/alig/yonetim.sqlite parola ali` (parolayı terminalden sorar; açık oturumları yine kapatır). Yönetim denetim kaydında (`/yonetim/denetim?kaynak=yonetim`) kullanıcının son girişlerine ve "yeni IP'den giriş yapıldı" satırlarına bakın; tanımadığınız bir giriş varsa olay olarak ele alın.
-5. **Doğrulayın.** `... kullanici.py --db /var/lib/alig/yonetim.sqlite liste` kullanıcıyı gösterir. Kullanıcı yeni cihazla giriş yapar. Yönetim denetim zincirinde `dogrulama kodu anahtari yenilendi: <ad>` satırı (aktör `cli`) ve çözülen olaya göre `parola degisti, oturumlar kapatildi: <ad>` bulunmalıdır.
+   The command writes the new key and the `otpauth://` address once; the user adds this to the new device. Do not paste the key into chat, e-mail or a ticket system; give it to the user in person or on a screen only they will see. The old key becomes invalid immediately, the counter is reset, and the user's open sessions are closed.
+4. **If it may have been stolen, renew the password too:** `... kullanici.py --db /var/lib/alig/yonetim.sqlite parola ali` (asks for the password from the terminal; it closes open sessions again). In the admin audit log (`/yonetim/denetim?kaynak=yonetim`) look at the user's latest logins and the "login from a new IP" lines; if there is a login you do not recognise, treat it as an incident.
+5. **Verify.** `... kullanici.py --db /var/lib/alig/yonetim.sqlite liste` shows the user. The user logs in with the new device. In the admin audit chain there must be the line `dogrulama kodu anahtari yenilendi: <name>` (actor `cli`) and, depending on the case, `parola degisti, oturumlar kapatildi: <name>`.
 
-Bilinen sınırlar:
+Known limits:
 
-- Kullanıcı eski cihazla çok sayıda hatalı kod denediyse 15 dakika engellenmiştir. `totp-yenile` bu sayacı sıfırlamaz; 15 dakika bekleyin. Engel süre dolunca kendiliğinden kalkar.
-- Aynı 6 haneli kod iki kez kabul edilmez. Yeni cihazı ekledikten sonra ilk kodu denerken bir önceki pencerenin kodunu yazmayın, bir sonraki kodu bekleyin.
-- `yonetim.sqlite` TOTP sırlarını düz metin tutar (`docs/kod-inceleme.md` ALIG-SEC-001 S1, karar SEC-K1). Bu yüzden `/var/lib/alig` dizini ve yedekler yalnızca servis kullanıcısına açık olmalıdır (0700 hedeflenir; dosyalar 0600). Disk ve yedek ortamı şifrelenmelidir; yedeği başka yere kopyalarken ayrıca şifreleyin. Komut satırı aracı gevşek umask'ta bile dosyaları 0600 oluşturur.
-- `kullanici.py kod <ad>` sırrı veritabanından okuyup anlık kod yazar; yalnızca yerel deneme içindir, canlı sunucuda kullanmayın.
-- Tüm yönetici hesapları kaybedildiyse ya da veritabanı yoksa: `ekle` ile yeni hesap açılır (varsa `--db` dosyası yedekten geri yüklenir, "Yedekten geri yükleme" bölümü).
+- If the user tried many wrong codes with the old device, they are blocked for 15 minutes. `totp-yenile` does not reset this counter; wait 15 minutes. The block lifts by itself when the time expires.
+- The same 6-digit code is not accepted twice. When trying the first code after adding the new device, do not enter the previous window's code; wait for the next code.
+- `yonetim.sqlite` keeps TOTP secrets in plain text (`docs/kod-inceleme.md` ALIG-SEC-001 S1, decision SEC-K1). For this reason the `/var/lib/alig` directory and the backups must be open only to the service user (0700 is targeted; files 0600). The disk and the backup medium must be encrypted; when copying a backup elsewhere, additionally encrypt it. The command line tool creates files with 0600 even under a loose umask.
+- `kullanici.py kod <name>` reads the secret from the database and prints a current code; it is only for local testing, do not use it on a live server.
+- If all administrator accounts are lost or the database does not exist: a new account is opened with `ekle` (if there is one, the `--db` file is restored from a backup, see the "Restoring from a backup" section).
 
-## Sağlık puanı katsayıları
+## Health score coefficients
 
-Rapordaki sağlık puanı varsayılan katsayılarla hesaplanır; yöntem ve değerler `docs/kural-katalogu.md` içinde, "Sağlık puanı" başlığında. Değiştirmek için sunucuda bir JSON dosyası yazın ve yalnız değiştirmek istediğiniz değerleri verin; verilmeyenler varsayılan kalır:
+The health score in the report is computed with default coefficients; the method and values are in `docs/kural-katalogu.md`, under the "Sağlık puanı" (health score) heading. To change them, write a JSON file on the server and give only the values you want to change; those not given stay at the default:
 
 ```sh
 sudoedit /etc/alig/puan.json
@@ -188,95 +188,95 @@ echo 'ALIG_PUAN_AYARI=/etc/alig/puan.json' | sudo tee -a /etc/alig/env
 sudo systemctl restart alig-tarama alig-yonetim
 ```
 
-Alanlar: `agirlik` (kritik, yuksek, orta, dusuk, bilgi; 0–1000), `kredi_uyari` (orta, dusuk, bilgi; 0–1), `kategori_carpani` (guvenlik, performans, konfigurasyon, bakim, kapasite, ha_dr, yedek; 0–100). Durum kredileri sabittir: Bilinmiyor ve Alınamadı her zaman 0 alır. Dosya geçersizse (bilinmeyen alan, aralık dışı değer, bozuk JSON, yinelenen anahtar, bütün ağırlıklar sıfır) `alig-tarama` ve `alig-yonetim` başlamaz, nedeni `journalctl -u alig-tarama -n 20` gösterir. İki servis aynı dosyayı okur; rapor ve panel aynı puanı gösterir. Puan saklanmaz, rapor her açıldığında hesaplanır: katsayı değişince eski raporların puanı da değişir. Etkin değerler panelde Sistem sayfasındadır.
+Fields: `agirlik` (weight: kritik, yuksek, orta, dusuk, bilgi; 0-1000), `kredi_uyari` (warning credit: orta, dusuk, bilgi; 0-1), `kategori_carpani` (category multiplier: guvenlik, performans, konfigurasyon, bakim, kapasite, ha_dr, yedek; 0-100). Status credits are fixed: Bilinmiyor (unknown) and Alınamadı (could not be obtained) always get 0. If the file is invalid (unknown field, out-of-range value, malformed JSON, duplicate key, all weights zero) `alig-tarama` and `alig-yonetim` do not start; the reason is shown by `journalctl -u alig-tarama -n 20`. The two services read the same file; the report and the panel show the same score. The score is not stored, it is computed each time a report is opened: when a coefficient changes, the score of old reports changes too. The effective values are on the System page in the panel.
 
-## E-posta doğrulaması (varsayılan kapalı)
+## E-mail verification (off by default)
 
-Kapalıyken rapor bağlantısı yüklemeden hemen sonra gösterilir ve yazılan e-posta adresi doğrulanmaz; panelde firmalar "doğrulanmamış" görünür. Açıkken:
+When off, the report link is shown right after the upload and the e-mail address entered is not verified; in the panel the companies appear as "unverified". When on:
 
-- Yükleme sonrası sayfa yalnız "e-postanızı kontrol edin" der; rapor bağlantısı yalnız e-postayla gider ve 24 saat geçerlidir.
-- Bağlantıyı açmak (GET) hiçbir şey değiştirmez; e-posta güvenlik tarayıcıları bağlantıyı kendiliğinden açar. Ücretsiz hak, sayfadaki düğmeyle (POST) doğrulayınca harcanır ve firmanın e-postası doğrulanmış olur.
-- Aynı adrese 24 saatte en çok 3, bir firmaya en çok 5 bekleyen bağlantı gönderilir.
-- Web süreci ağa çıkmaz: ileti `tarama.sqlite` içindeki giden kutusuna yazılır, `alig-posta` servisi gönderir. Gönderilen iletinin metni (bağlantı) hemen silinir; kayıt 7 gün sonra silinir.
+- After the upload the page only says "check your e-mail"; the report link goes only by e-mail and is valid for 24 hours.
+- Opening the link (GET) changes nothing; e-mail security scanners open links by themselves. The free allowance is spent when verified by the button on the page (POST), and the company's e-mail becomes verified.
+- At most 3 pending links per address and 5 per company are sent in 24 hours.
+- The web process does not reach the network: the message is written to the outbox in `tarama.sqlite`, and the `alig-posta` service sends it. The text of a sent message (the link) is deleted immediately; the record is deleted after 7 days.
 
-Açmak için (Ansible `group_vars/all.yml`):
+To turn it on (Ansible `group_vars/all.yml`):
 
 ```yaml
 eposta_dogrulama: true
-smtp_sunucu: smtp.saglayici.com   # 587: STARTTLS zorunlu, 465: doğrudan TLS; şifresiz SMTP desteklenmez
+smtp_sunucu: smtp.provider.com   # 587: STARTTLS required, 465: direct TLS; plain SMTP is not supported
 smtp_port: 587
-smtp_kullanici: kullanici-adi
+smtp_kullanici: username
 eposta_gonderen: tarama@alig.tech
 ```
 
-SMTP parolası depoya girmez: sunucuda `/etc/alig/env` dosyasına `ALIG_SMTP_PAROLA=...` satırını elle ekleyin, sonra `ansible-playbook site.yml` ve `yayin.yml`. Denetim: `python3 /srv/alig/current/deploy/hazirlik.py sunucu` (`alig-posta` çalışıyor mu, parola tanımlı mı). Gönderilemeyen iletiler: `sqlite3 /var/lib/alig/tarama.sqlite "SELECT id, durum, deneme, son_hata FROM posta ORDER BY id DESC LIMIT 20"`; 5 başarısız denemeden sonra ileti "basarisiz" olur ve metni silinir.
+The SMTP password does not go into the repository: add the line `ALIG_SMTP_PAROLA=...` by hand to `/etc/alig/env` on the server, then run `ansible-playbook site.yml` and `yayin.yml`. Check: `python3 /srv/alig/current/deploy/hazirlik.py sunucu` (is `alig-posta` running, is the password defined). Messages that cannot be sent: `sqlite3 /var/lib/alig/tarama.sqlite "SELECT id, durum, deneme, son_hata FROM posta ORDER BY id DESC LIMIT 20"`; after 5 failed attempts the message becomes "basarisiz" (failed) and its text is deleted.
 
-Yerelde denemek: `ALIG_EPOSTA_DOGRULAMA=1 python3 yerel.py`, iletileri okumak için `ALIG_POSTA_DIZINI=yerel-posta python3 tarama/posta.py --db yerel-tarama.sqlite` (iletiler `.eml` olarak yazılır).
+To try locally: `ALIG_EPOSTA_DOGRULAMA=1 python3 yerel.py`; to read the messages, `ALIG_POSTA_DIZINI=yerel-posta python3 tarama/posta.py --db yerel-tarama.sqlite` (messages are written as `.eml`).
 
-**Durum:** gönderim sahte SMTP nesnesiyle sınandı (STARTTLS girişten önce, STARTTLS yoksa parola gönderilmez, 465'te doğrudan TLS). Gerçek bir SMTP sunucusuyla denenmedi.
+**Status:** sending was tested with a fake SMTP object (STARTTLS before login, no password sent if there is no STARTTLS, direct TLS on 465). It has not been tried with a real SMTP server.
 
-## Müşteri portalı (varsayılan kapalı)
+## Customer portal (off by default)
 
-Portal `/portal/` altındadır. Açmak için `group_vars/all.yml` içinde `musteri_portali: true` **ve** `eposta_dogrulama: true` olmalıdır; ikincisi olmadan Ansible durur, servis de başlamaz (`ALIG_PORTAL=1` yalnız e-posta doğrulaması açıkken kabul edilir). Gerçek SMTP gönderimi kurulup denenmeden açmayın: hesap, adresin sahibi e-postadaki bağlantıyı onaylayınca açılır.
+The portal is under `/portal/`. To turn it on, `group_vars/all.yml` must have `musteri_portali: true` **and** `eposta_dogrulama: true`; without the second, Ansible stops and the service does not start either (`ALIG_PORTAL=1` is accepted only when e-mail verification is on). Do not turn it on before real SMTP sending is set up and tried: the account is opened when the owner of the address confirms the link in the e-mail.
 
-- Giriş: e-posta ve parola (en az 12 karakter, scrypt). Hatalı giriş e-posta başına 5, IP başına 10 denemede 15 dakika engellenir. Oturum bostayken 30 dakika, en çok 8 saat sürer; çerez `HttpOnly`, `SameSite=Strict`, yolu `/portal`.
-- Aynı kurumsal alan adındaki kullanıcılar aynı firmanın raporlarını görür (`ornek.com.tr`); ücretsiz posta adresleri (gmail vb.) tek başınadır.
-- Firma izolasyonu veri katmanındadır (`tarama/portal_depo.py` `Kapsam`): her sorgu oturumdaki kullanıcının firmasıyla sınırlıdır; başka firmanın raporu var olmayan kimlikle aynı yanıtı verir.
-- Platform yöneticisinin hesabı ve oturumu ayrıdır (`yonetim.sqlite`); portal hesabı panele girmez.
-- Bir firmayı panelden pasif yapmak o firmanın portal girişini ve açık oturumlarını hemen geçersiz kılar; firma silinince hesapları da silinir.
-- Portaldan kullanıcı: rapor listesi (son 20 satırda önceki taramaya göre puan değişimi), raporu kalıcı silme (onay sayfası + form kodu; silinen rapor ücretsiz tarama hakkını geri vermez), ücretsiz tarama hakkı ve yenilenme tarihi, hizmet talebi (firma başına günde en çok 5), hesap ve veri silme talebi (firma başına tek açık talep).
-- Yönetici tarafı: panelde **Portal talepleri** (durum: Yeni, İnceleniyor, Tamamlandı, Reddedildi). Silme talebi yalnız kayıttır, veriyi kendiliğinden silmez: kimliği doğrulayıp firma sayfasındaki **Firmayı sil** ile uygulayın (portal hesapları ve talepleri de silinir), sonra talebi Tamamlandı yapın. Talep sahibine otomatik e-posta gitmez; yanıt sizin e-postanızdan verilir.
-- Parola sıfırlama bu dilimde yoktur: parolasını unutan kullanıcı için yeni bir hesap isteği yapılamaz (adreste etkin hesap varsa istek yeni hesap açmaz). Parola sıfırlama sonraki dilimde gelir; o zamana kadar canlıya açmayın.
+- Login: e-mail and password (at least 12 characters, scrypt). A wrong login is blocked for 15 minutes after 5 attempts per e-mail and 10 per IP. A session lasts 30 minutes when idle, at most 8 hours; the cookie is `HttpOnly`, `SameSite=Strict`, with path `/portal`.
+- Users in the same corporate domain see the reports of the same company (`ornek.com.tr`); free mail addresses (gmail etc.) stand alone.
+- Company isolation is in the data layer (`tarama/portal_depo.py` `Kapsam`): every query is limited to the company of the user in the session; another company's report gives the same response as a nonexistent ID.
+- The platform administrator's account and session are separate (`yonetim.sqlite`); a portal account does not enter the panel.
+- Making a company inactive from the panel immediately invalidates that company's portal login and open sessions; when a company is deleted its accounts are deleted too.
+- For the portal user: the report list (in the last 20 rows, the score change compared with the previous scan), permanently deleting a report (confirmation page + form code; a deleted report does not give back the free scan allowance), the free scan allowance and its renewal date, a service request (at most 5 per day per company), an account and data deletion request (a single open request per company).
+- Administrator side: **Portal talepleri** (portal requests) in the panel (status: Yeni = new, İnceleniyor = under review, Tamamlandı = completed, Reddedildi = rejected). A deletion request is only a record, it does not delete the data by itself: verify the identity, apply it with **Firmayı sil** (delete company) on the company page (portal accounts and requests are deleted too), then mark the request as Tamamlandı. No automatic e-mail goes to the requester; the reply is given from your own e-mail.
+- Password reset does not exist in this slice: for a user who forgot the password, a new account request cannot be made (if there is an active account at the address, the request does not open a new account). Password reset comes in the next slice; do not turn it on for production until then.
 
-## Doğrudan bağlantı (Kip B, varsayılan kapalı)
+## Direct connection (Mode B, off by default)
 
-Kip B'de müşteri bağlantı bilgisini verir ve tarama alig.tech tarafında, ayrı `alig-calistirici` sürecinde koşar (`docs/kip-b-tasarim.md`). `ALIG_DOGRUDAN=1` ve çalıştırıcı soketi olmadan açılmaz; açma kararı ayrıdır, bu bölüm açmaz. Müşteri yalnızca yöneticinin firma sayfasında "Doğrudan bağlantı izni ver" dediği firmalar için istek açabilir.
+In Mode B the customer gives the connection details and the scan runs on the alig.tech side, in the separate `alig-calistirici` (runner) process (`docs/kip-b-tasarim.md`). It does not open without `ALIG_DOGRUDAN=1` and the runner socket; the decision to open is separate, and this section does not open it. A customer can open a request only for companies for which the administrator has pressed "Doğrudan bağlantı izni ver" (grant direct connection permission) on the company page.
 
-**İstekleri izleme.** Panelde **Kip B istekleri** (`/yonetim/kip-b`): salt okuma, 25'erli sayfalı, `firma` ve `durum` (bekliyor, tamam, iptal, deneme) süzgeçli. Hedef (ad:port), veritabanı, hesap, deneme sayısı ve geçerlilik sonu görünür. Parola, bağlantı dizgisi, sahiplik kanıtı, belirteç ve IP gösterilmez; parola hiçbir yerde saklanmaz. İstek kayıtları süresi dolunca silinir. Panele her bakış denetim zincirine yazılır.
+**Monitoring requests.** In the panel **Kip B istekleri** (Mode B requests, `/yonetim/kip-b`): read-only, paginated by 25, with `firma` (company) and `durum` (status: bekliyor = pending, tamam = done, iptal = cancelled, deneme = attempt) filters. The target (name:port), database, account, number of attempts and validity end are visible. The password, connection string, ownership proof, token and IP are not shown; the password is not stored anywhere. Request records are deleted when they expire. Every view of the panel is written to the audit chain.
 
-**Müşteriye vereceğiniz hazırlık** (site: `/tarama-hazirlik/`, "Doğrudan bağlantı (Kip B) için hazırlık"):
+**Preparation you give to the customer** (site: `/tarama-hazirlik/`, "Doğrudan bağlantı (Kip B) için hazırlık", i.e. preparation for direct connection):
 
-1. Salt okunur rol: `alig-rol.sql` (pg_monitor üyesi, salt okunur oturum, 15 sn sorgu, 2 sn kilit). Parola `SET password_encryption TO 'scram-sha-256'` ile verilir; süper kullanıcı reddedilir.
-2. `pg_hba.conf`: yalnız TLS ve yalnız sabit çıkış adresimizden, `scram-sha-256`:
+1. A read-only role: `alig-rol.sql` (member of pg_monitor, read-only session, 15 s query, 2 s lock). The password is set with `SET password_encryption TO 'scram-sha-256'`; a superuser is rejected.
+2. `pg_hba.conf`: only TLS and only from our fixed egress address, `scram-sha-256`:
 
    ```
    hostssl  postgres  alig_hc  [doldurulacak: alig.tech çıkış IP adresi]/32  scram-sha-256
    ```
 
-   Sabit çıkış IP adresi barındırma seçimine bağlıdır ve **henüz belli değil** (`docs/kip-b-tasarim.md`, karar bekleyenler); adres yazılana kadar müşteriye güvenlik duvarında izin verdirmeyin. Site metnindeki alan doldurulana dek `--release` paketleme durur (`docs/doldurulacak.md`).
-3. `channel_binding=require`: her bağlantıda zorunludur. Hesap SCRAM-SHA-256 ile ve TLS kanalına bağlı doğrulanmalı; `md5` ya da `password` yöntemli hesapla Kip B çalışmaz (bilerek). Müşteri sunucusunda `ssl = on`.
-4. Sunucu sertifikası doğrulaması (isteğe bağlı): parola adımında müşteri kendi CA'sını PEM olarak yapıştırırsa `sslmode=verify-full` ve geçici `sslrootcert` ile bağlanılır.
+   (the bracketed placeholder means: alig.tech egress IP address.) The fixed egress IP address depends on the hosting choice and is **not yet known** (`docs/kip-b-tasarim.md`, pending decisions); do not have the customer allow it in the firewall until the address is written. Until the field in the site text is filled in, `--release` packaging stops (`docs/doldurulacak.md`).
+3. `channel_binding=require`: mandatory on every connection. The account must authenticate with SCRAM-SHA-256 and bound to the TLS channel; Mode B does not work with an account using the `md5` or `password` method (deliberately). `ssl = on` on the customer server.
+4. Server certificate verification (optional): if the customer pastes their own CA as PEM in the password step, the connection is made with `sslmode=verify-full` and a temporary `sslrootcert`.
 
-**Sertifika doğrulaması nasıl işler.**
+**How certificate verification works.**
 
-- **Varsayılan (CA verilmediğinde, değişmedi):** `sslmode=require` + `channel_binding=require`. Bağlantı şifrelidir ve kanal bağlamalıdır ama sunucu sertifikası denetlenmez; bu, bu bölümden önceki davranıştır ve aşağı çekilmez.
-- **CA verilirse:** `sslmode=verify-full`. Sertifika zinciri verilen CA'ya, sertifikadaki ad (SAN) yazılan sunucu adına uymalıdır; uymazsa tarama başlamaz ve müşteri "bağlantı kurulamadı" sayfasını görür. Zayıf moda sessizce düşülmez.
-- **CA girdisi:** en çok 16 KiB, en çok 5 `BEGIN CERTIFICATE` bloğu, yalnızca ASCII ve base64; özel anahtar, ek metin, başlık satırı, NUL ve DER `SEQUENCE` ile başlamayan gövde reddedilir ("CA sertifikası kabul edilmedi" sayfası; deneme hakkı harcanmaz, bağlantı açılmaz). Aynı denetim çalıştırıcıda yeniden yapılır.
-- **Geçici dosya:** çalıştırıcı kullanıcısının özel `/tmp` alanında (`PrivateTmp`) 0700 dizin ve 0600 dosya; tarama başarılı, başarısız ya da hatalı olsun iş bitince silinir. CA metni veritabanına, denetim kaydına ve günlüğe yazılmaz.
-- `sslrootcert` yolu bağlantı dizgisine girmeden önce kati kalıptan geçer (mutlak yol; harf, rakam, `. _ / -`); boşluk, tırnak, `=`, ters bölü ya da satır sonu içeren yol reddedilir.
+- **Default (when no CA is given, unchanged):** `sslmode=require` + `channel_binding=require`. The connection is encrypted and channel-bound but the server certificate is not checked; this is the behaviour before this section and is not downgraded.
+- **If a CA is given:** `sslmode=verify-full`. The certificate chain must match the given CA and the name in the certificate (SAN) must match the server name entered; if not, the scan does not start and the customer sees the "could not connect" page. It does not silently fall to the weak mode.
+- **CA input:** at most 16 KiB, at most 5 `BEGIN CERTIFICATE` blocks, ASCII and base64 only; a private key, extra text, a header line, NUL and a body that does not start with a DER `SEQUENCE` are rejected (the "CA certificate not accepted" page; the attempt allowance is not spent, no connection is opened). The same check is repeated in the runner.
+- **Temporary file:** in the runner user's private `/tmp` space (`PrivateTmp`), a 0700 directory and a 0600 file; deleted when the job ends, whether the scan succeeded, failed or errored. The CA text is not written to the database, the audit record or the log.
+- The `sslrootcert` path goes through a strict pattern before it enters the connection string (absolute path; letters, digits, `. _ / -`); a path containing a space, quote, `=`, backslash or line break is rejected.
 
-**Yanıt süresi sabitleme.** Hedef reddi (iç adres, kötü ad ya da port, DNS çözülememesi) ve bağlantı hatası (ulaşılamayan port, yanlış parola) aynı sayfayı ve aynı alt süreyi verir; iç ağın yanıt zamanlamasıyla taranması zorlaşır. Form adımında reddedilen hedefler en az 6 sn (`SABIT_RED_SN`), parola adımında bağlantı hataları en az 12 sn (`SABIT_BAGLANTI_SN`, psql `connect_timeout=10` sn'yi kapsar) sonra yanıtlanır. Bunlar **alt sınırdır**: ad çözümü ya da bağlantı bu süreyi zaten aşarsa ek bekleme olmaz, yani çok yavaş DNS yine ayırt edilebilir. Başarılı akış ve hedefle ilgisiz hatalar (izin yok, e-posta geçersiz) bekletilmez. Bekleyen istek bir iş parçacığı tutar; saatte 5 istek ve eşzamanlı tarama sınırları bu yükü sınırlar.
+**Response time pinning.** A target rejection (internal address, bad name or port, DNS not resolving) and a connection error (unreachable port, wrong password) give the same page and the same minimum duration; this makes it harder to scan the internal network through response timing. Targets rejected at the form step are answered after at least 6 s (`SABIT_RED_SN`), and connection errors at the password step after at least 12 s (`SABIT_BAGLANTI_SN`, covers the psql `connect_timeout=10` s). These are **lower bounds**: if name resolution or the connection already exceeds this time there is no extra wait, so a very slow DNS can still be distinguished. A successful flow and errors unrelated to the target (no permission, invalid e-mail) are not delayed. A waiting request holds a thread; the limits of 5 requests per hour and concurrent scans bound this load.
 
-**Sınama durumu.** Sertifika doğrulaması PostgreSQL 16'da gerçek TLS bağlantısıyla sınandı (`tests/test_baglanti_tls.py`, geçici kendinden imzalı CA): doğru CA ve ad başarılı; yabancı CA ve uyuşmayan sunucu adı başarısız; CA'sız varsayılan aynen bağlanır. PG18'de ve gerçek müşteri sunucusunda sınanmadı; çalıştırıcının systemd altında davranışı (özel `/tmp`) gerçek sunucuda sınanmadı.
+**Test status.** Certificate verification was tested on PostgreSQL 16 with a real TLS connection (`tests/test_baglanti_tls.py`, a temporary self-signed CA): the correct CA and name succeed; a foreign CA and a mismatched server name fail; the default without a CA connects as before. It was not tested on PG18 or on a real customer server; the behaviour of the runner under systemd (private `/tmp`) was not tested on a real server.
 
-## Sorun giderme
+## Troubleshooting
 
-| Belirti | Bak |
+| Symptom | Look at |
 | --- | --- |
-| Siteye ulaşılamıyor | `systemctl status nginx`, `nginx -t`, `ufw status` |
-| Form ya da yükleme 502 | `systemctl status alig-form alig-tarama`, port dinleniyor mu: `ss -ltnp \| grep -E '8090\|8091'` |
-| Yükleme 413 | Dosya 5 MB üstü ya da nginx `client_max_body_size 6m` sınırı |
-| Yükleme 429 | Şirket sınırı (30 günde 2) ya da hız sınırı. Sınır verisi `kullanim` tablosunda, düz adres tutulmaz |
-| Sertifika yenilenmedi | `certbot renew --dry-run`, `systemctl list-timers certbot*` |
+| The site cannot be reached | `systemctl status nginx`, `nginx -t`, `ufw status` |
+| Form or upload 502 | `systemctl status alig-form alig-tarama`, is the port listening: `ss -ltnp \| grep -E '8090\|8091'` |
+| Upload 413 | File above 5 MB or the nginx `client_max_body_size 6m` limit |
+| Upload 429 | Company limit (2 in 30 days) or rate limit. The limit data is in the `kullanim` table, no plain address is kept |
+| Certificate did not renew | `certbot renew --dry-run`, `systemctl list-timers certbot*` |
 
-## Gizli tuzu değiştirme
+## Changing the secret salt
 
-`/etc/alig/env` dosyasını silip `site.yml` çalıştırmak yeni tuz üretir. Tuz yalnız form kayıtlarındaki IP özetlerini etkiler; eski özetler yeni kayıtlarla eşleşmez, bu kabul edilebilir.
+Deleting the `/etc/alig/env` file and running `site.yml` generates a new salt. The salt affects only the IP digests in form records; old digests do not match new records, which is acceptable.
 
-## Bu repoda neyin sınandığı
+## What is tested in this repository
 
-Katman katman durum: `docs/canli-kontrol-listesi.md` (DONE ya da NOT_TESTED). Dağıtımdan sonra: `python3 /srv/alig/current/deploy/hazirlik.py sunucu` (kullanıcılar, izinler, anahtarlar, disk, servisler, portlar; sır değerlerini yazdırmaz, FAIL varsa 1 döner).
+Status layer by layer: `docs/canli-kontrol-listesi.md` (DONE or NOT_TESTED). After deployment: `python3 /srv/alig/current/deploy/hazirlik.py sunucu` (users, permissions, keys, disk, services, ports; it does not print secret values, and returns 1 if there is a FAIL).
 
-Sınandı: paket tekrarlanabilirliği, bakım ve yedek betiği, duman testi, nginx yapılandırması (`nginx -t` ve gerçek nginx 1.24 ile uçtan uca: TLS, yönlendirme, başlıklar, vekil, yükleme sınırı, günlükte kod gizleme), `current` bağlantısı değiştirme mantığı, Ansible söz dizimi ve lint.
+Tested: package reproducibility, the maintenance and backup script, the smoke test, the nginx configuration (`nginx -t` and end to end with real nginx 1.24: TLS, redirect, headers, proxy, upload limit, hiding the token in the log), the `current` link switching logic, Ansible syntax and lint.
 
-Sınanmadı (gerçek sunucuda ilk çalıştırmada izleyin): Ansible'ın gerçek bir sunucuya uygulanması, ufw ve sshd kuralları, certbot ile sertifika alma, systemd birimlerinin sertleştirme ayarlarıyla başlaması (`SystemCallFilter`, `MemoryDenyWriteExecute`). Bir birim başlamazsa önce `journalctl -u alig-form` ve `systemd-analyze security alig-form` bakın, ayarı gevşetmek yerine nedenini bulun.
+Not tested (watch on the first run on a real server): applying Ansible to a real server, ufw and sshd rules, obtaining a certificate with certbot, systemd units starting with their hardening settings (`SystemCallFilter`, `MemoryDenyWriteExecute`). If a unit does not start, look first at `journalctl -u alig-form` and `systemd-analyze security alig-form`; find the cause instead of loosening the setting.

@@ -1,8 +1,8 @@
 ---
-# Yeni surum yayinla. Basarisiz olursa onceki surume doner.
+# Publish a new release. If it fails, it returns to the previous release.
 #   python3 ../paketle.py --surum 1.0.0 --release
 #   ansible-playbook yayin.yml -e surum=1.0.0 -e paket=../../dist/alig-site-1.0.0.tar.gz
-- name: Surum yayinla
+- name: Publish release
   hosts: alig
   become: true
   vars_prompt: []

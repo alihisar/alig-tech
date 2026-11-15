@@ -1,12 +1,12 @@
 ---
-- name: Paketler
+- name: Packages
   ansible.builtin.apt:
     name: [ufw, unattended-upgrades, chrony, python3, sqlite3, logrotate, curl]
     state: present
     update_cache: true
     cache_valid_time: 3600
 
-- name: Otomatik guvenlik guncellemeleri (yeniden baslatma elle)
+- name: Automatic security updates (restart by hand)
   ansible.builtin.copy:
     dest: /etc/apt/apt.conf.d/52alig-otomatik
     mode: "0644"
@@ -16,15 +16,15 @@
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
 
-- name: Guvenlik duvari, varsayilan reddet
+- name: Firewall, deny by default
   community.general.ufw:
     default: deny
     direction: incoming
-- name: Guvenlik duvari, giden izinli
+- name: Firewall, outbound allowed
   community.general.ufw:
     default: allow
     direction: outgoing
-- name: Guvenlik duvari, izinli portlar (ssh hizla sinirli)
+- name: Firewall, allowed ports (ssh rate limited)
   community.general.ufw:
     rule: "{{ item.rule }}"
     port: "{{ item.port }}"
@@ -33,20 +33,20 @@
     - { rule: limit, port: "{{ ssh_port }}" }
     - { rule: allow, port: "80" }
     - { rule: allow, port: "443" }
-- name: Guvenlik duvarini ac
+- name: Turn on the firewall
   community.general.ufw:
     state: enabled
 
-- name: SSH sertlestirme (anahtar yoksa kendini kilitlemez)
+- name: SSH hardening (does not lock itself out if there is no key)
   block:
-    - name: Yonetim kullanicisinin yetkili anahtari var mi
+    - name: Does the administration user have an authorised key
       ansible.builtin.stat:
         path: "/home/{{ yonetim_kullanici }}/.ssh/authorized_keys"
       register: anahtar
-    - name: Anahtar yoksa dur
+    - name: Stop if there is no key
       ansible.builtin.assert:
         that: anahtar.stat.exists and anahtar.stat.size > 0
-        fail_msg: "{{ yonetim_kullanici }} icin authorized_keys yok: parola girisini kapatmadan once anahtar ekleyin."
+        fail_msg: "{{ yonetim_kullanici }} has no authorized_keys: add a key before turning off password login."
     - name: sshd drop-in
       ansible.builtin.template:
         src: sshd-alig.conf.j2
@@ -54,24 +54,24 @@
         mode: "0644"
         backup: true
       register: sshd_conf
-    - name: sshd ayarini dogrula
+    - name: Validate the sshd setting
       ansible.builtin.command: /usr/sbin/sshd -t
       changed_when: false
-    - name: sshd yeniden yukle
+    - name: Reload sshd
       ansible.builtin.service:
         name: ssh
         state: reloaded
       when: sshd_conf.changed
   rescue:
-    - name: Gecersiz drop-in'i kaldir
+    - name: Remove the invalid drop-in
       ansible.builtin.file:
         path: /etc/ssh/sshd_config.d/10-alig.conf
         state: absent
-    - name: Durdur
+    - name: Stop
       ansible.builtin.fail:
-        msg: "SSH sertlestirme uygulanamadi, drop-in kaldirildi. Yukaridaki hatayi inceleyin."
+        msg: "SSH hardening could not be applied, the drop-in was removed. Examine the error above."
 
-- name: chrony calisiyor
+- name: chrony is running
   ansible.builtin.service:
     name: chrony
     state: started

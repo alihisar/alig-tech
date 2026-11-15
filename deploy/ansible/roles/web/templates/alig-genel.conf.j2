@@ -1,7 +1,7 @@
-# alig.tech: genel nginx ayarlari
+# alig.tech: general nginx settings
 server_tokens off;
 
-# Rapor baglantilarindaki gizli kod gunluge yazilmaz
+# The secret code in report links is not written to the log
 map $uri $alig_yol {
     ~^/rapor/  "/rapor/...";
     default    $uri;

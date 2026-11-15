@@ -1,12 +1,12 @@
-# Form servisi ortam dosyasi ornegi. Gercek degerleri deploy/ altinda DEGIL,
-# sunucuda /etc/alig/form.env dosyasina yazin (izin 0600, sahibi alig-form).
+# Example environment file for the form service. Write the real values NOT under deploy/,
+# but on the server in /etc/alig/form.env (permissions 0600, owned by alig-form).
 
 ALIG_FORM_BIND=127.0.0.1
 ALIG_FORM_PORT=8081
 ALIG_FORM_DB=/var/lib/alig-form/iletisim.sqlite3
-# Kayit saklama suresi (gun). IP adresi kisisel veridir.
+# Record retention period (days). The IP address is personal data.
 ALIG_FORM_RETENTION_DAYS=30
-# Bildirim e-postasi icin SMTP bilgileri sunucuda doldurulur.
+# The SMTP details for the notification e-mail are filled in on the server.
 ALIG_SMTP_HOST=CHANGE_ME
 ALIG_SMTP_USER=CHANGE_ME
 ALIG_SMTP_PASSWORD=CHANGE_ME

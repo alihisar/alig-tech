@@ -1,6 +1,6 @@
 ---
-# current baglantisini atomik olarak degistirir (rename). 'hedef' kok_dizin'e gore goreli yol.
-- name: current baglantisini degistir
+# Changes the current link atomically (rename). 'hedef' is a path relative to kok_dizin.
+- name: Change the current link
   ansible.builtin.shell: |
     set -e
     cd {{ kok_dizin }}

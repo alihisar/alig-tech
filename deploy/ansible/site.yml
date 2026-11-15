@@ -1,8 +1,8 @@
 ---
-# Ilk kurulum ve yapilandirma. Tekrar calistirilabilir.
-#   ansible-playbook site.yml --check --diff   # once kuru calistirma
+# First installation and configuration. Can be run repeatedly.
+#   ansible-playbook site.yml --check --diff   # dry run first
 #   ansible-playbook site.yml
-- name: alig.tech sunucusu
+- name: alig.tech server
   hosts: alig
   become: true
   roles:

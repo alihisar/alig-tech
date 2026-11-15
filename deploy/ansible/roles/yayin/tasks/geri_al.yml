@@ -1,30 +1,30 @@
 ---
-- name: Onceki surum var mi
+- name: Is there a previous release
   ansible.builtin.stat:
     path: "{{ kok_dizin }}/onceki"
   register: onceki
-- name: Yoksa dur
+- name: Stop if not
   ansible.builtin.assert:
     that: onceki.stat.exists
-    fail_msg: "Donulecek onceki surum kaydi yok."
-- name: Simdiki ve onceki surum
+    fail_msg: "There is no previous release record to return to."
+- name: Current and previous release
   ansible.builtin.shell: |
     printf 'simdiki=%s onceki=%s\n' "$(basename "$(readlink -f {{ kok_dizin }}/current)")" "$(basename "$(readlink -f {{ kok_dizin }}/onceki)")"
   register: durum
   changed_when: false
-- name: Bilgi
+- name: Info
   ansible.builtin.debug:
     msg: "{{ durum.stdout }}"
-- name: Onceki surume don
+- name: Return to the previous release
   ansible.builtin.include_tasks: baglanti.yml
   vars:
     hedef: onceki
-- name: Servisleri yeniden baslat
+- name: Restart the services
   ansible.builtin.systemd:
     name: "{{ item }}"
     state: restarted
   loop: [alig-form, alig-tarama, alig-yonetim]
-- name: Duman testi
+- name: Smoke test
   ansible.builtin.command: python3 {{ kok_dizin }}/current/deploy/duman_testi.py http://127.0.0.1:{{ yerel_izleme_portu }}
   register: duman
   retries: 5

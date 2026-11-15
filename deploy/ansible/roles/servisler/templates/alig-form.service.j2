@@ -1,5 +1,5 @@
 [Unit]
-Description=alig.tech Iletisim formu ({{ form_portu }})
+Description=alig.tech Contact form ({{ form_portu }})
 After=network.target
 
 [Service]
@@ -9,7 +9,7 @@ EnvironmentFile=/etc/alig/env
 ExecStart=/usr/bin/python3 {{ kok_dizin }}/current/form/server.py --db {{ veri_dizini }}/form.sqlite --host 127.0.0.1 --port {{ form_portu }}
 Restart=on-failure
 RestartSec=2
-# sertlestirme
+# hardening
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths={{ veri_dizini }}

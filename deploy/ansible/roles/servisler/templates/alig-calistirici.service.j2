@@ -1,9 +1,9 @@
 [Unit]
-Description=alig.tech Kip B calistiricisi (dogrudan baglantili tarama)
+Description=alig.tech Mode B runner (scan with a direct connection)
 After=network.target
 
 [Service]
-# Web servisinden ayri kullanici. Servis sirlari (ortam dosyasi) ve veri dizini bu surece verilmez.
+# A user separate from the web service. The service secrets (environment file) and the data directory are not given to this process.
 User={{ calistirici_kullanici }}
 Group={{ calistirici_kullanici }}
 RuntimeDirectory=alig-calistirici
@@ -12,7 +12,7 @@ Environment=ALIG_YASAK_AGLAR={{ calistirici_yasak_aglar | join(',') }}
 ExecStart=/usr/bin/python3 {{ kok_dizin }}/current/tarama/calistirici.py --soket /run/alig-calistirici/calistirici.sock --izinli-kullanici {{ servis_kullanici }}
 Restart=on-failure
 RestartSec=2
-# sertlestirme
+# hardening
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -34,7 +34,7 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
 InaccessiblePaths={{ veri_dizini }} {{ yedek_dizini }} /etc/alig
-# Disariya baglanir ama ic aga, yerel adreslere ve bulut meta veri adresine baglanamaz (kod denetimine ek ikinci kat).
+# It connects outward but cannot connect to the internal network, local addresses or the cloud metadata address (a second layer in addition to the code check).
 IPAddressDeny=localhost link-local multicast 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7
 UMask=0007
 

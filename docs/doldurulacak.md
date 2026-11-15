@@ -1,9 +1,9 @@
-# Doldurulması gereken alanlar
+# Fields to be filled in
 
-Bu liste `python3 ci/check_placeholders.py --write docs/doldurulacak.md` ile üretilir.
-Üretim etiketinde (`--release`) bu alanlardan biri kalırsa CI kırılır.
+This list is generated with `python3 ci/check_placeholders.py --write docs/doldurulacak.md`.
+If any of these fields remains in a production tag (`--release`), CI fails.
 
-| Dil | Anahtar | Alan |
+| Language | Key | Field |
 | --- | --- | --- |
 | tr | `sec_v_kvkk` | [doldurulacak: hukuk onayı] |
 | tr | `about_todo` | [doldurulacak: kurucunun adı, deneyim yılı, profil bağlantısı] |
@@ -16,45 +16,45 @@ Bu liste `python3 ci/check_placeholders.py --write docs/doldurulacak.md` ile ür
 | en | `page_pending` | [doldurulacak] |
 | en | `hz_b_hba` | [doldurulacak: alig.tech egress IP address] |
 
-Diğer açık kararlar (metinde değil, yapılandırmada):
+Other open decisions (not in the text, in the configuration):
 
-- İletişim e-posta adresi, CI sağlayıcısı, barındırma sağlayıcısı, hedef müşteri kesimi
-- KVKK aydınlatma ve çerez metinleri (hukukçu onayı)
+- Contact e-mail address, CI provider, hosting provider, target customer segment
+- KVKK (Turkish data protection law) privacy notice and cookie texts (legal review)
 
-## Sağlık taraması: onay bekleyen eşikler (resmî belgede yok, mühendislik seçimi)
+## Health scan: thresholds awaiting approval (not in an official document, an engineering choice)
 
-- `pg_bosta_islem`: idle in transaction suresi: >=600 sn orta, >=3600 sn yuksek
-- `pg_baglanti`: baglanti doluluk: >=75% orta, >=90% yuksek
-- `pg_xid_yasi`: orta esik: yas >= 2 x autovacuum_freeze_max_age
-- `pg_sequence`: sequence doluluk: >0.8 yuksek, >0.95 kritik
-- `pg_slot`: etkin olmayan slot: yuksek
-- `pg_kullanilmayan_indeks`: 10 MB ustu ve idx_scan=0: dusuk (istatistik sifirlanmis olabilir)
-- `pg_mxid`: multixact yasi: >= 2 x autovacuum_multixact_freeze_max_age orta, >= 1,6 milyar kritik
-- `pg_tablo_autovacuum`: tablo duzeyinde kapatilmis autovacuum: orta
-- `pg_replikasyon`: replika gecikmesi: >=60 sn ya da >=1 GB orta, >=600 sn ya da >=16 GB yuksek; akista olmayan replika orta
-- `pg_gecici_dosya`: gecici dosya: gunluk >=10 GB dusuk, >=100 GB orta; olcum penceresi en az 1 gun sayilir, bilinmiyorsa bilgi
-- PostgreSQL destek sonu tarihleri (`tarama/kurallar.py` `PG_EOL`): her yıl postgresql.org/support/versioning ile doğrulayın.
-- Geçmiş karşılaştırması: raporlar 30 günde silindiği için yalnız bu süre içindeki taramalar karşılaştırılır. Daha uzun geçmiş için rapor silindikten sonra özet (puan, denetim durumları; nesne adı yok) saklanması kararı ve KVKK metnine girmesi gerekir.
-- Yeni kural seçimleri (onay bekliyor, işi engellemiyor): pg_stat_statements yüklü değilse düşük önemli bulgu; istatistik başlangıcı bilinmeyen geçici dosya kullanımı bilgi; yedek sunucuda PG-MAINT-003, PG-MAINT-005 ve PG-BACKUP-001 uygulanmaz.
-- Sürüm doğrulaması: PostgreSQL 12, 13, 14, 15, 17 ve 18'de `tarama/surum_dogrula.py` çalıştırılmalı (bu ortamda indirilen ikilileri çalıştırma izni çıkmadı). Sonuç `docs/surum-dogrulama.json` ve `tests/veri/surum/` altına girer, sürüm `katalog.SINANAN` listesine eklenir.
-- Sağlık puanı katsayıları (onay bekliyor, işi engellemiyor): ağırlıklar kritik 10, yüksek 6, orta 3, düşük 1, bilgi 0; uyarı kredisi orta 0,5, düşük 0,75, bilgi 1; kategori çarpanları 1; kuralların risk düzeyleri (`docs/kural-katalogu.md`). Değiştirmek için `ALIG_PUAN_AYARI` (`docs/runbook.md`).
-- Kanıt modeli seçimleri (onay bekliyor, işi engellemiyor): kural kategorileri ve güven düzeyleri (`docs/kural-katalogu.md`), önemden duruma eşleme (kritik ve yüksek FAIL, diğerleri WARNING), bağlanılamayan bir veritabanı varken veritabanı başına kuralların UNKNOWN sayılması.
-- Hukuki metinler: sağlık taraması kullanım koşulları, KVKK eki, veri konumu ve saklama sağlayıcısı, e-posta doğrulama ve gönderim yöntemi.
-- E-posta doğrulamasını açmak için: SMTP sağlayıcısı (587 STARTTLS ya da 465 TLS), kullanıcı adı ve parolası, gönderen adres (`deploy/ansible/group_vars/all.yml` ve `/etc/alig/env`). Kod hazır, varsayılan kapalı.
+- `pg_bosta_islem`: idle in transaction duration: >=600 s medium, >=3600 s high
+- `pg_baglanti`: connection saturation: >=75% medium, >=90% high
+- `pg_xid_yasi`: medium threshold: age >= 2 x autovacuum_freeze_max_age
+- `pg_sequence`: sequence fullness: >0.8 high, >0.95 critical
+- `pg_slot`: inactive slot: high
+- `pg_kullanilmayan_indeks`: over 10 MB and idx_scan=0: low (statistics may have been reset)
+- `pg_mxid`: multixact age: >= 2 x autovacuum_multixact_freeze_max_age medium, >= 1.6 billion critical
+- `pg_tablo_autovacuum`: autovacuum disabled at the table level: medium
+- `pg_replikasyon`: replica lag: >=60 s or >=1 GB medium, >=600 s or >=16 GB high; a replica not streaming is medium
+- `pg_gecici_dosya`: temporary files: daily >=10 GB low, >=100 GB medium; the measurement window is counted as at least 1 day, info if unknown
+- PostgreSQL end-of-support dates (`tarama/kurallar.py` `PG_EOL`): verify every year against postgresql.org/support/versioning.
+- History comparison: because reports are deleted after 30 days, only scans within this period are compared. For a longer history, a decision to keep a summary (score, audit statuses; no object names) after a report is deleted is needed, and it must enter the KVKK text.
+- New rule choices (awaiting approval, not blocking): a low-severity finding if pg_stat_statements is not loaded; info for temporary file use whose statistics start is unknown; PG-MAINT-003, PG-MAINT-005 and PG-BACKUP-001 do not apply on a standby server.
+- Version verification: `tarama/surum_dogrula.py` must be run on PostgreSQL 12, 13, 14, 15, 17 and 18 (in this environment permission to run the downloaded binaries was not granted). The result goes under `docs/surum-dogrulama.json` and `tests/veri/surum/`, and the version is added to the `katalog.SINANAN` list.
+- Health score coefficients (awaiting approval, not blocking): weights critical 10, high 6, medium 3, low 1, info 0; warning credit medium 0.5, low 0.75, info 1; category multipliers 1; the risk levels of the rules (`docs/kural-katalogu.md`). To change them use `ALIG_PUAN_AYARI` (`docs/runbook.md`).
+- Evidence model choices (awaiting approval, not blocking): rule categories and confidence levels (`docs/kural-katalogu.md`), the mapping from severity to status (critical and high FAIL, others WARNING), counting the per-database rules as UNKNOWN while a database cannot be connected to.
+- Legal texts: terms of use of the health scan, the KVKK annex, data location and storage provider, e-mail verification and sending method.
+- To turn on e-mail verification: an SMTP provider (587 STARTTLS or 465 TLS), user name and password, sender address (`deploy/ansible/group_vars/all.yml` and `/etc/alig/env`). The code is ready, off by default.
 
-## Firma kaydı (KVKK metnine girmeli)
+## Company record (must enter the KVKK text)
 
-- Sağlık taraması yüklenirken şirket adı ve e-posta adresi **düz metin** olarak saklanır (`tarama.sqlite`, `firma` tablosu) ve raporla eşleştirilir. Önceki tasarımda yalnız geri döndürülemez özet tutuluyordu; sayfadaki not buna göre değiştirildi.
-- Firma kaydı 365 gün (ayarlanabilir) sonra silinir; süre ve müşteri silme talebi yolu onay bekliyor. `[doldurulacak: firma kaydı saklama süresi ve silme talebi yolu]`
-- Aydınlatma metninde yazılmalı: toplanan veri (şirket adı, e-posta), amaç (kayıt eşleştirme, sınır, iletişim), saklama süresi, silme hakkı.
+- When a health scan is uploaded, the company name and e-mail address are stored as **plain text** (`tarama.sqlite`, the `firma` table) and matched with the report. In the previous design only an irreversible digest was kept; the note on the page was changed accordingly.
+- The company record is deleted after 365 days (adjustable); the period and the customer deletion request path await approval. `[doldurulacak: firma kaydı saklama süresi ve silme talebi yolu]` (to be filled in: company record retention period and deletion request path)
+- The privacy notice must state: the data collected (company name, e-mail), the purpose (record matching, limits, contact), the retention period, the right to deletion.
 
-## SQL Server taraması (ön sürüm)
+## SQL Server scan (preview)
 
-- Gerçek bir SQL Server üzerinde sınama: `docs/mssql-onsurum.md` içindeki adımlar. Sınanmadan genel sayfada yayımlanmaz.
-- `tarama/kurallar_mssql.py` içindeki `MSSQL_EOL` tarihleri Microsoft yaşam döngüsü sayfalarından alındı (Kasım 2026). Her yıl doğrulanmalı.
-- MUHENDISLIK eşikleri (`kurallar_mssql.MUHENDISLIK`): tam yedek 168 saat, log yedeği 24 saat, CHECKDB 14 gün, açık işlem 600 ve 3600 saniye, paralellik maliyet eşiği 5.
+- Testing on a real SQL Server: the steps in `docs/mssql-onsurum.md`. It is not published on the public page without being tested.
+- The `MSSQL_EOL` dates in `tarama/kurallar_mssql.py` were taken from the Microsoft lifecycle pages (November 2026). They must be verified every year.
+- MUHENDISLIK (engineering) thresholds (`kurallar_mssql.MUHENDISLIK`): full backup 168 hours, log backup 24 hours, CHECKDB 14 days, open transaction 600 and 3600 seconds, parallelism cost threshold 5.
 
-## Doğrudan bağlantı (Kip B)
+## Direct connection (Mode B)
 
-- Canlıya almadan önce: ayrı çalıştırıcı süreci, sunucu sertifikası doğrulaması, sabit çıkış IP adresi, müşteri onay metni. Ayrıntı: `docs/kip-b-tasarim.md`.
-- Sınırlar (onay bekliyor): istek 30 dakika geçerli, istek başına 3 deneme, firma başına saatte 5 istek, aynı anda 2 tarama.
+- Before going live: a separate runner process, server certificate verification, a fixed egress IP address, the customer consent text. Details: `docs/kip-b-tasarim.md`.
+- Limits (awaiting approval): a request is valid for 30 minutes, 3 attempts per request, 5 requests per hour per company, 2 scans at the same time.
