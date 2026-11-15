@@ -15,7 +15,7 @@ Aynı kimlik başka bir karar için kullanılmaz. "Engeller" sütunundaki maddel
 | WEB-K2 | KVKK aydınlatma, kullanım koşulları, Kip B bağlantı onayı metinleri | Canlıya alma | `[doldurulacak]` alanları `docs/doldurulacak.md` | Ali'yi bekliyor |
 | WEB-K3 | Marka varlıkları: logo, arka plan görselleri | Tasarımın son hâli | Yazı tabanlı logo | Varsayılanla ilerliyor |
 | WEB-K4 | Barındırma, sunucu IP, sabit çıkış IP, DNS, yayın takvimi | Canlıya alma, Kip B müşteri güvenlik duvarı izni | `docs/dns.md` taslağı | Ali'yi bekliyor |
-| WEB-K5 | Dil modeli (LLM) rapor özeti hizmeti | Madde 23'ün açılması | Varsayılan kapalı; kanıt üretemez, puanı değiştiremez | Varsayılanla ilerliyor |
+| WEB-K5 | Dil modeli (LLM) rapor özeti hizmeti | Madde 23'ün açılması | Varsayılan kapalı; kanıt üretemez, puanı değiştiremez. Gerçek sağlayıcıya bağlanan kod yok. KVKK notu: gerçek bir sağlayıcıya veri gönderimi (kural kimliği, durum, önem, başlık bile olsa) hukuki onay gerektirir; onaysız açılmaz | Varsayılanla ilerliyor |
 | WEB-K6 | SQL Server'ın gerçek sunucuda denenmesi (madde 22) | SQL Server taramasının yayımlanması | Varsayılan kapalı (`ALIG_MSSQL`) | Ali'yi bekliyor |
 | WEB-K7 | Rapor silindikten sonra karşılaştırma özetinin saklanması ve süresi; portal hesabı saklama süresi | İlgili saklama sürelerinin KVKK metnine girmesi | Saklama politikasındaki varsayılanlar | Ali'yi bekliyor |
 | GEL-K1 | PostgreSQL geçişi kodunun dalı | — | Varsayılan: ALIG-DB-003 ve ALIG-DB-004 kodu `pg-gecis` dalında geliştirilir ve PR ile birleştirilir; belge ve diğer maddeler `main` dalına gider. Cutover onayı (DB-K4) olmadan `pg-gecis` birleştirilmez | Varsayılanla ilerliyor |

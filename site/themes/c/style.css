@@ -207,6 +207,8 @@ html:not(.demo-ready) .btns,html.demo-ready .nojs-note,html:not(.demo-ready) .au
 .kanit-blok,.yorum-blok{margin-top:.9rem}
 .kanit-blok h4,.yorum-blok h4{font-size:.95rem;font-weight:700;padding-bottom:.25rem;border-bottom:1px solid var(--line-strong)}
 .kanit-blok{font-variant-numeric:tabular-nums}
+.llm-ozet{margin-top:1.2rem;padding:.6rem 1rem;border:1px dashed var(--line-strong)}
+.llm-ozet h2{font-size:1rem;margin-top:0}
 .riskler tbody th{font-weight:700}
 @page{margin:16mm}
 @media print{.top,.foot,.report form,.report .btn,.rapor-sekme,.portal-nav{display:none}body{background:#fff;color:#000;font-size:11pt}.report{max-width:none}.finding-card{break-inside:avoid;background:transparent;border:1px solid #000;border-left-width:4px}.report h2,.report h3,.report h4{break-after:avoid}.report table{break-inside:auto}.report tr{break-inside:avoid}.report thead{display:table-header-group}.report a{color:#000;text-decoration:none}}
