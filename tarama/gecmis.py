@@ -1,39 +1,39 @@
-"""Gecmis karsilastirmasi: ayni firma ve ayni veritabani kimligine ait iki taramanin kural kural karsilastirmasi.
-Dil modeli yok: ayni iki belge her zaman ayni sonucu verir.
+"""History comparison: a rule-by-rule comparison of two scans belonging to the same company and the same database identity.
+No language model: the same two documents always give the same result.
 
-Veritabani kimligi (kimlik): PostgreSQL kume tanimlayicisinin (pg_control_system().system_identifier) SHA-256 ozeti
-(pg_kume_kimligi denetimi; ham tanimlayici sunucudan cikmaz) ve sunucunun rolu (pg_sunucu_rolu). Bir kumenin birincili
-ve yedekleri ayni tanimlayiciyi tasir; rol ayri tutulur, birincil birincille, yedek yedekle karsilastirilir. Ayni kumenin
-birden cok yedegi birbirinden ayrilmaz. Kimlik okunamazsa karsilastirma yapilmaz. SQL Server icin henuz kimlik yok.
+Database identity (kimlik): the SHA-256 digest of the PostgreSQL cluster identifier (pg_control_system().system_identifier)
+(pg_kume_kimligi check; the raw identifier never leaves the server) and the server role (pg_sunucu_rolu). A cluster's primary
+and standbys carry the same identifier; the role is kept separate, so primary is compared with primary and standby with standby. Several
+standbys of the same cluster cannot be told apart. If the identity cannot be read, no comparison is made. There is no identity for SQL Server yet.
 
-Iki tarama da bugunku kurallar ve puan katsayilariyla degerlendirilir; puanlar bu yuzden karsilastirilabilir.
+Both scans are evaluated with today's rules and score coefficients; the scores are therefore comparable.
 
-Kayit siniflari (sinif):
-  S  sorun: FAIL ya da WARNING
-  T  temiz: PASS (butun kanit geldi, bulgu yok)
-  Y  konu yok: veriden gelen NOT_APPLICABLE (ornegin slot yok)
-  B  kanit yok: UNKNOWN, UNAVAILABLE, yedekte degerlendirilmeyen kural (birincil_degil), kayit hic yok
+Record classes (sinif):
+  S  problem: FAIL or WARNING
+  T  clean: PASS (all evidence arrived, no finding)
+  Y  not applicable: NOT_APPLICABLE derived from the data (for example, no slots)
+  B  no evidence: UNKNOWN, UNAVAILABLE, a rule not evaluated on a standby (birincil_degil), no record at all
 
-Durumlar (iki taramanin birinde sorun olan kurallar; ikisinde de sorun yoksa kural listelenmez):
-  NEW         simdi sorun var, once konu yoktu (Y -> S)
-  REGRESSED   simdi sorun var, once temizdi ya da sorun daha hafifti (T -> S, onemi artan S -> S)
-  PERSISTING  sorun suruyor, onemi ayni ya da daha hafif (S -> S)
-  RESOLVED    once sorun vardi, simdi kanitla temiz ya da konu kalkmis (S -> T, S -> Y)
-  UNKNOWN     once sorun vardi simdi kanit yetersiz (S -> B: kaybolan kanit cozulmus sayilmaz) ya da simdi sorun var
-              ama once kanit yoktu (B -> S: yeni mi bilinmez)
+Statuses (rules with a problem in one of the two scans; a rule with no problem in either is not listed):
+  NEW         problem now, not applicable before (Y -> S)
+  REGRESSED   problem now, was clean before or the problem was milder (T -> S, S -> S with increased severity)
+  PERSISTING  problem continues, same or milder severity (S -> S)
+  RESOLVED    had a problem before, now clean with evidence or no longer applicable (S -> T, S -> Y)
+  UNKNOWN     had a problem before, now evidence is insufficient (S -> B: vanished evidence does not count as resolved), or there is a problem
+              now but no evidence before (B -> S: unknown whether it is new)
 """
 import re
 
 from tarama import kanit, kurallar, puan
 
-DURUMLAR = ("NEW", "REGRESSED", "PERSISTING", "RESOLVED", "UNKNOWN")   # rapordaki sira: once yeni ve kotulesen
+DURUMLAR = ("NEW", "REGRESSED", "PERSISTING", "RESOLVED", "UNKNOWN")   # order in the report: new and worsening first
 SORUN = ("FAIL", "WARNING")
-KANITSIZ_UYGULANMAZ = ("birincil_degil",)   # uygulanmaz ama veriden degil: yedekte degerlendirilmedi
+KANITSIZ_UYGULANMAZ = ("birincil_degil",)   # not applicable, but not from the data: not evaluated on the standby
 _OZET = re.compile(r"^[0-9a-f]{64}$")
 
 
 def kimlik(belge):
-    """Karsilastirma anahtari "postgresql:<kume ozeti>:<birincil|yedek>" ya da None."""
+    """Comparison key "postgresql:<cluster digest>:<primary|standby>" or None."""
     if not isinstance(belge, dict) or belge.get("motor", "postgresql") != "postgresql" or not isinstance(belge.get("kontroller"), dict):
         return None
     k = belge["kontroller"]
@@ -49,7 +49,7 @@ def kimlik(belge):
 
 
 def sinif(kayit):
-    """S, T, Y ya da B (modul aciklamasi)."""
+    """S, T, Y or B (see the module docstring)."""
     if kayit is None:
         return "B"
     d = kayit["durum"]
@@ -63,7 +63,7 @@ def sinif(kayit):
 
 
 def durum(onceki, yeni):
-    """Iki kaydin karsilastirma durumu; iki taramada da sorun yoksa None."""
+    """Comparison status of two records; None if there is no problem in either scan."""
     o, y = sinif(onceki), sinif(yeni)
     if y == "S":
         if o == "S":
@@ -76,10 +76,10 @@ def durum(onceki, yeni):
 
 
 class Karsilastirma:
-    """onceki_tarih, yeni_tarih: belgelerdeki tarama zamani. onceki_puan, yeni_puan: puan.Puan.
-    kurallar: [{kural, kategori, ad, durum, neden (UNKNOWN icin kanit_kayboldu ya da onceki_kanit_yok), onceki, yeni}]
-      onceki ve yeni: kanit kaydindaki {durum, onem, neden}. DURUMLAR sirasiyla, ayni durumda onem ve kimlik sirasiyla.
-    katalog_farkli: iki tarama toplayicinin farkli surumleriyle yapildi (eski surumde olmayan denetim once kanitsiz sayilir)."""
+    """onceki_tarih, yeni_tarih: scan times from the documents. onceki_puan, yeni_puan: puan.Puan.
+    kurallar: [{kural, kategori, ad, durum, neden (kanit_kayboldu or onceki_kanit_yok for UNKNOWN), onceki, yeni}]
+      onceki and yeni: {durum, onem, neden} from the evidence record. Ordered by DURUMLAR, within the same status by severity and then id.
+    katalog_farkli: the two scans were made with different collector versions (a check absent in the older version counts as having no evidence before)."""
 
     def __init__(self, **alanlar):
         self.__dict__.update(alanlar)

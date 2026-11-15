@@ -1,4 +1,4 @@
-"""Kip B ayri calistirici: yerel soket uzerinden is alir, sonucu dogrulanmis JSON olarak doner."""
+"""Mode B separate runner: takes jobs over a local socket and returns the result as validated JSON."""
 import json
 import os
 import socket
@@ -82,13 +82,13 @@ class CalistiriciTests(Temel):
         self.tara(ca_pem=SAHTE_CA)
         self.assertEqual(self.cagrilar[0][1]["ca_pem"], SAHTE_CA)
         self.tara()
-        self.assertNotIn("ca_pem", self.cagrilar[1][1])   # CA yoksa mevcut cagri sekli degismez
+        self.assertNotIn("ca_pem", self.cagrilar[1][1])   # without a CA the existing call shape does not change
         n = len(self.cagrilar)
         for kotu in ("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n", "x" * 17000, "merhaba"):
             self.assertEqual(self.kod(ca_pem=kotu), "ca", kotu[:20])
         self.assertEqual(self.ham(calistirici.paketle({"ad": "db.ornek.com", "ip": "93.184.216.34", "port": 5432, "veritabani": "postgres",
                                                        "kullanici": "alig_hc", "parola": "p", "kanit": KANIT, "maskele": False, "ca_pem": 5})), {"hata": "ca"})
-        self.assertEqual(len(self.cagrilar), n)   # gecersiz CA ile tarayici hic cagrilmaz
+        self.assertEqual(len(self.cagrilar), n)   # with an invalid CA the scanner is never called
 
     def test_soket_yalniz_sahip_ve_gruba_acik(self):
         self.baslat()
@@ -134,7 +134,7 @@ class CalistiriciTests(Temel):
         self.assertEqual(self.ham(struct.pack(">I", 10 ** 7)), {"hata": "bicim"})
         self.assertEqual(self.ham(calistirici.paketle([1, 2])), {"hata": "bicim"})
         self.assertEqual(self.ham(calistirici.paketle({"ad": "x"})), {"hata": "bicim"})
-        self.assertIsNotNone(self.tara())   # sunucu ayakta
+        self.assertIsNotNone(self.tara())   # server is up
 
     def test_es_zamanli_sinir(self):
         bekle, girdi = threading.Event(), threading.Event()
@@ -191,8 +191,8 @@ class BirimTests(unittest.TestCase):
         for ag in ("localhost", "link-local", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7"):
             self.assertIn(ag, deny)
         self.assertNotIn("IPAddressAllow", t)
-        self.assertNotIn("EnvironmentFile", t)   # servis sirlari calistiriciya verilmez
-        self.assertNotIn("ReadWritePaths", t)    # veri dizinine erisemez
+        self.assertNotIn("EnvironmentFile", t)   # service secrets are not given to the runner
+        self.assertNotIn("ReadWritePaths", t)    # cannot reach the data directory
         self.assertIn("InaccessiblePaths={{ veri_dizini }} {{ yedek_dizini }} /etc/alig", t)
 
     def test_varsayilan_olarak_kurulmaz_ve_web_birimi_ic_aga_kapali_kalir(self):

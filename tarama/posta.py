@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Giden e-posta. Yalnizca standart kutuphane.
+"""Outgoing email. Standard library only.
 
-Web sureci aga cikmaz: iletileri tarama.sqlite icindeki giden kutusuna (posta tablosu) yazar. Bu betik ayri bir
-servis olarak (alig-posta) kutuyu bosaltir. Basariyla gonderilen iletinin metni hemen silinir: metin rapor
-baglantisini, yani gizli bir kodu icerir.
+The web process does not reach the network: it writes messages to the outbox (the posta table) in tarama.sqlite. This script, as a separate
+service (alig-posta), empties the outbox. The text of a successfully sent message is deleted immediately: the text contains the report
+link, that is, a secret code.
 
-  python3 tarama/posta.py --db /var/lib/alig/tarama.sqlite            # bir kez bosalt
-  python3 tarama/posta.py --db /var/lib/alig/tarama.sqlite --surekli  # servis kipi
+  python3 tarama/posta.py --db /var/lib/alig/tarama.sqlite            # empty once
+  python3 tarama/posta.py --db /var/lib/alig/tarama.sqlite --surekli  # service mode
 
-Ayarlar (ortam):
-  ALIG_SMTP_SUNUCU, ALIG_SMTP_PORT (587: STARTTLS zorunlu; 465: dogrudan TLS), ALIG_SMTP_KULLANICI, ALIG_SMTP_PAROLA,
-  ALIG_EPOSTA_GONDEREN (From adresi). Yerel deneme: ALIG_POSTA_DIZINI verilirse iletiler o dizine .eml olarak yazilir.
-Sifresiz SMTP desteklenmez: sunucu STARTTLS sunmuyorsa gonderim hata verir, parola gonderilmez.
+Settings (environment):
+  ALIG_SMTP_SUNUCU, ALIG_SMTP_PORT (587: STARTTLS mandatory; 465: direct TLS), ALIG_SMTP_KULLANICI, ALIG_SMTP_PAROLA,
+  ALIG_EPOSTA_GONDEREN (From address). Local trial: if ALIG_POSTA_DIZINI is given, messages are written to that directory as .eml.
+Unencrypted SMTP is not supported: if the server does not offer STARTTLS the send fails and the password is not sent.
 """
 import argparse
 import os
@@ -72,13 +72,13 @@ PORTAL_VAR_ILETI = {
 
 
 def portal_iletisi(dil, baglanti, saat):
-    """(konu, metin): hesap dogrulama baglantisi."""
+    """(subject, text): account verification link."""
     konu, metin = PORTAL_ILETI["en" if dil == "en" else "tr"]
     return konu, metin.format(baglanti=baglanti, saat=saat)
 
 
 def portal_var_iletisi(dil, baglanti):
-    """(konu, metin): adreste hesap zaten var; hesap varligi ekrandan degil yalniz posta kutusundan anlasilir."""
+    """(subject, text): an account already exists at the address; account existence is learned only from the mailbox, not from the screen."""
     konu, metin = PORTAL_VAR_ILETI["en" if dil == "en" else "tr"]
     return konu, metin.format(baglanti=baglanti)
 
@@ -88,7 +88,7 @@ class PostaAyarHatasi(ValueError):
 
 
 def dogrulama_iletisi(dil, baglanti, saat=depo.BEKLEME_SAAT):
-    """(konu, metin) dondurur."""
+    """Returns (subject, text)."""
     konu, metin = ILETI["en" if dil == "en" else "tr"]
     return konu, metin.format(baglanti=baglanti, saat=saat)
 
@@ -112,7 +112,7 @@ class SmtpGonderici:
         self._smtp, self._smtp_ssl = smtp, smtp_ssl
 
     def gonder(self, alici, konu, metin):
-        baglam = ssl.create_default_context()  # sunucu sertifikasi ve adi dogrulanir
+        baglam = ssl.create_default_context()  # the server certificate and name are verified
         if self.port == 465:
             s = self._smtp_ssl(self.sunucu, self.port, timeout=self.zaman_asimi, context=baglam)
         else:
@@ -120,7 +120,7 @@ class SmtpGonderici:
         try:
             if self.port != 465:
                 s.ehlo()
-                s.starttls(context=baglam)   # desteklenmiyorsa SMTPNotSupportedError: sifresiz gonderim yok
+                s.starttls(context=baglam)   # if unsupported, SMTPNotSupportedError: no unencrypted sending
                 s.ehlo()
             if self.kullanici:
                 s.login(self.kullanici, self.parola)
@@ -133,7 +133,7 @@ class SmtpGonderici:
 
 
 class DosyaGonderici:
-    """Yerel deneme: iletiyi dizine .eml olarak yazar (yalniz sahibi okur)."""
+    """Local trial: writes the message to the directory as .eml (readable only by the owner)."""
 
     def __init__(self, dizin, gonderen="tarama@alig.tech"):
         self.dizin, self.gonderen = Path(dizin), gonderen
@@ -153,29 +153,29 @@ def gonderici_kur(ortam=None):
         return DosyaGonderici(o["ALIG_POSTA_DIZINI"], gonderen or "tarama@alig.tech")
     sunucu = o.get("ALIG_SMTP_SUNUCU", "").strip()
     if not sunucu:
-        raise PostaAyarHatasi("ALIG_SMTP_SUNUCU tanimli degil")
+        raise PostaAyarHatasi("ALIG_SMTP_SUNUCU is not defined")
     if "@" not in gonderen:
-        raise PostaAyarHatasi("ALIG_EPOSTA_GONDEREN gecerli bir adres degil")
+        raise PostaAyarHatasi("ALIG_EPOSTA_GONDEREN is not a valid address")
     port = o.get("ALIG_SMTP_PORT", "587").strip()
     if not port.isdigit() or not 1 <= int(port) <= 65535:
-        raise PostaAyarHatasi("ALIG_SMTP_PORT gecersiz")
+        raise PostaAyarHatasi("ALIG_SMTP_PORT is invalid")
     kullanici = o.get("ALIG_SMTP_KULLANICI", "").strip()
     parola = o.get("ALIG_SMTP_PAROLA", "")
     if kullanici and not parola:
-        raise PostaAyarHatasi("ALIG_SMTP_KULLANICI var ama ALIG_SMTP_PAROLA yok")
+        raise PostaAyarHatasi("ALIG_SMTP_KULLANICI is set but ALIG_SMTP_PAROLA is missing")
     return SmtpGonderici(sunucu, gonderen, int(port), kullanici, parola)
 
 
 def isle(con, gonderici, en_cok=20):
-    """Giden kutusundaki bekleyen iletileri gonderir. (gonderilen, hatali) dondurur. Iletinin alicisi ve metni
-    gunluge yazilmaz; yalniz kayit numarasi ve hata turu."""
+    """Sends the pending messages in the outbox. Returns (sent, failed). The recipient and the text of the message are
+    not written to the log; only the record number and the error type."""
     gonderilen = hatali = 0
     for pid, alici, konu, metin, _deneme in depo.posta_bekleyenler(con, en_cok):
         try:
             gonderici.gonder(alici, konu, metin)
         except (smtplib.SMTPException, OSError, ssl.SSLError) as ex:
             depo.posta_sonuc(con, pid, hata=type(ex).__name__)
-            print("posta #%d gonderilemedi: %s" % (pid, type(ex).__name__), flush=True)
+            print("mail #%d could not be sent: %s" % (pid, type(ex).__name__), flush=True)
             hatali += 1
             continue
         depo.posta_sonuc(con, pid)
@@ -186,13 +186,13 @@ def isle(con, gonderici, en_cok=20):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--db", default=os.environ.get("ALIG_TARAMA_DB", "tarama.sqlite"))
-    ap.add_argument("--surekli", action="store_true", help="servis kipi: kutuyu aralikla bosalt")
+    ap.add_argument("--surekli", action="store_true", help="service mode: empty the outbox at intervals")
     ap.add_argument("--aralik", type=float, default=5.0)
     a = ap.parse_args(argv)
     try:
         g = gonderici_kur()
     except PostaAyarHatasi as ex:
-        print("hata: %s" % ex, file=sys.stderr)
+        print("error: %s" % ex, file=sys.stderr)
         return 2
     while True:
         con = depo.baglan(a.db)

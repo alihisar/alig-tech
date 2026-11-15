@@ -1,5 +1,5 @@
-"""LLM rapor ozeti (tarama/ozet_llm.py, madde 23): varsayilan kapali, kanit uretemez, puani degistiremez.
-Gercek saglayici yok; yalniz sahte (deterministik) saglayici sinanir. Ag cagrisi yapilmaz."""
+"""LLM report summary (tarama/ozet_llm.py, item 23): off by default, cannot produce evidence, cannot change the score.
+There is no real provider; only the fake (deterministic) provider is tested. No network call is made."""
 import os
 import re
 import sys
@@ -219,7 +219,7 @@ class RaporTests(Temel):
     def test_kapaliyken_cikti_birebir_ayni(self):
         b = trg.belge(yuksek=True, orta=True)
         onceki = trg.sayfa(b, "yonetici")
-        ozet_llm.kaydet(Sabit("x"))   # saglayici var, degisken yok
+        ozet_llm.kaydet(Sabit("x"))   # provider exists, variable does not
         self.assertEqual(trg.sayfa(b, "yonetici"), onceki)
         self.assertNotIn("llm-ozet", onceki)
 
@@ -255,7 +255,7 @@ class RaporTests(Temel):
     def test_ozet_puani_degistiremez(self):
         b = trg.belge(yuksek=True)
         once = puan.hesapla(kurallar.incele(b)).genel
-        ozet_llm.kaydet(Sabit("Puan 100/100"))   # reddedilir
+        ozet_llm.kaydet(Sabit("Puan 100/100"))   # rejected
         html = self.sayfa(b, ortam=AC)
         self.assertNotIn("llm-ozet", html)
         self.assertIn("%d/100" % once, html)

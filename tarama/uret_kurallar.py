@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Kural kayitlarindan docs/kural-katalogu.md, katalog ve dogrulama sonucundan docs/surum-matrisi.md uretir.
-Belgeler elle duzenlenmez; tests/test_kanit.py ve tests/test_surum.py gunceligini denetler.
+"""Generates docs/kural-katalogu.md from the rule records, and docs/surum-matrisi.md from the catalog and the verification result.
+The documents are not edited by hand; tests/test_kanit.py and tests/test_surum.py check that they are up to date.
 
-  python3 tarama/uret_kurallar.py            # yazar
-  python3 tarama/uret_kurallar.py --kontrol  # guncel degilse 1 doner
+  python3 tarama/uret_kurallar.py            # writes
+  python3 tarama/uret_kurallar.py --kontrol  # returns 1 if out of date
 """
 import json
 import sys
@@ -16,118 +16,120 @@ from tarama import kanit, katalog, kurallar, kurallar_mssql, puan, rapor  # noqa
 HEDEF = ROOT / "docs" / "kural-katalogu.md"
 MATRIS = ROOT / "docs" / "surum-matrisi.md"
 DOGRULAMA = ROOT / "docs" / "surum-dogrulama.json"
-BELGELER = ROOT / "tests" / "veri" / "surum"   # dogrulamada toplanan ham belgeler: <ana surum>/<hesap>.json
-HESAP_AD = {"pg_monitor": "pg_monitor hesabı", "yetkisiz": "Yetkisiz hesap", "super": "Süper kullanıcı", "yedek": "Yedek sunucu (pg_monitor)"}
-YETKI_AD = {"herkes": "herkes", "pg_read_all_stats": "pg_read_all_stats (pg_monitor)",
-            "pg_read_all_settings": "pg_read_all_settings (pg_monitor)", "superuser": "süper kullanıcı"}
+BELGELER = ROOT / "tests" / "veri" / "surum"   # raw documents collected during verification: <major version>/<account>.json
+HESAP_AD = {"pg_monitor": "pg_monitor account", "yetkisiz": "Unprivileged account", "super": "Superuser", "yedek": "Standby server (pg_monitor)"}
+YETKI_AD = {"herkes": "everyone", "pg_read_all_stats": "pg_read_all_stats (pg_monitor)",
+            "pg_read_all_settings": "pg_read_all_settings (pg_monitor)", "superuser": "superuser"}
 YETKI_YOKSA = {"herkes": "-",
-               "pg_read_all_stats": "Sorgu çalışır ama başka kullanıcıların oturumları görünmez; kural Bilinmiyor olur.",
-               "pg_read_all_settings": "Sorgu yetki hatası verir; kural Alınamadı olur.",
-               "superuser": "Sorgu yetki hatası verir; kural Alınamadı olur."}
-SATIR_AD = {"tek": "tek satır", "en_az_bir": "en az bir satır", "herhangi": "boş sonuç geçerli"}
+               "pg_read_all_stats": "The query runs but other users' sessions are not visible; the rule becomes Unknown.",
+               "pg_read_all_settings": "The query fails with a privilege error; the rule becomes Unavailable.",
+               "superuser": "The query fails with a privilege error; the rule becomes Unavailable."}
+# English rendering of the version notes in tarama/katalog.py (the Turkish text there is part of the catalog digest)
+SURUM_NOTU = {"wal_status kolonu PostgreSQL 13'te geldi, 12'de boş döner": "the wal_status column arrived in PostgreSQL 13 and returns empty in 12"}
+SATIR_AD = {"tek": "single row", "en_az_bir": "at least one row", "herhangi": "empty result is valid"}
 
 DURUM_ACIKLAMA = {
-    "FAIL": "Kural en az bir kritik ya da yüksek önemli bulgu üretti.",
-    "WARNING": "Kural yalnız orta, düşük ya da bilgi önemli bulgu üretti.",
-    "UNKNOWN": "Veri geldi ama sonuca yetmiyor: biçim ya da tür geçersiz, zorunlu değer boş, beklenen satır yok, "
-               "sunucudaki bazı veritabanları taranmadı ya da ek kaynak gelmedi.",
-    "UNAVAILABLE": "Veri alınamadı: çalıştırılmadı, yetki yok, zaman aşımı, sürümde yok, yedek sunucu, hata, sınır.",
-    "NOT_APPLICABLE": "Veri, kuralın konusunun sunucuda olmadığını gösteriyor (örneğin replikasyon slotu yok).",
-    "PASS": "Bütün kaynaklar eksiksiz geldi, kural çalıştı ve bulgu yok. Veri yokken PASS çıkmaz.",
+    "FAIL": "The rule produced at least one critical or high severity finding.",
+    "WARNING": "The rule produced only medium, low or informational findings.",
+    "UNKNOWN": "Data arrived but is not enough for a conclusion: invalid format or type, a required value is empty, an expected row is missing, "
+               "some databases on the server were not scanned, or an additional source did not arrive.",
+    "UNAVAILABLE": "Data could not be obtained: not run, no privilege, timeout, not available in this version, standby server, error, limit.",
+    "NOT_APPLICABLE": "The data shows that the rule's subject does not exist on the server (for example, there is no replication slot).",
+    "PASS": "All sources arrived completely, the rule ran and there are no findings. PASS never appears when data is missing.",
 }
 GUVEN_ACIKLAMA = {
-    "HIGH": "Ayar ya da katalog durumu doğrudan okundu.",
-    "MEDIUM": "İstatistik tahmini ya da tarama anının görüntüsü: istatistik sıfırlama ve tarama zamanı sonucu etkiler.",
-    "LOW": "Dolaylı işaret: karar için ek bağlam gerekir (örneğin replikalardaki kullanım).",
+    "HIGH": "A setting or catalog state was read directly.",
+    "MEDIUM": "A statistical estimate or a snapshot of the scan moment: the statistics reset time and the scan time affect the result.",
+    "LOW": "An indirect sign: extra context is needed for a decision (for example, usage on replicas).",
 }
 
 
 def _kaynaklar(k, by_id):
     out = []
     for kay in k.kaynaklar:
-        notlar = (["ek"] if kay.ek else []) + (["her veritabanında"] if by_id.get(kay.kontrol, {}).get("kapsam") == "veritabani" else [])
-        ad = "belge: `superuser`" if kay.kontrol == kanit.TOPLAYICI else "`%s`" % kay.kontrol
+        notlar = (["additional"] if kay.ek else []) + (["in every database"] if by_id.get(kay.kontrol, {}).get("kapsam") == "veritabani" else [])
+        ad = "document: `superuser`" if kay.kontrol == kanit.TOPLAYICI else "`%s`" % kay.kontrol
         out.append("%s (%s)" % (ad, ", ".join(notlar + [SATIR_AD[kay.satir]])))
     return "<br>".join(out)
 
 
 def _tablo(liste, by_id):
-    m = rapor.M["tr"]
-    satirlar = ["| Kimlik | Denetim | Kategori | Risk | Güven | Toplama denetimi | Okunan kaynak | Geçme koşulu |",
+    m = rapor.M["en"]
+    satirlar = ["| ID | Check | Category | Risk | Confidence | Collection check | Source read | Pass condition |",
                 "|---|---|---|---|---|---|---|---|"]
     for k in sorted(liste, key=lambda x: x.kimlik):
         kaynak = list(k.kaynak) or sorted({a for kay in k.kaynaklar for a in by_id.get(kay.kontrol, {}).get("kaynak", ())})
         guven = k.guven
         tavan = kanit.GUVEN_TAVANI.get(k.motor)
         if tavan and kanit.GUVENLER.index(tavan) > kanit.GUVENLER.index(guven):
-            guven = "%s (gösterilen: %s)" % (guven, tavan)
+            guven = "%s (shown: %s)" % (guven, tavan)
         satirlar.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
-            k.kimlik, k.ad["tr"], m["kategori"][k.kategori], m["onem"][k.risk], guven, _kaynaklar(k, by_id),
-            ", ".join("`%s`" % a for a in kaynak), k.beklenen["tr"]))
+            k.kimlik, k.ad["en"], m["kategori"][k.kategori], m["onem"][k.risk], guven, _kaynaklar(k, by_id),
+            ", ".join("`%s`" % a for a in kaynak), k.beklenen["en"]))
     return "\n".join(satirlar)
 
 
 def _sayi(v):
-    return ("%g" % v).replace(".", ",")
+    return "%g" % v
 
 
 def _puan_bolumu():
-    m, v = rapor.M["tr"], puan.VARSAYILAN
-    p = ["## Sağlık puanı", "",
-         "Puan (0–100) uygulanabilir kuralların ağırlıklı kredi oranıdır (`tarama/puan.py`):", "",
-         "```text", "puan = 100 × Σ(kategori çarpanı × ağırlık × kredi) / Σ(kategori çarpanı × ağırlık)", "```", "",
-         "Ağırlık kuralın risk düzeyinden gelir. Risk düzeyi, kuralın üretebileceği en yüksek bulgu önemidir "
-         "(`tests/test_puan.py` rastgele belgelerle denetler). Kredi kuralın durumundan gelir:", "",
-         "| Risk düzeyi | Varsayılan ağırlık |", "|---|---|"]
+    m, v = rapor.M["en"], puan.VARSAYILAN
+    p = ["## Health score", "",
+         "The score (0-100) is the weighted credit ratio of the applicable rules (`tarama/puan.py`):", "",
+         "```text", "score = 100 × Σ(category multiplier × weight × credit) / Σ(category multiplier × weight)", "```", "",
+         "The weight comes from the rule's risk level. The risk level is the highest finding severity the rule can produce "
+         "(`tests/test_puan.py` checks this with random documents). The credit comes from the rule's status:", "",
+         "| Risk level | Default weight |", "|---|---|"]
     p += ["| %s | %s |" % (m["onem"][o], _sayi(w)) for o, w in v["agirlik"].items()]
-    p += ["", "| Durum | Kredi |", "|---|---|"]
+    p += ["", "| Status | Credit |", "|---|---|"]
     for d in kanit.DURUMLAR:
         if d == "WARNING":
-            kredi = "bulgunun önemine göre, varsayılan: " + "; ".join("%s %s" % (m["onem"][o].lower(), _sayi(c)) for o, c in v["kredi_uyari"].items())
+            kredi = "by the finding's severity, default: " + "; ".join("%s %s" % (m["onem"][o].lower(), _sayi(c)) for o, c in v["kredi_uyari"].items())
         elif d == "NOT_APPLICABLE":
-            kredi = "hesaba girmez"
+            kredi = "not counted"
         else:
-            kredi = "%s (sabit)" % _sayi(puan.KREDI[d])
+            kredi = "%s (fixed)" % _sayi(puan.KREDI[d])
         p.append("| %s | %s |" % (d, kredi))
-    p += ["", "Kategori çarpanlarının varsayılanı %s." % ", ".join(sorted({_sayi(c) for c in v["kategori_carpani"].values()})), "",
-          "Bilinmeyen durum puanı yükseltmez: kanıtı olmayan kural, başarısız kural kadar puan kaybettirir; kanıtı kaybolan "
-          "kural puanı iyileştirmez. Bu yüzden puan her zaman kanıt kapsamıyla (kanıtı olan uygulanabilir kuralların oranı, "
-          "ağırlıksız) birlikte gösterilir ve rapor her kaybın bulgudan mı kanıt eksikliğinden mi geldiğini ayırır. Puana "
-          "giren kuralların hiçbirinde kanıt yoksa puan hesaplanmaz. Gösterilen tamsayılar aşağı yuvarlanır: 100 yalnız kayıp "
-          "yoksa, %100 kapsam yalnız her kuralın kanıtı varsa görünür. Kategori puanı aynı formülle, yalnız o kategorinin "
-          "kurallarıyla ve çarpansız hesaplanır.", "",
-          "Ağırlık, uyarı kredisi ve kategori çarpanları `%s` ile verilen JSON dosyasından ayarlanabilir (`docs/runbook.md`); "
-          "durum kredileri sabittir. Varsayılan değerler mühendislik seçimidir, bir standarttan gelmez." % puan.ORTAM, ""]
+    p += ["", "The default of the category multipliers is %s." % ", ".join(sorted({_sayi(c) for c in v["kategori_carpani"].values()})), "",
+          "An unknown status does not raise the score: a rule with no evidence loses as many points as a failed rule; a rule whose "
+          "evidence disappears does not improve the score. For this reason the score is always shown together with the evidence coverage (the ratio of "
+          "applicable rules that have evidence, unweighted) and the report separates whether each loss comes from a finding or from missing "
+          "evidence. If none of the rules that enter the score has evidence, the score is not computed. The integers shown are rounded down: 100 "
+          "appears only if there is no loss, and 100% coverage only if every rule has evidence. The category score is computed with the same "
+          "formula, only with the rules of that category and without multipliers.", "",
+          "The weights, the warning credits and the category multipliers can be set from the JSON file given with `%s` (`docs/runbook.md`); "
+          "the status credits are fixed. The default values are an engineering choice, not taken from a standard." % puan.ORTAM, ""]
     return p
 
 
 def uret():
-    p = ["# Kural kataloğu", "",
-         "<!-- Bu dosya `python3 tarama/uret_kurallar.py` ile üretilir; elle düzenlemeyin. -->", "",
-         "Her kural her taramada tek bir kanıt kaydı üretir (`tarama/kanit.py`): durum, önem, güven düzeyi, kaynak, "
-         "toplama zamanı, gözlenen değerler ve bulgular. Kimlikler kalıcıdır: kural kaldırılırsa kimliği yeniden kullanılmaz, "
-         "kategori değişse de kimlik aynı kalır.", "",
-         "## Durumlar", "", "| Durum | Rapordaki adı | Anlamı |", "|---|---|---|"]
-    p += ["| %s | %s | %s |" % (d, rapor.M["tr"]["durum"][d], DURUM_ACIKLAMA[d]) for d in kanit.DURUMLAR]
-    p += ["", "Bulgu varsa kapsam kısmi olsa bile durum FAIL ya da WARNING olur: bulunan sorun gerçektir. "
-          "Önem ile durum eşlemesi: kritik ve yüksek FAIL; orta, düşük ve bilgi WARNING.", "",
-          "## Güven düzeyleri", "", "| Düzey | Anlamı |", "|---|---|"]
+    p = ["# Rule catalog", "",
+         "<!-- This file is generated with `python3 tarama/uret_kurallar.py`; do not edit it by hand. -->", "",
+         "Every rule produces a single evidence record in every scan (`tarama/kanit.py`): status, severity, confidence level, source, "
+         "collection time, observed values and findings. Ids are permanent: if a rule is removed its id is not reused, "
+         "and the id stays the same even if the category changes.", "",
+         "## Statuses", "", "| Status | Name in the report | Meaning |", "|---|---|---|"]
+    p += ["| %s | %s | %s |" % (d, rapor.M["en"]["durum"][d], DURUM_ACIKLAMA[d]) for d in kanit.DURUMLAR]
+    p += ["", "If there is a finding, the status is FAIL or WARNING even if coverage is partial: a problem that is found is real. "
+          "Mapping of severity to status: critical and high are FAIL; medium, low and info are WARNING.", "",
+          "## Confidence levels", "", "| Level | Meaning |", "|---|---|"]
     p += ["| %s | %s |" % (g, GUVEN_ACIKLAMA[g]) for g in kanit.GUVENLER]
-    p += ["", "Güven yalnız kanıtı olan durumlarda verilir (FAIL, WARNING, NOT_APPLICABLE, PASS). "
-          "SQL Server kuralları ön sürümdür: sorgular gerçek sunucuda sınanmadı, raporda güven en çok MEDIUM gösterilir.", ""]
+    p += ["", "Confidence is given only for statuses that have evidence (FAIL, WARNING, NOT_APPLICABLE, PASS). "
+          "SQL Server rules are a preview: the queries were not tested on a real server, and the confidence shown in the report is at most MEDIUM.", ""]
     p += _puan_bolumu()
-    p += ["## Veri koşulları", "",
-          "Veri koşulu: *tek satır* kaynakta tam bir satır beklenir; *en az bir satır* kaynakta boş sonuç veri yok demektir; "
-          "*boş sonuç geçerli* kaynakta boş sonuç sorun yok demektir. Zorunlu değeri boş ya da türü yanlış satır "
-          "değerlendirmeye girmez ve sonucu kısmi yapar. *Ek* kaynak gelmezse kural yine çalışır, bulguyu raporlar, ama PASS veremez. "
-          "*Her veritabanında* çalışan kaynakta PASS için sunucudaki bağlanılabilir bütün veritabanlarının taranmış olması gerekir "
-          "(`pg_kapsam`); atlanan ya da seçilmeyen veritabanı varsa sonuç kısmidir.", "",
-          "## PostgreSQL (%d kural)" % len(kurallar.KURALLAR), "", _tablo(kurallar.KURALLAR, katalog.PG_BY_ID), "",
-          "Kural kaynağı olmayan bilgi denetimleri: %s." % ", ".join("`%s`" % x for x in kurallar.BILGI), "",
-          "Yalnız birincil sunucuda değerlendirilen kurallar: %s. Yedek sunucuda tablo istatistikleri (ölü satır, indeks kullanımı) "
-          "tutulmaz ve arşivlemeyi birincil yapar; bu kurallar yedekte Uygulanmaz olur. Sunucunun rolü `pg_sunucu_rolu` "
-          "denetiminden okunur; okunamazsa bu kurallar Geçti olamaz." % ", ".join(sorted(k.kimlik for k in kurallar.KURALLAR if k.birincil)), "",
-          "## SQL Server, ön sürüm (%d kural)" % len(kurallar_mssql.KURALLAR), "", _tablo(kurallar_mssql.KURALLAR, katalog.MSSQL_BY_ID), ""]
+    p += ["## Data conditions", "",
+          "Data condition: for *single row* exactly one row is expected in the source; for *at least one row* an empty result in the source means no data; "
+          "for *empty result is valid* an empty result in the source means no problem. A row with a required value empty or of the wrong type "
+          "does not enter the evaluation and makes the result partial. If an *additional* source does not arrive the rule still runs and reports the finding, but cannot give PASS. "
+          "For a source that runs *in every database*, PASS requires that all connectable databases on the server were scanned "
+          "(`pg_kapsam`); if a database was skipped or not selected, the result is partial.", "",
+          "## PostgreSQL (%d rules)" % len(kurallar.KURALLAR), "", _tablo(kurallar.KURALLAR, katalog.PG_BY_ID), "",
+          "Information checks that are not a rule source: %s." % ", ".join("`%s`" % x for x in kurallar.BILGI), "",
+          "Rules evaluated only on the primary server: %s. Table statistics (dead rows, index usage) are not kept on a standby "
+          "and archiving is made primary-only; these rules become Not applicable on a standby. The server role is read from the `pg_sunucu_rolu` "
+          "check; if it cannot be read, these rules cannot be Pass." % ", ".join(sorted(k.kimlik for k in kurallar.KURALLAR if k.birincil)), "",
+          "## SQL Server, preview (%d rules)" % len(kurallar_mssql.KURALLAR), "", _tablo(kurallar_mssql.KURALLAR, katalog.MSSQL_BY_ID), ""]
     return "\n".join(p)
 
 
@@ -136,7 +138,7 @@ def dogrulama():
 
 
 def sinandigi_surumler(cid, kayit):
-    """Denetimin sorgusunun gercek sunucuda calistigi ana surumler (superuser denetiminde super hesapla)."""
+    """Major versions on which the check's query ran on a real server (with the super account for a superuser check)."""
     hesap = "super" if katalog.PG_BY_ID[cid]["yetki"] == "superuser" else "pg_monitor"
     return sorted(int(v) for v, s in kayit["surumler"].items()
                   if s["hesaplar"][hesap]["kontroller"].get(cid, {}).get("durum") == "ok")
@@ -144,77 +146,77 @@ def sinandigi_surumler(cid, kayit):
 
 def _surumler(c):
     if c["en_az"] == 0:
-        metin = "her sürüm"
+        metin = "every version"
     elif c.get("en_cok"):
-        metin = "%d–%d" % (c["en_az"], c["en_cok"])
+        metin = "%d-%d" % (c["en_az"], c["en_cok"])
     else:
-        metin = "%d ve üstü" % c["en_az"]
+        metin = "%d and later" % c["en_az"]
     for v in c.get("eski_surum", ()):
-        metin += "; %d ve öncesinde ayrı sorgu (%s)" % (v["en_cok"], v["not"])
+        metin += "; separate query for %d and earlier (%s)" % (v["en_cok"], SURUM_NOTU[v["not"]])
     return metin
 
 
 def _hucre(e):
     if e["durum"] != "ok":
-        return "Alınamadı: %s" % rapor.M["tr"]["nedenler"].get(e["neden"], e["neden"])
-    metin = "%d satır" % e["satir"] + (", %d veritabanı atlandı" % e["atlanan"] if e["atlanan"] else "")
+        return "Unavailable: %s" % rapor.M["en"]["nedenler"].get(e["neden"], e["neden"])
+    metin = "%d rows" % e["satir"] + (", %d databases skipped" % e["atlanan"] if e["atlanan"] else "")
     if "deger" in e:
-        metin += "; " + ", ".join("%s: `%s`" % (k, {None: "-", True: "evet", False: "hayır"}.get(v, v) if not isinstance(v, int) or isinstance(v, bool) else v)
+        metin += "; " + ", ".join("%s: `%s`" % (k, {None: "-", True: "yes", False: "no"}.get(v, v) if not isinstance(v, int) or isinstance(v, bool) else v)
                                   for k, v in sorted(e["deger"].items()))
     return metin
 
 
 def uret_matris():
     kayit = dogrulama()
-    sinanan = ", ".join(str(v) for v in katalog.SINANAN) or "yok"
-    p = ["# PostgreSQL sürüm ve yetki matrisi", "",
-         "<!-- Bu dosya `python3 tarama/uret_kurallar.py` ile üretilir; elle düzenlemeyin. Kaynak: tarama/katalog.py, "
+    sinanan = ", ".join(str(v) for v in katalog.SINANAN) or "none"
+    p = ["# PostgreSQL version and privilege matrix", "",
+         "<!-- This file is generated with `python3 tarama/uret_kurallar.py`; do not edit it by hand. Source: tarama/katalog.py, "
          "docs/surum-dogrulama.json -->", "",
-         "Toplayıcı ve doğrudan bağlantı (Kip B) sunucunun ana sürümünü okur, her denetim için o sürümün sorgusunu seçer. "
-         "Denetimin desteklemediği sürümde sorgu hiç çalışmaz; denetim raporda \"Alınamadı: bu sürümde desteklenmiyor\" olur. "
-         "Matris PostgreSQL %d–%d'i kapsar; daha yeni sürümde ana sorgu çalışır." % (katalog.SURUM_ALT, katalog.SURUM_UST), "",
-         "Bütün sorguların gerçek sunucuda sınandığı sürümler: **%s**. Sınanmayan sürümde rapordaki kanıt güveni en çok orta "
-         "(MEDIUM) gösterilir ve raporun özetinde yazar." % sinanan, "",
-         "Önerilen tarama hesabı yalnız `pg_monitor` üyesidir (`alig-rol.sql`). Bir denetim `pg_monitor` içindeki bir rolü "
-         "gerektiriyorsa ve hesapta yoksa kanıt motoru sonucu kısmi sayar (`pg_hesap` denetimi hesabın rollerini okur): "
-         "o kural Geçti olamaz.", "",
-         "## Denetimler", "",
-         "| Denetim | Sürümler | Gereken yetki | Yetki yoksa | Gerçek sunucuda çalıştığı sürüm |", "|---|---|---|---|---|"]
+         "The collector and the direct connection (Mode B) read the server's major version and pick that version's query for each check. "
+         "On a version the check does not support the query does not run at all; the check becomes \"Unavailable: not supported on this version\" in the report. "
+         "The matrix covers PostgreSQL %d-%d; on a newer version the main query runs." % (katalog.SURUM_ALT, katalog.SURUM_UST), "",
+         "Versions on which all the queries were tested on a real server: **%s**. On a version that was not tested the evidence confidence in the report is shown "
+         "at most as medium (MEDIUM) and the report summary says so." % sinanan, "",
+         "The recommended scan account is only a member of `pg_monitor` (`alig-rol.sql`). If a check requires a role inside `pg_monitor` "
+         "and the account lacks it, the evidence engine counts the result as partial (the `pg_hesap` check reads the account's roles): "
+         "that rule cannot be Pass.", "",
+         "## Checks", "",
+         "| Check | Versions | Required privilege | If the privilege is missing | Versions on which it ran on a real server |", "|---|---|---|---|---|"]
     for c in katalog.PG:
         p.append("| `%s` | %s | %s | %s | %s |" % (c["id"], _surumler(c), YETKI_AD[c["yetki"]], YETKI_YOKSA[c["yetki"]],
-                                                    ", ".join(str(v) for v in sinandigi_surumler(c["id"], kayit)) or "sınanmadı"))
+                                                    ", ".join(str(v) for v in sinandigi_surumler(c["id"], kayit)) or "not tested"))
     for v, s in sorted(kayit["surumler"].items(), key=lambda x: int(x[0])):
         h = s["hesaplar"]
-        p += ["", "## PostgreSQL %s doğrulaması" % v, "",
-              "%s, %s. Katalog özeti `%s`." % (s["tam_surum"].split(" on ")[0], s["tarih"], s["katalog_sha256"][:16]), "",
-              "Geçici bir kümede senaryo nesneleri kuruldu (geçersiz indeks, birincilde ve yedekte etkin olmayan replikasyon "
-              "slotu, ölü satır ve autovacuum'u kapatılmış tablo, sınıra yakın ve tarama hesabının okuyamadığı sequence, 10 MB "
-              "üstü kullanılmamış indeks, boşta açık işlem, MD5 parolalı rol, bağlanma yetkisi olmayan veritabanı, PUBLIC'e "
-              "CREATE verilmiş public şeması, geçici dosyaya yazan sıralama, pakette varsa pg_stat_statements). pg_basebackup "
-              "ile akışlı bir yedek sunucu başlatıldı, yeniden oynatması duraklatılarak geride bırakıldı. Toplayıcı birincilde "
-              "üç hesapla, yedekte pg_monitor hesabıyla çalıştırıldı.", "",
-              "| Denetim | %s |" % " | ".join(HESAP_AD.values()), "|---|---|---|---|---|"]
+        p += ["", "## PostgreSQL %s verification" % v, "",
+              "%s, %s. Catalog digest `%s`." % (s["tam_surum"].split(" on ")[0], s["tarih"], s["katalog_sha256"][:16]), "",
+              "Scenario objects were set up in a temporary cluster (an invalid index, an inactive replication slot on the primary and on the standby, "
+              "dead rows and a table with autovacuum disabled, a sequence near its limit that the scan account could not read, an unused index over 10 MB, "
+              "an idle open transaction, a role with an MD5 password, a database without connect privilege, a public schema with CREATE granted "
+              "to PUBLIC, a sort that writes to a temporary file, pg_stat_statements if the package has it). A streaming standby was started with "
+              "pg_basebackup and left behind by pausing its replay. The collector was run with three accounts on the primary and with the "
+              "pg_monitor account on the standby.", "",
+              "| Check | %s |" % " | ".join(HESAP_AD.values()), "|---|---|---|---|---|"]
         for cid in [c["id"] for c in katalog.PG]:
-            p.append("| `%s` | %s |" % (cid, " | ".join(_hucre(h[a]["kontroller"][cid]) if cid in h[a]["kontroller"] else "yok" for a in HESAP_AD)))
+            p.append("| `%s` | %s |" % (cid, " | ".join(_hucre(h[a]["kontroller"][cid]) if cid in h[a]["kontroller"] else "none" for a in HESAP_AD)))
         durumlar = {a: {k["kural"]: k for k in kurallar.incele(json.loads((BELGELER / v / ("%s.json" % a)).read_text(encoding="utf-8"))).kayitlar}
                     for a in HESAP_AD if (BELGELER / v / ("%s.json" % a)).exists()}
         if len(durumlar) == len(HESAP_AD):
-            p += ["", "Kuralların durumu: aynı belgeler bugünkü kural motoruyla değerlendirildi (`tests/veri/surum/%s/`)." % v, "",
-                  "| Kural | %s |" % " | ".join(HESAP_AD.values()), "|---|---|---|---|---|"]
+            p += ["", "Rule statuses: the same documents were evaluated with today's rule engine (`tests/veri/surum/%s/`)." % v, "",
+                  "| Rule | %s |" % " | ".join(HESAP_AD.values()), "|---|---|---|---|---|"]
             for kural in sorted(durumlar["pg_monitor"]):
                 p.append("| %s | %s |" % (kural, " | ".join(
-                    rapor.M["tr"]["durum"][durumlar[a][kural]["durum"]] +
-                    (": " + rapor.M["tr"]["nedenler"].get(durumlar[a][kural]["neden"], durumlar[a][kural]["neden"]) if durumlar[a][kural]["neden"] else "")
+                    rapor.M["en"]["durum"][durumlar[a][kural]["durum"]] +
+                    (": " + rapor.M["en"]["nedenler"].get(durumlar[a][kural]["neden"], durumlar[a][kural]["neden"]) if durumlar[a][kural]["neden"] else "")
                     for a in HESAP_AD)))
-    p += ["", "## Doğrulamayı yinelemek", "",
-          "Her PostgreSQL sürümünün `initdb`, `pg_ctl` ve `postgres` dosyalarının bulunduğu dizinle, root olmayan bir kullanıcıyla:", "",
+    p += ["", "## Repeating the verification", "",
+          "With the directory that holds the `initdb`, `pg_ctl` and `postgres` files of each PostgreSQL version, as a user who is not root:", "",
           "```sh",
           "python3 tarama/surum_dogrula.py --pg-bin /usr/lib/postgresql/18/bin --cikti docs/surum-dogrulama.json --belge-dizini tests/veri/surum",
           "python3 tarama/uret_kurallar.py",
           "```", "",
-          "Araç yalnız kendi kurduğu geçici kümeye bağlanır ve sonunda siler. Sonuç `docs/surum-dogrulama.json` dosyasına eklenir; "
-          "bütün sorgular o sürümde çalıştıysa sürüm `tarama/katalog.py` içindeki `SINANAN` listesine eklenir (`tests/test_surum.py` "
-          "kanıtı denetler).", ""]
+          "The tool connects only to the temporary cluster it set up itself and deletes it at the end. The result is appended to `docs/surum-dogrulama.json`; "
+          "if all the queries ran on that version, the version is added to the `SINANAN` list in `tarama/katalog.py` (`tests/test_surum.py` "
+          "checks the evidence).", ""]
     return "\n".join(p)
 
 
@@ -223,12 +225,12 @@ def main(argv):
     if "--kontrol" in argv:
         eski = [str(h.relative_to(ROOT)) for h, m in hedefler if not h.exists() or h.read_text(encoding="utf-8") != m]
         if eski:
-            print("guncel degil, calistirin: python3 tarama/uret_kurallar.py ->", ", ".join(eski))
+            print("out of date, run: python3 tarama/uret_kurallar.py ->", ", ".join(eski))
             return 1
         return 0
     for h, m in hedefler:
         h.write_text(m, encoding="utf-8")
-        print("yazildi", h)
+        print("written", h)
     return 0
 
 

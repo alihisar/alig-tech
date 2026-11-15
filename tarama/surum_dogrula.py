@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""Surum dogrulamasi: sitedeki toplayiciyi gercek bir PostgreSQL sunucusunda ve akisli yedeginde calistirir, sonucu kaydeder.
+"""Version verification: runs the collector on the site against a real PostgreSQL server and its streaming standby, and records the result.
 
-Gecici bir kume kurar (initdb), senaryo nesneleri olusturur, pg_basebackup ile akisli bir yedek sunucu baslatir ve
-toplayiciyi su hesaplarla calistirir:
-  pg_monitor  alig-rol.sql'deki gibi yalniz pg_monitor uyesi rol (onerilen tarama hesabi)
-  yetkisiz    hicbir ek yetkisi olmayan rol
-  super       kurulum super kullanicisi
-  yedek       pg_monitor rolu, yedek sunucuda (yedekte calisan sorgularin kaniti)
-Senaryo: gecersiz indeks, etkin olmayan replikasyon slotu (birincilde ve yedekte), olu satir ve autovacuum'u kapatilmis
-tablo, sinira yakin sequence, bosta acik islem, MD5 parolali rol, baglanma yetkisi olmayan veritabani, PUBLIC'e CREATE
-verilmis public semasi, gecici dosyaya yazan siralama, yeniden oynatmasi duraklatilmis (geride kalan) replika; pakette
-varsa pg_stat_statements yuklenir. Her denetimin durumu (ok ya da atlandi ve nedeni), satir ve bos deger sayisi kaydedilir;
-kumeler sonunda silinir. Yalniz kendi kurdugu gecici kumelere dokunur.
+Sets up a temporary cluster (initdb), creates scenario objects, starts a streaming standby with pg_basebackup and
+runs the collector with these accounts:
+  pg_monitor  a role that is only a member of pg_monitor, as in alig-rol.sql (the recommended scan account)
+  yetkisiz    a role with no extra privileges
+  super       the setup superuser
+  yedek       the pg_monitor role, on the standby (evidence of the queries that run on a standby)
+Scenario: an invalid index, an inactive replication slot (on the primary and on the standby), dead rows and a table with autovacuum
+disabled, a sequence near its limit, an idle open transaction, a role with an MD5 password, a database without connect privilege, a public
+schema with CREATE granted to PUBLIC, a sort that writes to a temporary file, a replica whose replay is paused (lagging); if
+the package has it, pg_stat_statements is loaded. The status of each check (ok or skipped, with the reason), the row count and the null count are recorded;
+the clusters are deleted at the end. It touches only the temporary clusters it created itself.
 
   python3 tarama/surum_dogrula.py --pg-bin /usr/lib/postgresql/16/bin --cikti docs/surum-dogrulama.json \
       --belge-dizini tests/veri/surum
 
---belge-dizini verilirse toplanan ham belgeler <dizin>/<ana surum>/<hesap>.json olarak yazilir; testler bunlari gercek
-sunucu ciktisi olarak kullanir (yalniz senaryo nesneleri, musteri verisi yok).
+If --belge-dizini is given, the raw collected documents are written as <dir>/<major version>/<account>.json; the tests use them as real
+server output (scenario objects only, no customer data).
 
-Root olarak calismaz (initdb izin vermez). Sonuc docs/surum-matrisi.md belgesine girer (tarama/uret_kurallar.py).
+Does not run as root (initdb does not allow it). The result goes into docs/surum-matrisi.md (tarama/uret_kurallar.py).
 """
 import argparse
 import json
@@ -40,8 +40,8 @@ from tarama.uret_toplayici import katalog_ozeti  # noqa: E402
 
 TOPLAYICI = ROOT / "site" / "assets" / "alig-toplayici.py"
 KURUCU = "alig_kurulum"
-HESAPLAR = {"pg_monitor": "alig_hc", "yetkisiz": "alig_duz", "super": KURUCU}   # birincil sunucuda
-YEDEK_HESABI = ("yedek", "alig_hc")                                              # yedek sunucuda
+HESAPLAR = {"pg_monitor": "alig_hc", "yetkisiz": "alig_duz", "super": KURUCU}   # on the primary
+YEDEK_HESABI = ("yedek", "alig_hc")                                              # on the standby
 
 KURULUM = [
     "CREATE ROLE alig_hc LOGIN",
@@ -54,7 +54,7 @@ KURULUM = [
     "REVOKE CONNECT ON DATABASE gizli FROM PUBLIC",
     "SELECT pg_create_physical_replication_slot('bos_slot', true)",
 ]
-VERITABANI = [   # postgres ve "satis db" icinde
+VERITABANI = [   # inside postgres and "satis db"
     "CREATE TABLE olu (i int) WITH (autovacuum_enabled = false)",
     "INSERT INTO olu SELECT generate_series(1, 30000)",
     "DELETE FROM olu",
@@ -62,12 +62,12 @@ VERITABANI = [   # postgres ve "satis db" icinde
     "INSERT INTO cift VALUES (1), (1)",
     "CREATE TABLE buyuk (i int)",
     "INSERT INTO buyuk SELECT generate_series(1, 700000)",
-    "CREATE INDEX buyuk_i ON buyuk (i)",   # 10 MB ustu, hic taranmamis indeks
+    "CREATE INDEX buyuk_i ON buyuk (i)",   # over 10 MB, never scanned index
     "CREATE SEQUENCE yakin_seq MAXVALUE 100",
     "SELECT setval('yakin_seq', 99)",
 ]
-GECERSIZ_INDEKS = "CREATE UNIQUE INDEX CONCURRENTLY cift_x ON cift (x)"   # yinelenen deger yuzunden basarisiz olur, gecersiz kalir
-GECICI_DOSYA = "SET work_mem = '64kB'; SELECT count(*) FROM (SELECT i FROM buyuk ORDER BY i + 0 DESC) s"   # ifade indeksi kullanmaz
+GECERSIZ_INDEKS = "CREATE UNIQUE INDEX CONCURRENTLY cift_x ON cift (x)"   # fails because of a duplicate value, stays invalid
+GECICI_DOSYA = "SET work_mem = '64kB'; SELECT count(*) FROM (SELECT i FROM buyuk ORDER BY i + 0 DESC) s"   # does not use the expression index
 
 
 def _bos_port():
@@ -79,12 +79,12 @@ def _bos_port():
 def _calistir(komut, beklenen_hata=False, **kw):
     r = subprocess.run(komut, capture_output=True, text=True, timeout=180, **kw)
     if (r.returncode != 0) != beklenen_hata:
-        raise SystemExit("komut %s: %s\n%s" % ("basarili oldu" if beklenen_hata else "basarisiz", " ".join(map(str, komut)), r.stderr[-2000:]))
+        raise SystemExit("command %s: %s\n%s" % ("succeeded" if beklenen_hata else "failed", " ".join(map(str, komut)), r.stderr[-2000:]))
     return r.stdout
 
 
 def _pss_var(pg_bin):
-    """pg_stat_statements kutuphanesi bu PostgreSQL paketinde var mi (contrib)?"""
+    """Does this PostgreSQL package have the pg_stat_statements library (contrib)?"""
     try:
         lib = subprocess.run([str(Path(pg_bin) / "pg_config"), "--pkglibdir"], capture_output=True, text=True, timeout=30).stdout.strip()
     except OSError:
@@ -93,7 +93,7 @@ def _pss_var(pg_bin):
 
 
 class Kume:
-    """Gecici PostgreSQL kumesi: yalniz unix soketi, rastgele port. Birincil ve ondan alinan akisli yedek."""
+    """Temporary PostgreSQL cluster: unix socket only, random port. A primary and a streaming standby taken from it."""
 
     def __init__(self, pg_bin, psql):
         self.bin, self.psql = Path(pg_bin), psql
@@ -111,16 +111,16 @@ class Kume:
                    "-o", "-k %s -p %d -c listen_addresses='' -c wal_level=replica -c max_replication_slots=4%s" % (self.soket, self.port, self.ortak)])
 
     def yedek_kur(self):
-        """Akisli yedek: pg_basebackup -R, ayri soket ve port. Akisa gecene kadar bekler."""
+        """Streaming standby: pg_basebackup -R, separate socket and port. Waits until it is streaming."""
         _calistir([str(self.bin / "pg_basebackup"), "-h", str(self.soket), "-p", str(self.port), "-U", KURUCU, "-D", str(self.yveri),
-                   "-R", "-X", "stream", "--checkpoint=fast"])   # yayilmis denetim noktasi dakikalar surebilir
+                   "-R", "-X", "stream", "--checkpoint=fast"])   # a spread checkpoint can take minutes
         _calistir([str(self.bin / "pg_ctl"), "-D", str(self.yveri), "-l", str(self.dizin / "ygunluk"), "-w", "start",
                    "-o", "-k %s -p %d -c listen_addresses=''%s" % (self.ysoket, self.yport, self.ortak)])
         for _ in range(150):
             if self.sql("SELECT count(*) FROM pg_stat_replication WHERE state = 'streaming'") == "1":
                 return
             time.sleep(0.2)
-        raise SystemExit("yedek sunucu akisa gecmedi")
+        raise SystemExit("the standby server did not start streaming")
 
     def sql(self, sql, db="postgres", beklenen_hata=False, yedek=False):
         soket, port = (self.ysoket, self.yport) if yedek else (self.soket, self.port)
@@ -148,23 +148,23 @@ def senaryo(k):
 
 
 def yedek_senaryosu(k):
-    """Yedekte etkin olmayan slot; yeniden oynatma duraklatilir, birincilde WAL uretilir: replika geride kalir."""
+    """An inactive slot on the standby; replay is paused and WAL is generated on the primary: the replica falls behind."""
     k.yedek_kur()
     k.sql("SELECT pg_create_physical_replication_slot('yedek_slot', true)", yedek=True)
     k.sql("SELECT pg_wal_replay_pause()", yedek=True)
     k.sql("CREATE TABLE gecikme AS SELECT generate_series(1, 100000) AS i")
-    for _ in range(50):   # geride kalma birincilde gorunene kadar
+    for _ in range(50):   # until the lag becomes visible on the primary
         if k.sql("SELECT coalesce(max(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)), 0) > 0 FROM pg_stat_replication") == "t":
             return
         time.sleep(0.2)
-    raise SystemExit("yedek geride kalmadi")
+    raise SystemExit("the standby did not fall behind")
 
 
 def bosta_islem(k):
-    """Kurulum hesabiyla bosta bekleyen acik islem: BEGIN, SELECT, sonra kabuk beklemesi (oturum islemde bekler)."""
+    """An open transaction idling with the setup account: BEGIN, SELECT, then the shell waits (the session waits inside the transaction)."""
     p = subprocess.Popen([k.psql, "-X", "-q", "-h", str(k.soket), "-p", str(k.port), "-U", KURUCU, "-d", "postgres"],
                          stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True,
-                         start_new_session=True)   # sonunda kabugun sleep sureciyle birlikte kapatilir (_kapat)
+                         start_new_session=True)   # at the end it is closed together with the shell's sleep process (_kapat)
     p.stdin.write("BEGIN;\nSELECT 1;\n\\! sleep 300\n")
     p.stdin.flush()
     for _ in range(50):
@@ -172,11 +172,11 @@ def bosta_islem(k):
             return p
         time.sleep(0.1)
     _kapat(p)
-    raise SystemExit("bosta islem olusmadi")
+    raise SystemExit("no idle transaction was created")
 
 
 def _kapat(p):
-    """psql ve \\! ile baslattigi kabuk: ayni oturum grubundalar, hepsi kapatilir."""
+    """The shell started by psql and \\!: they are in the same session group, all are closed."""
     try:
         os.killpg(p.pid, 9)
     except OSError:
@@ -192,8 +192,8 @@ def topla(k, hesap, kullanici, yedek=False):
 
 
 def ozetle(belge):
-    """Denetim basina durum, satir ve bos deger sayisi; ad tasimayan tek satirli denetimde degerler de (hesaplar arasi
-    karsilastirma). Bos deger sayisi, satiri gorup degerini goremeyen hesabi ayirir (ornegin pg_stat_replication)."""
+    """Status, row count and null count per check; for a single-row check that carries no name, the values too (comparison
+    between accounts). The null count distinguishes an account that sees the row but cannot see its value (for example pg_stat_replication)."""
     kontroller = {}
     for cid, e in sorted(belge["kontroller"].items()):
         if e["durum"] == "ok":
@@ -207,14 +207,14 @@ def ozetle(belge):
 
 
 def dogrula(pg_bin, psql):
-    """(ana surum, ozet, {hesap: ham belge})."""
+    """(major version, summary, {account: raw document})."""
     k = Kume(pg_bin, psql)
     p = None
     try:
         k.kur()
         tam = k.sql("SELECT version()")
         senaryo(k)
-        time.sleep(1.5)   # PostgreSQL 14 ve oncesinde istatistik toplayicisinin yazmasi icin
+        time.sleep(1.5)   # so the statistics collector can write on PostgreSQL 14 and earlier
         yedek_senaryosu(k)
         p = bosta_islem(k)
         belgeler = {h: topla(k, h, kullanici) for h, kullanici in HESAPLAR.items()}
@@ -230,13 +230,13 @@ def dogrula(pg_bin, psql):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--pg-bin", action="append", required=True, help="initdb, pg_ctl ve postgres dizini (birden cok verilebilir)")
+    ap.add_argument("--pg-bin", action="append", required=True, help="directory of initdb, pg_ctl and postgres (may be given more than once)")
     ap.add_argument("--psql", default=shutil.which("psql") or "psql")
-    ap.add_argument("--cikti", default="-", help="sonuc JSON dosyasi (var olan dosyaya eklenir) ya da - (standart cikti)")
-    ap.add_argument("--belge-dizini", help="ham belgelerin yazilacagi dizin (<dizin>/<ana surum>/<hesap>.json)")
+    ap.add_argument("--cikti", default="-", help="result JSON file (appended to an existing file) or - (standard output)")
+    ap.add_argument("--belge-dizini", help="directory to write the raw documents to (<dir>/<major version>/<account>.json)")
     a = ap.parse_args(argv)
     if hasattr(os, "geteuid") and os.geteuid() == 0:
-        print("hata: root olarak calismaz (initdb izin vermez); ayri bir kullaniciyla calistirin", file=sys.stderr)
+        print("error: does not run as root (initdb does not allow it); run it as a separate user", file=sys.stderr)
         return 2
     kayit = {"surumler": {}}
     if a.cikti != "-" and Path(a.cikti).exists():

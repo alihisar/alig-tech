@@ -1,34 +1,34 @@
-"""Ortak kanit modeli. PostgreSQL ve SQL Server kurallari ayni kayit bicimini uretir; rapor, panel ve ileride saglik
-puani ile gecmis karsilastirmasi bu kayitlari okur. Dil modeli yok: ayni belge her zaman ayni kayitlari verir.
+"""Common evidence model. PostgreSQL and SQL Server rules produce the same record format; the report, the panel and later the health
+score and the history comparison read these records. No language model: the same document always gives the same records.
 
-Her kural her taramada tek bir kayit uretir (KAYIT_ALANLARI):
-  kural        kalici kimlik, ornegin PG-SEC-001. Kimlik degismez; kaldirilan kuralin kimligi yeniden kullanilmaz.
+Every rule produces a single record in every scan (KAYIT_ALANLARI):
+  kural        permanent id, for example PG-SEC-001. The id never changes; the id of a removed rule is not reused.
   motor        postgresql | mssql
   kategori     KATEGORILER
-  risk         kuralin risk duzeyi: basarisiz olursa en kotu durumda ne kadar onemli (ONEM_SIRASI). Kuralin uretebilecegi en
-               yuksek bulgu onemine esittir; saglik puaninda kuralin agirligini belirler (tarama/puan.py)
+  risk         the rule's risk level: how important it is in the worst case if it fails (ONEM_SIRASI). Equal to the highest
+               finding severity the rule can produce; it determines the rule's weight in the health score (tarama/puan.py)
   durum        FAIL, WARNING, UNKNOWN, UNAVAILABLE, NOT_APPLICABLE, PASS
-  onem         bulgu varsa en yuksek onem (kritik ... bilgi), yoksa None
-  guven        HIGH, MEDIUM, LOW. Kanit yoksa (UNKNOWN, UNAVAILABLE) None
-  kaynak       okunan katalog gorunumleri, islevler ya da ayarlar
-  kontroller   kaniti saglayan toplama denetimleri (katalog kimlikleri; belge ust alani icin "toplayici")
-  toplama_utc  verinin toplandigi an (belgedeki olusturma_utc)
-  neden        UNKNOWN, UNAVAILABLE ve NOT_APPLICABLE icin neden kodu (metinleri tarama/rapor.py)
-  gozlem       kuralin okudugu ayar ve sayilar. Nesne adi icermez
-  bulgular     kuralin urettigi bulgular (tarama/kurallar.py bicimi, kural alanlariyla)
-  ad, beklenen kuralin adi ve gecme kosulu (tr, en)
+  onem         the highest severity if there are findings (kritik ... bilgi), otherwise None
+  guven        HIGH, MEDIUM, LOW. None if there is no evidence (UNKNOWN, UNAVAILABLE)
+  kaynak       catalog views, functions or settings that were read
+  kontroller   collection checks that provide the evidence (catalog ids; "toplayici" for the document's top-level field)
+  toplama_utc  the moment the data was collected (olusturma_utc in the document)
+  neden        reason code for UNKNOWN, UNAVAILABLE and NOT_APPLICABLE (texts in tarama/rapor.py)
+  gozlem       settings and numbers the rule read. Contains no object names
+  bulgular     findings the rule produced (format of tarama/kurallar.py, with the rule fields)
+  ad, beklenen the rule's name and pass condition (tr, en)
 
-Durum kurallari:
-  - Bulgu varsa FAIL (kritik, yuksek) ya da WARNING (orta, dusuk, bilgi); kapsam kismi olsa bile: bulunan sorun gercektir.
-  - Kaynak denetim tarama hesabinda bir rol gerektiriyorsa (katalogda yetki: pg_read_all_stats, pg_read_all_settings) ve
-    hesapta yoksa ya da hesabin yetkileri okunamadiysa (pg_hesap) sonuc kismidir: baska oturumlar gorunmeyebilir.
-  - Birincil kaynak gelmediyse UNAVAILABLE: calistirilmadi, yetki, zaman asimi, surumde yok, yedek sunucu, hata, sinir.
-  - Veri geldi ama sonuca yetmiyorsa UNKNOWN: bicim ya da tur gecersiz, zorunlu deger eksik, beklenen satir yok,
-    bazi veritabanlari taranmadi, ek kaynak gelmedi.
-  - Veri, kuralin konusunun sunucuda olmadigini gosteriyorsa NOT_APPLICABLE (ornegin replikasyon slotu yok).
-  - Birincile ozgu kural (birincil=True: tablo istatistikleri, arsivleme) yedek sunucuda NOT_APPLICABLE: yedekte bu
-    istatistikler tutulmaz, veri yokken temiz gorunur. Sunucunun rolu okunamadiysa (pg_sunucu_rolu) sonuc kismidir.
-  - Ancak butun kaynaklar eksiksiz geldiyse ve bulgu yoksa PASS. Veri yokken PASS cikmaz.
+Status rules:
+  - FAIL (critical, high) or WARNING (medium, low, info) if there are findings; even if coverage is partial: a problem that is found is real.
+  - If the source check requires a role on the scan account (privilege in the catalog: pg_read_all_stats, pg_read_all_settings) and
+    the account lacks it, or the account's privileges could not be read (pg_hesap), the result is partial: other sessions may not be visible.
+  - UNAVAILABLE if the primary source did not arrive: not run, privilege, timeout, not in this version, standby server, error, limit.
+  - UNKNOWN if data arrived but is not enough for a conclusion: invalid format or type, a required value missing, an expected row absent,
+    some databases not scanned, an additional source did not arrive.
+  - NOT_APPLICABLE if the data shows the rule's subject does not exist on the server (for example, no replication slot).
+  - A primary-specific rule (birincil=True: table statistics, archiving) is NOT_APPLICABLE on a standby: these
+    statistics are not kept on a standby and would look clean with no data. If the server role could not be read (pg_sunucu_rolu) the result is partial.
+  - PASS only if all sources arrived completely and there are no findings. PASS never appears when data is missing.
 """
 from datetime import datetime, timezone
 from typing import NamedTuple
@@ -45,23 +45,23 @@ KATEGORI_KISALTMA = {"guvenlik": "SEC", "performans": "PERF", "konfigurasyon": "
 SATIR = ("tek", "en_az_bir", "herhangi")
 ONEM_SIRASI = ("kritik", "yuksek", "orta", "dusuk", "bilgi")
 BULGU_DURUMU = {"kritik": "FAIL", "yuksek": "FAIL", "orta": "WARNING", "dusuk": "WARNING", "bilgi": "WARNING"}
-# Toplayicinin yazdigi hata nedenleri: veri hic gelmedi.
+# Error reasons written by the collector: no data arrived at all.
 ERISILEMEZ = frozenset({"calistirilmadi", "yetki", "zaman_asimi", "desteklenmiyor", "yedek_sunucu", "hata", "sinir", "ad"})
-# SQL Server on surumdur: sorgular gercek sunucuda sinanmadi, kanit guveni en cok MEDIUM. PostgreSQL'de sorgularin gercek
-# sunucuda sinanmadigi ana surumde de (katalog.SINANAN disi ya da surum bilinmiyor) guven en cok MEDIUM.
+# SQL Server is a preview: the queries were not tested on a real server, evidence confidence is at most MEDIUM. For PostgreSQL, on a major version
+# where the queries were not tested on a real server (outside katalog.SINANAN or an unknown version) confidence is also at most MEDIUM.
 GUVEN_TAVANI = {"mssql": "MEDIUM"}
 SINANMAMIS_SURUM_TAVANI = "MEDIUM"
-ROL_YETKILERI = ("pg_read_all_stats", "pg_read_all_settings")   # hesapta yoksa sorgu calisir ama eksik sonuc dondurur
-TOPLAYICI = "toplayici"   # kaynak olarak belgenin ust alani (superuser): toplayicinin baglandigi hesap
+ROL_YETKILERI = ("pg_read_all_stats", "pg_read_all_settings")   # if the account lacks them, the query runs but returns an incomplete result
+TOPLAYICI = "toplayici"   # the document's top-level field as a source (superuser): the account the collector connected with
 KAYIT_ALANLARI = ("kural", "motor", "kategori", "risk", "durum", "onem", "guven", "kaynak", "kontroller", "toplama_utc",
                   "neden", "gozlem", "bulgular", "ad", "beklenen")
 
-# Kural icinde tur ya da anahtar hatasi: kural "gecersiz_veri" ile UNKNOWN olur, rapor ve panel dusmez.
+# An error of type or key inside a rule: the rule becomes UNKNOWN with "gecersiz_veri" (invalid data); the report and the panel do not crash.
 _VERI_HATASI = (TypeError, KeyError, ValueError, ZeroDivisionError, OverflowError, AttributeError, IndexError)
 
 
 class Belirsiz(Exception):
-    """Veri geldi ama kural sonuca varamiyor: durum UNKNOWN."""
+    """Data arrived but the rule cannot reach a conclusion: status UNKNOWN."""
 
     def __init__(self, neden="eksik_veri"):
         super().__init__(neden)
@@ -69,7 +69,7 @@ class Belirsiz(Exception):
 
 
 class Uygulanmaz(Exception):
-    """Veri, kuralin konusunun bu sunucuda olmadigini gosteriyor: durum NOT_APPLICABLE."""
+    """The data shows the rule's subject does not exist on this server: status NOT_APPLICABLE."""
 
     def __init__(self, neden):
         super().__init__(neden)
@@ -78,30 +78,30 @@ class Uygulanmaz(Exception):
 
 class Kaynak(NamedTuple):
     kontrol: str
-    satir: str = "herhangi"   # tek: tam bir satir; en_az_bir: bos sonuc veri yok demektir; herhangi: bos sonuc gecerli
-    zorunlu: tuple = ()        # satirda dolu olmasi gereken kolonlar; bos olan satir degerlendirmeye girmez, sonuc kismi olur
-    ek: bool = False           # ek kaynak: gelmezse kural yine calisir (bulgu raporlanir) ama PASS veremez
+    satir: str = "herhangi"   # tek: exactly one row; en_az_bir: an empty result means no data; herhangi: an empty result is valid
+    zorunlu: tuple = ()        # columns that must be filled in the row; a row where one is empty does not enter the evaluation and the result is partial
+    ek: bool = False           # additional source: if it does not arrive the rule still runs (the finding is reported) but cannot give PASS
 
 
 class Kural(NamedTuple):
     kimlik: str
     motor: str
     kategori: str
-    risk: str                  # ONEM_SIRASI: kuralin uretebilecegi en yuksek bulgu onemi
-    guven: str                 # HIGH: ayar ya da katalog durumu; MEDIUM: istatistik ya da anlik goruntu; LOW: dolayli isaret
-    kaynaklar: tuple           # ilki birincil kaynak
+    risk: str                  # ONEM_SIRASI: the highest finding severity the rule can produce
+    guven: str                 # HIGH: a setting or catalog state; MEDIUM: a statistic or snapshot; LOW: an indirect sign
+    kaynaklar: tuple           # the first is the primary source
     ad: dict
-    beklenen: dict             # gecme kosulu (tr, en)
-    fn: object                 # fn(birincil_satirlar, girdi) -> bulgu listesi; Belirsiz ya da Uygulanmaz firlatabilir
-    kaynak: tuple = ()         # bos ise kaynak denetimlerinin katalogdaki "kaynak" listesi
-    birincil: bool = False     # yalniz birincil sunucuda anlamli: yedekte NOT_APPLICABLE
+    beklenen: dict             # pass condition (tr, en)
+    fn: object                 # fn(primary_rows, input) -> list of findings; may raise Belirsiz or Uygulanmaz
+    kaynak: tuple = ()         # if empty, the "kaynak" list of the source checks in the catalog
+    birincil: bool = False     # meaningful only on the primary server: NOT_APPLICABLE on a standby
 
 
 def kayitci(liste, motor):
-    """Kural fonksiyonunu kaydeden dekorator: @kural("PG-SEC-001", "guvenlik", "yuksek", "HIGH", [Kaynak(...)], ad, beklenen)."""
+    """Decorator that registers a rule function: @kural("PG-SEC-001", "guvenlik", "yuksek", "HIGH", [Kaynak(...)], ad, beklenen)."""
     def kural(kimlik, kategori, risk, guven, kaynaklar, ad, beklenen, kaynak=(), birincil=False):
         if kategori not in KATEGORILER or risk not in ONEM_SIRASI or guven not in GUVENLER:
-            raise ValueError("%s: kategori, risk ya da guven gecersiz" % kimlik)
+            raise ValueError("%s: category, risk or confidence is invalid" % kimlik)
         def sar(fn):
             liste.append(Kural(kimlik, motor, kategori, risk, guven, tuple(kaynaklar), ad, beklenen, fn, tuple(kaynak), birincil))
             return fn
@@ -110,22 +110,22 @@ def kayitci(liste, motor):
 
 
 class Girdi:
-    """Kural fonksiyonunun gordugu veri. Satirlar zorunlu kolonlari dolu ve turu dogru olanlardir."""
+    """The data a rule function sees. Rows are those with required columns filled and of the right type."""
 
     def __init__(self, belge, taranan, veri):
         self.belge, self.taranan, self._veri = belge, taranan, veri
         self.kismi_nedenler, self.gozlem = [], {}
 
     def satirlar(self, kontrol):
-        """Kaynagin satirlari; ek kaynak gelmediyse None."""
+        """Rows of the source; None if the additional source did not arrive."""
         return self._veri.get(kontrol)
 
     def kismi(self, neden):
-        """Sonuc tam degil: bulgu yoksa durum UNKNOWN olur."""
+        """The result is incomplete: if there are no findings the status becomes UNKNOWN."""
         self.kismi_nedenler.append(neden)
 
     def gozle(self, degerler=None, **kv):
-        """PASS durumunda da raporda gosterilen olcum. Yalniz ayar ve sayi; nesne adi yazilmaz."""
+        """A measurement shown in the report even on PASS. Only settings and numbers; no object names are written."""
         self.gozlem.update(degerler or {}, **kv)
 
 
@@ -137,7 +137,7 @@ def _parse_utc(s):
 
 
 def _tam_kapsam(kontroller):
-    """Sunucudaki baglanilabilir her veritabani tarandi mi (pg_kapsam)? Bilinmiyorsa False."""
+    """Was every connectable database on the server scanned (pg_kapsam)? False if unknown."""
     e = kontroller.get("pg_kapsam")
     if not isinstance(e, dict) or e.get("durum") != "ok" or e.get("atlanan"):
         return False
@@ -152,7 +152,7 @@ def _tam_kapsam(kontroller):
 
 
 def _hesap(kontroller):
-    """Tarama hesabinin yetkileri (pg_hesap): {super_kullanici, pg_read_all_stats, pg_read_all_settings} ya da None."""
+    """Privileges of the scan account (pg_hesap): {super_kullanici, pg_read_all_stats, pg_read_all_settings} or None."""
     e = kontroller.get("pg_hesap")
     if not isinstance(e, dict) or e.get("durum") != "ok":
         return None
@@ -166,7 +166,7 @@ def _hesap(kontroller):
 
 
 def yedek_mi(kontroller):
-    """Sunucu yedek mi (pg_sunucu_rolu: pg_is_in_recovery)? True, False ya da okunamadiysa None."""
+    """Is the server a standby (pg_sunucu_rolu: pg_is_in_recovery)? True, False, or None if it could not be read."""
     e = kontroller.get("pg_sunucu_rolu")
     try:
         v = e["satirlar"][0]["yedek"] if e["durum"] == "ok" and len(e["satirlar"]) == 1 else None
@@ -176,7 +176,7 @@ def yedek_mi(kontroller):
 
 
 def ana_surum(kontroller):
-    """PostgreSQL ana surumu (pg_surum) ya da None."""
+    """PostgreSQL major version (pg_surum) or None."""
     e = kontroller.get("pg_surum")
     try:
         n = e["satirlar"][0]["surum_num"] if e["durum"] == "ok" and len(e["satirlar"]) == 1 else None
@@ -197,7 +197,7 @@ def _satir_sorunu(s, zorunlu, turler):
 
 
 def _oku(belge, kontroller, kaynak, katalog_by_id, turler, tam_kapsam, hesap):
-    """(satirlar, durum, neden, kismi_nedenler). satirlar None ise kaynak yok ya da kullanilamaz."""
+    """(rows, status, reason, partial_reasons). If rows is None the source is missing or unusable."""
     if kaynak.kontrol == TOPLAYICI:
         v = belge.get("superuser")
         if not isinstance(v, bool):
@@ -243,10 +243,10 @@ def _kayit(kural, belge, kontroller, taranan, katalog_by_id, turler, tam_kapsam,
     guven = kural.guven
     for tavan in (GUVEN_TAVANI.get(kural.motor), surum_tavani):
         if tavan:
-            guven = max(guven, tavan, key=GUVENLER.index)   # daha dusuk olani
+            guven = max(guven, tavan, key=GUVENLER.index)   # the lower one
     kayit = {"kural": kural.kimlik, "motor": kural.motor, "kategori": kural.kategori, "risk": kural.risk, "durum": None, "onem": None, "guven": None,
              "kaynak": kaynak, "kontroller": [k.kontrol for k in kural.kaynaklar], "toplama_utc": belge.get("olusturma_utc"),
-             "neden": None, "gozlem": {}, "bulgular": [], "ad": dict(kural.ad), "beklenen": dict(kural.beklenen)}   # kopya: kayit degisse de kural degismez
+             "neden": None, "gozlem": {}, "bulgular": [], "ad": dict(kural.ad), "beklenen": dict(kural.beklenen)}   # copy: the rule does not change even if the record changes
 
     def bitir(durum, neden=None):
         kayit["durum"], kayit["neden"] = durum, neden
@@ -293,9 +293,9 @@ def _kayit(kural, belge, kontroller, taranan, katalog_by_id, turler, tam_kapsam,
 
 
 class Sonuc:
-    """Bir belgenin degerlendirmesi: kayitlar (kural sirasiyla), bulgular (onem sirasiyla), olculemeyenler.
-    baglam: ana_surum, sinanan (surum gercek sunucuda sinandi mi), yedek (sunucu yedek mi; bilinmiyorsa None) PostgreSQL'de;
-    hesap (tarama hesabi yetkileri)."""
+    """Evaluation of one document: records (in rule order), findings (in severity order), the unmeasurable.
+    baglam: ana_surum, sinanan (was the version tested on a real server), yedek (is the server a standby; None if unknown) for PostgreSQL;
+    hesap (scan account privileges)."""
 
     def __init__(self, kayitlar, baglam=None):
         self.kayitlar = kayitlar
@@ -308,7 +308,7 @@ class Sonuc:
 
 
 def calistir(belge, kurallar, katalog_by_id, turler):
-    """Belgedeki veriyi kurallardan gecirir; her kural icin bir kayit. Bozuk belge de kayit uretir (UNAVAILABLE)."""
+    """Runs the data in the document through the rules; one record per rule. A corrupt document also produces records (UNAVAILABLE)."""
     belge = belge if isinstance(belge, dict) else {}
     kontroller = belge.get("kontroller") if isinstance(belge.get("kontroller"), dict) else {}
     taranan = _parse_utc(belge.get("olusturma_utc")) or datetime.now(timezone.utc)

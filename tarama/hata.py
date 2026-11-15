@@ -1,4 +1,4 @@
-"""Yukleme hatalari icin musteriye gosterilen sayfa. Tum degerler html.escape ile yazilir."""
+"""Page shown to the customer for upload errors. All values are written with html.escape."""
 from html import escape
 
 M = {
@@ -100,7 +100,7 @@ M = {
     },
 }
 
-# Dosya dogrulama kodu -> (sayfa turu, tr ayrinti, en ayrinti). {ek}: kontrol ya da alan adi.
+# File validation code -> (page type, tr detail, en detail). {ek}: check or field name.
 TEKNIK = {
     "buyuk": ("buyuk", "", ""),
     "json": ("json", "dosya geçerli JSON değil", "the file is not valid JSON"),
@@ -122,7 +122,7 @@ TEKNIK = {
 
 
 def dosya_hatasi(kod, ek, dil):
-    """(sayfa turu, musteri dilinde teknik ayrinti) dondurur."""
+    """Returns (page type, technical detail in the customer's language)."""
     tur, tr, en = TEKNIK.get(kod, TEKNIK["bicim"])
     metin = en if dil == "en" else tr
     return tur, metin.replace("{ek}", str(ek)[:60])
@@ -209,7 +209,7 @@ def sayfa(tur, dil, ayrinti=None):
     d = dil if dil in M else "tr"
     m = M[d]
     baslik, ne_oldu, ne_yapmali = m[tur]
-    from tarama import depo   # sinir metni sabitten: SINIR_ADET ya da SINIR_GUN degisirse sayfa da degisir
+    from tarama import depo   # the limit text comes from the constant: if SINIR_ADET or SINIR_GUN changes the page changes too
     ne_oldu = ne_oldu.replace("{adet}", str(depo.SINIR_ADET)).replace("{gun}", str(depo.SINIR_GUN))
     kok = "/en/" if d == "en" else "/"
     if tur in DOGRUDAN:
@@ -250,7 +250,7 @@ D = {
 
 
 def dogrulama_gonderildi(dil, eposta, saat):
-    """Yukleme sonrasi: baglanti e-postayla gitti. Sayfada baglanti YOK."""
+    """After upload: the link was sent by email. There is NO link on the page."""
     d = dil if dil in D else "tr"
     t, kok = D[d], ("/en/" if d == "en" else "/")
     icerik = ('<article class="wrap prose tarama-page"><p class="fine">%s</p><h1>%s</h1><p class="lead">%s</p><p>%s</p>'
@@ -260,8 +260,8 @@ def dogrulama_gonderildi(dil, eposta, saat):
 
 
 def dogrulama_onay(dil, token):
-    """E-postadaki baglanti: GET hicbir sey degistirmez (e-posta tarayicilari baglantiyi kendiliginden acar);
-    dogrulama yalniz dugmeyle (POST) olur."""
+    """Link in the email: GET changes nothing (email scanners open links on their own);
+    verification happens only with the button (POST)."""
     d = dil if dil in D else "tr"
     t = D[d]
     icerik = ('<article class="wrap prose tarama-page"><p class="fine">%s</p><h1>%s</h1><p class="lead">%s</p>'

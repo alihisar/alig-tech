@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Ornek rapor sayfasinin govdesini uretir: site/uretilen/ornek-rapor-<gorunum>.<dil>.html (elle duzenlenmez).
+"""Generates the body of the example report page: site/uretilen/ornek-rapor-<view>.<lang>.html (not edited by hand).
 
-Girdi sentetik bir tarama belgesidir: gercek bir sunucudan ya da musteriden gelmez, nesne adlari acikca sahte (ornek_*).
-Rapor, musterinin gordugu rapor ile ayni kod yolundan (tarama/rapor.py) uretilir; puan ve bulgular belgeden cikar.
-Eylem (silme, dogrulama) yoktur, silinme tarihi yazilmaz. Ayni girdi ayni ciktiyi verir.
+The input is a synthetic scan document: it does not come from a real server or customer, and the object names are plainly fake (ornek_*).
+The report is produced through the same code path (tarama/rapor.py) as the report the customer sees; the score and findings come from the document.
+There are no actions (deletion, verification) and no deletion date is written. The same input gives the same output.
 
-  python3 tarama/uret_ornek_rapor.py            # yazar
-  python3 tarama/uret_ornek_rapor.py --kontrol  # guncel degilse 1 doner (CI ve testler kullanir)
+  python3 tarama/uret_ornek_rapor.py            # writes
+  python3 tarama/uret_ornek_rapor.py --kontrol  # returns 1 if out of date (used by CI and tests)
 """
 import sys
 from pathlib import Path
@@ -17,16 +17,16 @@ from tarama import katalog, rapor, uret_toplayici  # noqa: E402
 
 HEDEF = ROOT / "site" / "uretilen"
 DILLER = ("tr", "en")
-# Sekme adresleri: sayfa adlari build/build.py'deki sayfa adlariyla eslesir (/ornek-rapor/, /ornek-rapor-teknik/)
+# Tab addresses: the page names match the page names in build/build.py (/ornek-rapor/, /ornek-rapor-teknik/)
 SAYFA = {"yonetici": "ornek-rapor", "teknik": "ornek-rapor-teknik"}
 
 
 def belge():
-    """Sentetik tarama belgesi: PostgreSQL 16 birincil sunucu, uc bulgu turu, geri kalan denetimler temiz."""
+    """Synthetic scan document: a PostgreSQL 16 primary server, three kinds of findings, the remaining checks clean."""
     k = {c["id"]: {"durum": "ok", "satirlar": []} for c in katalog.PG}
     k["pg_surum"]["satirlar"] = [{"surum_num": 160015}]
     k["pg_sunucu_rolu"]["satirlar"] = [{"yedek": False}]
-    k["pg_kume_kimligi"]["satirlar"] = [{"kume": "0" * 64}]   # sahte ozet
+    k["pg_kume_kimligi"]["satirlar"] = [{"kume": "0" * 64}]   # fake digest
     k["pg_hesap"]["satirlar"] = [{"super_kullanici": False, "pg_read_all_stats": True, "pg_read_all_settings": True}]
     k["pg_baglanti"]["satirlar"] = [{"kullanilan": 82, "ust": 100}]
     k["pg_arsiv"]["satirlar"] = [{"archive_mode": "on", "basarili": 5, "hatali": 0, "son_basari_utc": "2026-11-10T10:00:00Z", "son_hata_utc": None}]
@@ -41,7 +41,7 @@ def belge():
     k["pg_gecici_dosya"]["satirlar"] = [{"datname": "ornek_veritabani", "dosya": 0, "bayt": 0, "sifirlama_utc": None}]
     k["pg_sorgu_istatistigi"]["satirlar"] = [{"shared_preload_libraries": "pg_stat_statements", "izleme": "top"}]
     k["pg_sequence_gorunurluk"]["satirlar"] = [{"veritabani": "ornek_veritabani", "toplam": 0, "okunamayan": 0}]
-    # Bulgu uretecek sentetik satirlar
+    # Synthetic rows that will produce findings
     k["pg_olu_satir"]["satirlar"] = [{"veritabani": "ornek_veritabani", "schemaname": "ornek_sema", "relname": "ornek_tablo",
                                       "canli": 50000, "olu": 40000, "son_autovacuum": None}]
     k["pg_kullanilmayan_indeks"]["satirlar"] = [{"veritabani": "ornek_veritabani", "schemaname": "ornek_sema",
@@ -55,7 +55,7 @@ def _adres(dil, gorunum):
 
 
 def uret():
-    """{dosya adi: metin}. Rapor govdesi eylemsiz, silinme tarihsiz; sekmeler statik sayfalara baglanir."""
+    """{file name: text}. The report body has no actions and no deletion date; the tabs link to static pages."""
     b = belge()
     cikti = {}
     for dil in DILLER:
@@ -78,9 +78,9 @@ def main(argv=None):
             HEDEF.mkdir(parents=True, exist_ok=True)
             yol.write_text(metin, encoding="utf-8")
     if kontrol and eski:
-        print("ornek rapor eski: %s: python3 tarama/uret_ornek_rapor.py" % ", ".join(eski))
+        print("example report is out of date: %s: python3 tarama/uret_ornek_rapor.py" % ", ".join(eski))
         return 1
-    print("ornek rapor: tamam")
+    print("example report: ok")
     return 0
 
 

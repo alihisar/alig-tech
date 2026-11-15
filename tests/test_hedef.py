@@ -1,4 +1,4 @@
-"""Kip B hedef dogrulamasi: ic aga yonlendirme (SSRF) ve DNS rebinding onlemleri. Ag kullanilmaz."""
+"""Mode B target validation: redirection to the internal network (SSRF) and DNS rebinding protections. No network is used."""
 import socket
 import sys
 import unittest
@@ -10,7 +10,7 @@ from tarama import hedef  # noqa: E402
 
 
 def sahte(*adresler):
-    """getaddrinfo yerine gecen cozumleyici: her cagrida ayni adresleri doner, cagri sayisini tutar."""
+    """A resolver that replaces getaddrinfo: returns the same addresses on every call and keeps the call count."""
     def coz(ad, port, *a, **k):
         coz.cagri += 1
         out = []
@@ -35,7 +35,7 @@ class AdresTests(unittest.TestCase):
         coz = sahte("93.184.216.34")
         h = hedef.dogrula("db.ornek.com", 5432, cozumleyici=coz)
         self.assertEqual((h.ip, h.port, h.ad), ("93.184.216.34", 5432, "db.ornek.com"))
-        self.assertEqual(coz.cagri, 1)   # ad yalnizca bir kez cozulur
+        self.assertEqual(coz.cagri, 1)   # the name is resolved only once
 
     def test_ic_ve_ozel_adresler_reddedilir(self):
         for adr in ("10.0.0.5", "172.16.3.4", "192.168.1.10", "127.0.0.1", "127.8.9.1", "169.254.169.254", "100.64.0.1",
@@ -110,7 +110,7 @@ class AdresTests(unittest.TestCase):
             return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (adr, port))]
         h = hedef.dogrula("db.ornek.com", 5432, cozumleyici=degisen)
         self.assertEqual(h.ip, "93.184.216.34")
-        self.assertEqual(len(yanitlar), 1)   # ikinci (ic) yanit hic istenmedi
+        self.assertEqual(len(yanitlar), 1)   # the second (internal) answer was never requested
         self.assertEqual(h.baglanti_adresi(), ("93.184.216.34", 5432))
 
     def test_musteri_iletisi_tek_tiptir(self):

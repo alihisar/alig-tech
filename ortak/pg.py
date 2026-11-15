@@ -1,23 +1,23 @@
-"""PostgreSQL icin dar bir ctypes + libpq sarmalayicisi (ALIG-DB-002 DEGERLENDIRME prototipi).
+"""A narrow ctypes + libpq wrapper for PostgreSQL (ALIG-DB-002 EVALUATION prototype).
 
-Uygulamaya baglanmaz; hicbir modul bunu import etmez. Karar DB-K1 icin kanit uretir (docs/postgresql-gecis.md bolum 2).
+Not wired into the application; no module imports it. Produces evidence for decision DB-K1 (docs/postgresql-gecis.md section 2).
 
-Tasarim kurallari:
-- Yalniz Python standart kutuphanesi; libpq sistemden yuklenir (Linux: libpq.so.5, Windows: libpq.dll).
-- Sorgu metnine deger birlestirilmez: degerler PQexecParams ile $1, $2 olarak, metin biciminde baglanir.
-- Her PGresult PQclear, her PGconn PQfinish ile kapatilir (try/finally).
-- Parola hata metinlerine, repr'e ve loga yazilmaz; olasi izler maskelenir.
-- Kor yeniden deneme yok: baglanti kopunca BaglantiHatasi firlatilir, islem tekrarlanmaz.
+Design rules:
+- Python standard library only; libpq is loaded from the system (Linux: libpq.so.5, Windows: libpq.dll).
+- Values are never concatenated into the query text: values are bound as $1, $2 with PQexecParams, in text format.
+- Every PGresult is closed with PQclear and every PGconn with PQfinish (try/finally).
+- The password is not written to error messages, repr or the log; possible traces are masked.
+- No blind retry: when the connection drops BaglantiHatasi is raised, the operation is not repeated.
 
-Is parcacigi guvenligi: libpq PQisthreadsafe() ile denetlenir. Bir Baglanti nesnesi ayni anda tek is parcacigi
-tarafindan kullanilabilir ve is parcaciklari arasinda PAYLASILMAZ: ikinci bir is parcacigi mesgul baglantiyi
-kullanmaya calisirsa EszamanliKullanimHatasi alir (bekletilmez, kuyruga alinmaz). Acik islem (islem()) yalniz
-onu baslatan is parcacigina aittir. Tek istisna iptal(): baska bir is parcacigindan cagrilabilir (PQcancel).
-Her is parcacigi kendi baglantisini acar.
+Thread safety: libpq is checked with PQisthreadsafe(). A Baglanti object can be used by a single thread at a time
+and is NOT SHARED between threads: if a second thread tries to use a busy connection it gets
+EszamanliKullanimHatasi (it is not made to wait, not queued). An open transaction (islem()) belongs only to the
+thread that started it. The only exception is iptal(): it may be called from another thread (PQcancel).
+Each thread opens its own connection.
 
-Parametre tipi: sunucu tipi cikaramazsa ($1 tek basina SELECT icinde) hata verir; gerekirse $1::text gibi tur
-doniusumu yazin. Sonuc metin biciminde gelir; yalniz bool, int, float, numeric ve timestamptz Python tipine cevrilir,
-digerleri str kalir; NULL her zaman None.
+Parameter type: if the server cannot infer the type ($1 alone inside a SELECT) it raises an error; if needed write a type
+cast such as $1::text. The result arrives in text format; only bool, int, float, numeric and timestamptz are converted to a Python type,
+the others stay str; NULL is always None.
 """
 import ctypes
 import ctypes.util
@@ -34,26 +34,26 @@ __all__ = [
 ]
 
 
-# --- hata siniflari -------------------------------------------------------------------------------------------
+# --- error classes -------------------------------------------------------------------------------------------
 
 class PgHata(Exception):
-    """Tum PostgreSQL katmani hatalarinin tabani."""
+    """Base of all PostgreSQL layer errors."""
 
 
 class KutuphaneHatasi(PgHata):
-    """libpq bulunamadi ya da kullanilamaz (ornegin is parcacigi guvenli degil)."""
+    """libpq was not found or is unusable (for example, not thread safe)."""
 
 
 class BaglantiHatasi(PgHata):
-    """Baglanti kurulamadi, kimlik dogrulanamadi ya da baglanti koptu. Islem tekrarlanmaz."""
+    """The connection could not be made, authentication failed or the connection dropped. The operation is not repeated."""
 
 
 class EszamanliKullanimHatasi(PgHata):
-    """Baglanti baska bir is parcacigi tarafindan kullaniliyor (baglanti paylasilamaz)."""
+    """The connection is in use by another thread (a connection cannot be shared)."""
 
 
 class SorguHatasi(PgHata):
-    """Sunucu sorguyu reddetti. sqlstate: 5 karakterli SQLSTATE; kisit: varsa kisit adi."""
+    """The server rejected the query. sqlstate: the 5-character SQLSTATE; kisit: the constraint name, if any."""
 
     def __init__(self, mesaj, sqlstate=None, kisit=None):
         super().__init__(f"[{sqlstate}] {mesaj}" if sqlstate else mesaj)
@@ -63,7 +63,7 @@ class SorguHatasi(PgHata):
 
 
 class ButunlukHatasi(SorguHatasi):
-    """SQLSTATE sinifi 23 (butunluk kisiti)."""
+    """SQLSTATE class 23 (integrity constraint)."""
 
 
 class BenzersizlikHatasi(ButunlukHatasi):
@@ -71,15 +71,15 @@ class BenzersizlikHatasi(ButunlukHatasi):
 
 
 class SorguIptalHatasi(SorguHatasi):
-    """SQLSTATE 57014: statement_timeout dolduysa ya da PQcancel ile iptal edildiyse."""
+    """SQLSTATE 57014: if statement_timeout expired or it was cancelled with PQcancel."""
 
 
 class KilitHatasi(SorguHatasi):
-    """SQLSTATE 55P03: lock_timeout doldu ya da kilit alinamadi."""
+    """SQLSTATE 55P03: lock_timeout expired or the lock could not be acquired."""
 
 
 class SerilestirmeHatasi(SorguHatasi):
-    """SQLSTATE 40001 / 40P01: serilestirme ya da kilitlenme. Yeniden deneme karari cagirana aittir."""
+    """SQLSTATE 40001 / 40P01: serialization or deadlock. The decision to retry belongs to the caller."""
 
 
 def _hata_sinifi(sqlstate):
@@ -96,7 +96,7 @@ def _hata_sinifi(sqlstate):
     return SorguHatasi
 
 
-# --- libpq yukleme --------------------------------------------------------------------------------------------
+# --- loading libpq -------------------------------------------------------------------------------------------
 
 _yukleme_kilidi = threading.Lock()
 _lib = None
@@ -105,7 +105,7 @@ CONNECTION_OK = 0
 PGRES_EMPTY_QUERY, PGRES_COMMAND_OK, PGRES_TUPLES_OK = 0, 1, 2
 PG_DIAG_SQLSTATE, PG_DIAG_MESSAGE_PRIMARY, PG_DIAG_CONSTRAINT_NAME = ord("C"), ord("M"), ord("n")
 
-# OID -> doniustur (metin bicimi)
+# OID -> converter (text format)
 _OID_BOOL, _OID_INT8, _OID_INT2, _OID_INT4 = 16, 20, 21, 23
 _OID_FLOAT4, _OID_FLOAT8, _OID_NUMERIC, _OID_TIMESTAMPTZ = 700, 701, 1700, 1184
 
@@ -154,7 +154,7 @@ def _imzalar(lib):
 
 
 def kutuphane_yukle(adaylar=None, onbellek=True):
-    """libpq'yu yukler. Bulunamazsa ya da is parcacigi guvenli degilse KutuphaneHatasi (sessiz geri dusme yok)."""
+    """Loads libpq. KutuphaneHatasi if it is not found or not thread safe (no silent fallback)."""
     global _lib
     with _yukleme_kilidi:
         if onbellek and adaylar is None and _lib is not None:
@@ -169,24 +169,24 @@ def kutuphane_yukle(adaylar=None, onbellek=True):
                 son_hata = e
                 continue
             if lib.PQisthreadsafe() != 1:
-                raise KutuphaneHatasi(f"libpq is parcacigi guvenli degil ({aday}); kullanilmaz")
+                raise KutuphaneHatasi(f"libpq is not thread safe ({aday}); not used")
             if onbellek and adaylar is None:
                 _lib = lib
             return lib
         raise KutuphaneHatasi(
-            "libpq bulunamadi (denenen: " + ", ".join(denenen) + "). Linux: 'libpq5' paketini kurun; "
-            "Windows: libpq.dll ve bagimliliklarini PATH'e koyun ya da ALIG_LIBPQ ile yol verin. "
-            f"Son hata: {son_hata}")
+            "libpq not found (tried: " + ", ".join(denenen) + "). Linux: install the 'libpq5' package; "
+            "Windows: put libpq.dll and its dependencies on PATH or give the path with ALIG_LIBPQ. "
+            f"Last error: {son_hata}")
 
 
 def thread_guvenli():
     return kutuphane_yukle().PQisthreadsafe() == 1
 
 
-# --- yardimcilar ----------------------------------------------------------------------------------------------
+# --- helpers -------------------------------------------------------------------------------------------------
 
 def _maskele(metin, sirlar):
-    """Metindeki bilinen sirlari ***'a cevirir."""
+    """Turns known secrets in the text into ***."""
     for s in sirlar:
         if s:
             metin = metin.replace(s, "***")
@@ -195,11 +195,11 @@ def _maskele(metin, sirlar):
 
 def _kontrol_nul(deger, ad):
     if "\x00" in deger:
-        raise ValueError(f"{ad}: NUL karakteri olamaz")
+        raise ValueError(f"{ad}: cannot contain a NUL character")
 
 
 def _baglanti_dizgisi(ayarlar):
-    """anahtar='deger' dizgisi; degerde \\ ve ' kacislanir. None degerler atlanir."""
+    """A key='value' string; \\ and ' are escaped in the value. None values are skipped."""
     parcalar = []
     for anahtar, deger in ayarlar.items():
         if deger is None:
@@ -212,7 +212,7 @@ def _baglanti_dizgisi(ayarlar):
 
 
 def _parametre_metni(deger):
-    """Python degerini metin bicimli parametreye (bytes) cevirir; None -> NULL."""
+    """Converts a Python value to a text-format parameter (bytes); None -> NULL."""
     if deger is None:
         return None
     if isinstance(deger, bool):
@@ -221,7 +221,7 @@ def _parametre_metni(deger):
         return str(deger).encode("ascii")
     if isinstance(deger, datetime):
         if deger.tzinfo is None or deger.utcoffset() is None:
-            raise ValueError("saat dilimsiz datetime reddedildi (timestamptz icin UTC ya da ofsetli verin)")
+            raise ValueError("datetime without a time zone rejected (for timestamptz give UTC or an offset)")
         return deger.isoformat().encode("ascii")
     if isinstance(deger, date):
         return deger.isoformat().encode("ascii")
@@ -230,7 +230,7 @@ def _parametre_metni(deger):
     if isinstance(deger, str):
         _kontrol_nul(deger, "parametre")
         return deger.encode("utf-8")
-    raise TypeError(f"desteklenmeyen parametre tipi: {type(deger).__name__}")
+    raise TypeError(f"unsupported parameter type: {type(deger).__name__}")
 
 
 def _doniustur(oid, metin):
@@ -245,24 +245,24 @@ def _doniustur(oid, metin):
     if oid == _OID_TIMESTAMPTZ:
         try:
             return datetime.fromisoformat(metin)
-        except ValueError:  # infinity gibi ozel degerler
+        except ValueError:  # special values such as infinity
             return metin
     return metin
 
 
-# --- baglanti -------------------------------------------------------------------------------------------------
+# --- connection ----------------------------------------------------------------------------------------------
 
 class Baglanti:
-    """Tek bir PGconn. Is parcacigi arasinda paylasilmaz (modul belgesine bakin). Dogrudan degil, baglan() ile olusturun."""
+    """A single PGconn. Not shared between threads (see the module docstring). Create it with baglan(), not directly."""
 
     def __init__(self):
-        raise TypeError("Baglanti.baglan(...) kullanin")
+        raise TypeError("use Baglanti.baglan(...)")
 
     @classmethod
     def baglan(cls, *, host=None, port=None, dbname=None, user=None, password=None,
                baglanti_zaman_asimi=10, statement_timeout_ms=30000, lock_timeout_ms=5000,
                bosta_islem_zaman_asimi_ms=60000, uygulama_adi="alig", sslmode=None):
-        """Baglanir ve oturum zaman asimlarini ayarlar. Yeniden deneme yoktur; basarisizlikta BaglantiHatasi."""
+        """Connects and sets the session timeouts. There is no retry; BaglantiHatasi on failure."""
         lib = kutuphane_yukle()
         dizgi = _baglanti_dizgisi({
             "host": host, "port": port, "dbname": dbname, "user": user, "password": password,
@@ -277,19 +277,19 @@ class Baglanti:
         self._kopuk = False
         self._islemde = False
         self._islem_sahibi = None
-        self._mesgul = threading.Lock()      # sorgu sirasinda tutulur; paylasimi reddetmek icin
-        self._iptal_kilidi = threading.Lock()  # iptal() ile kapat() arasi
+        self._mesgul = threading.Lock()      # held during a query; to refuse sharing
+        self._iptal_kilidi = threading.Lock()  # between iptal() and kapat()
         conn = lib.PQconnectdb(dizgi.encode("utf-8"))
         del dizgi
         if not conn:
-            raise BaglantiHatasi("baglanti nesnesi olusturulamadi (bellek)")
+            raise BaglantiHatasi("could not create the connection object (memory)")
         if lib.PQstatus(conn) != CONNECTION_OK:
             mesaj = self._metin(lib.PQerrorMessage(conn))
             lib.PQfinish(conn)
-            raise BaglantiHatasi(_maskele(mesaj or "baglanti kurulamadi", self._sirlar))
+            raise BaglantiHatasi(_maskele(mesaj or "could not connect", self._sirlar))
         self._conn = conn
         try:
-            self._iptal = lib.PQgetCancel(conn)  # iptal() baska is parcaciginden guvenle kullanilsin diye simdi alinir
+            self._iptal = lib.PQgetCancel(conn)  # taken now so that iptal() can be used safely from another thread
             for ad, deger in (("statement_timeout", statement_timeout_ms), ("lock_timeout", lock_timeout_ms),
                               ("idle_in_transaction_session_timeout", bosta_islem_zaman_asimi_ms),
                               ("TimeZone", "UTC")):
@@ -299,7 +299,7 @@ class Baglanti:
             raise
         return self
 
-    # -- yardimcilar
+    # -- helpers
     @staticmethod
     def _metin(b):
         return b.decode("utf-8", "replace").strip() if b else ""
@@ -318,13 +318,13 @@ class Baglanti:
     def kopuk(self):
         return self._kopuk
 
-    # -- sorgu
+    # -- query
     def sorgu(self, sql, parametreler=()):
-        """Tek SQL ifadesi; $1, $2 ... ile parametre. Satir listesi (tuple) doner; komutlarda bos liste."""
+        """A single SQL statement; parameters with $1, $2 ... Returns a list of rows (tuples); an empty list for commands."""
         if self._islemde and self._islem_sahibi != threading.get_ident():
-            raise EszamanliKullanimHatasi("islem baska bir is parcacigina ait")
+            raise EszamanliKullanimHatasi("the transaction belongs to another thread")
         if not self._mesgul.acquire(blocking=False):
-            raise EszamanliKullanimHatasi("baglanti baska bir is parcacigi tarafindan kullaniliyor; paylasilamaz")
+            raise EszamanliKullanimHatasi("the connection is in use by another thread; it cannot be shared")
         try:
             return self._calistir(sql, parametreler)
         finally:
@@ -332,9 +332,9 @@ class Baglanti:
 
     def _calistir(self, sql, parametreler):
         if self._conn is None:
-            raise BaglantiHatasi("baglanti kapali")
+            raise BaglantiHatasi("connection is closed")
         if self._kopuk:
-            raise BaglantiHatasi("baglanti kopmus; yeni baglanti acin")
+            raise BaglantiHatasi("connection is broken; open a new connection")
         lib = self._lib
         _kontrol_nul(sql, "sql")
         degerler = [_parametre_metni(p) for p in parametreler]
@@ -353,12 +353,12 @@ class Baglanti:
             kisit = self._metin(lib.PQresultErrorField(res, PG_DIAG_CONSTRAINT_NAME)) or None
         finally:
             lib.PQclear(res)
-        # SQLSTATE'siz hata istemci tarafi hatasidir (baglanti kaybi dahil); 08xxx ve 57P01-03 baglanti/sunucu kapanmasi
+        # an error without SQLSTATE is a client-side error (including connection loss); 08xxx and 57P01-03 are connection/server shutdown
         if (lib.PQstatus(self._conn) != CONNECTION_OK or not sqlstate or sqlstate.startswith("08")
                 or sqlstate in ("57P01", "57P02", "57P03")):
             self._kopuk = True
-            raise BaglantiHatasi(_maskele(f"baglanti koptu: {birincil}", self._sirlar))
-        # ayrinti (DETAIL) bilerek eklenmez: satir degerleri icerebilir
+            raise BaglantiHatasi(_maskele(f"connection dropped: {birincil}", self._sirlar))
+        # the detail (DETAIL) is deliberately not added: it may contain row values
         raise _hata_sinifi(sqlstate)(_maskele(birincil, self._sirlar), sqlstate, kisit)
 
     def _bos_sonuc_hatasi(self):
@@ -388,12 +388,12 @@ class Baglanti:
             sonuc.append(tuple(satir))
         return sonuc
 
-    # -- islem
+    # -- transaction
     @contextmanager
     def islem(self):
-        """with baglanti.islem(): BEGIN; cikista COMMIT; istisnada ROLLBACK ve istisna yeniden firlatilir."""
+        """with baglanti.islem(): BEGIN; COMMIT on exit; ROLLBACK on an exception and the exception is re-raised."""
         if self._islemde:
-            raise PgHata("ic ice islem desteklenmez")
+            raise PgHata("nested transactions are not supported")
         self.sorgu("BEGIN")
         self._islemde = True
         self._islem_sahibi = threading.get_ident()
@@ -413,7 +413,7 @@ class Baglanti:
 
     def _calistir_islem_sonu(self, komut):
         if not self._mesgul.acquire(blocking=False):
-            raise EszamanliKullanimHatasi("baglanti baska bir is parcacigi tarafindan kullaniliyor")
+            raise EszamanliKullanimHatasi("the connection is in use by another thread")
         try:
             self._calistir(komut, ())
         finally:
@@ -424,25 +424,25 @@ class Baglanti:
             if self._conn is not None and not self._kopuk:
                 self._calistir_islem_sonu("ROLLBACK")
         except PgHata:
-            pass  # asil hata zaten yayilir; baglanti gerekirse kopuk isaretlenmistir
+            pass  # the real error propagates anyway; the connection is marked broken if needed
         finally:
             self._islemde = False
             self._islem_sahibi = None
 
-    # -- iptal ve kapatma
+    # -- cancel and close
     def iptal(self):
-        """Calisan sorguyu PQcancel ile iptal eder; baska is parcaciginden cagrilabilir. Sorgu SorguIptalHatasi alir."""
+        """Cancels the running query with PQcancel; may be called from another thread. The query gets SorguIptalHatasi."""
         with self._iptal_kilidi:
             if self._iptal is None:
-                raise BaglantiHatasi("baglanti kapali")
+                raise BaglantiHatasi("connection is closed")
             tampon = ctypes.create_string_buffer(256)
             if self._lib.PQcancel(self._iptal, tampon, 256) != 1:
-                raise PgHata("iptal istegi gonderilemedi: " + _maskele(self._metin(tampon.value), self._sirlar))
+                raise PgHata("cancel request could not be sent: " + _maskele(self._metin(tampon.value), self._sirlar))
 
     def kapat(self):
-        """PQfinish; birden cok kez cagrilabilir. Baska is parcacigi sorgu calistiriyorsa reddeder."""
+        """PQfinish; may be called more than once. Refuses if another thread is running a query."""
         if not self._mesgul.acquire(blocking=False):
-            raise EszamanliKullanimHatasi("baglanti kullanimda; kapatilamaz")
+            raise EszamanliKullanimHatasi("connection is in use; cannot be closed")
         try:
             with self._iptal_kilidi:
                 if self._iptal is not None:

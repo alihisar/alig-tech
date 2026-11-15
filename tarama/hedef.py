@@ -1,14 +1,14 @@
-"""Kip B (dogrudan baglanti) icin hedef dogrulamasi. Yalnizca standart kutuphane. BAGLANTI ACMAZ.
+"""Target validation for Mode B (direct connection). Standard library only. DOES NOT OPEN CONNECTIONS.
 
-Amac: musterinin yazdigi sunucu adresinin bizim ic agimiza, yerel adreslere ya da bulut meta veri
-servisine yonlenmesini (SSRF) ve denetimden sonra adresin degismesini (DNS rebinding) onlemek.
+Purpose: to prevent the server address typed by the customer from being redirected to our internal network, to local addresses or to the cloud metadata
+service (SSRF), and to prevent the address from changing after the check (DNS rebinding).
 
-Kurallar:
-- Ad yalnizca bir kez cozulur. Donen HER adres denetlenir; biri bile uygun degilse hedef reddedilir.
-- Baglanti ada degil, dogrulanan IP'ye acilir (`Hedef.baglanti_adresi()`); ad yalnizca TLS sunucu adi icindir.
-- Musteriye giden ileti tek tiptir; neden yalnizca `Reddedildi.kod` ile ic kayda gecer.
+Rules:
+- The name is resolved only once. EVERY address returned is checked; if even one is unsuitable, the target is rejected.
+- The connection is opened to the validated IP, not to the name; the name is used only as the TLS server name (`Hedef.baglanti_adresi()`).
+- The message sent to the customer is of a single kind; the reason goes to the internal log only through `Reddedildi.kod`.
 
-Tasarim: docs/kip-b-tasarim.md
+Design: docs/kip-b-tasarim.md
 """
 import hashlib
 import ipaddress
@@ -28,7 +28,7 @@ ILETI = {"tr": "Bu sunucuya bağlanılamadı. Adresi ve portu denetleyin; yalnı
 
 
 class Reddedildi(ValueError):
-    """kod: 'ad', 'port', 'cozulemedi', 'ic_adres'. Musteriye kod gosterilmez."""
+    """kod: 'ad', 'port', 'cozulemedi', 'ic_adres'. The code is not shown to the customer."""
 
     def __init__(self, kod):
         super().__init__("hedef reddedildi: " + kod)
@@ -45,11 +45,11 @@ class Hedef:
         self.ad, self.ip, self.port = ad, ip, port
 
     def baglanti_adresi(self):
-        """Baglanti bu cifte acilir; ad yeniden cozulmez."""
+        """The connection is opened to this pair; the name is not resolved again."""
         return (self.ip, self.port)
 
     def ozet(self):
-        """Denetim kaydi icin: adresin kendisi yerine SHA-256 ozeti."""
+        """For the audit record: the SHA-256 digest instead of the address itself."""
         return hashlib.sha256(("%s|%s|%d" % (self.ad, self.ip, self.port)).encode("utf-8")).hexdigest()
 
 
@@ -66,7 +66,7 @@ def _port(port):
 
 
 def _gomulu(ip):
-    """IPv6 icine gomulu IPv4 adreslerini cikarir (eslemeli, uyumlu, 6to4, Teredo)."""
+    """Extracts IPv4 addresses embedded in IPv6 (mapped, compatible, 6to4, Teredo)."""
     out = []
     if ip.version == 6:
         if ip.ipv4_mapped is not None:
@@ -75,19 +75,19 @@ def _gomulu(ip):
             out.append(ip.sixtofour)
         if ip.teredo is not None:
             out.extend(ip.teredo)
-        if int(ip) >> 32 == 0 and int(ip) > 1:   # ::a.b.c.d (eski IPv4 uyumlu bicim)
+        if int(ip) >> 32 == 0 and int(ip) > 1:   # ::a.b.c.d (old IPv4-compatible form)
             out.append(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF))
     return out
 
 
 def _kapsamsiz(ip):
-    """IPv6 kapsam kimligini (%eth0) atar; kimlik adresin ic mi genel mi oldugunu degistirmez."""
+    """Drops the IPv6 scope id (%eth0); the scope id does not change whether the address is internal or public."""
     return ipaddress.IPv6Address(int(ip)) if ip.version == 6 and getattr(ip, "scope_id", None) else ip
 
 
 def adres_uygun(ip, yasak_aglar=()):
-    """Yalnizca genel internet adresleri uygundur. Kapsam kimlikli (%...) adres hicbir zaman uygun degildir:
-    kimlik rastgele metin tasiyabilir ve baglanti dizgisine girerek hostaddr/options alanlarini ezebilirdi."""
+    """Only public internet addresses are suitable. An address with a scope id (%...) is never suitable:
+    the id could carry arbitrary text and, by entering the connection string, override the hostaddr/options fields."""
     if getattr(ip, "scope_id", None):
         return False
     if ip.version == 6 and (ip in NAT64 or ip in NAT64_YEREL):
@@ -103,7 +103,7 @@ def adres_uygun(ip, yasak_aglar=()):
 
 
 def _ad(ham):
-    """(ad, ip ya da None). Ad kucuk harfe cevrilir, sondaki nokta atilir."""
+    """(name, ip or None). The name is lowercased and the trailing dot is dropped."""
     if not isinstance(ham, str) or not ham or len(ham) > 255 or ham != ham.strip():
         raise Reddedildi("ad")
     ad = ham
@@ -117,7 +117,7 @@ def _ad(ham):
     ad = ad.lower()
     if ad.endswith("."):
         ad = ad[:-1]
-    if SAYISAL.match(ad):   # sayisal gorunen her sey kati noktalı dortlu olmali (onluk, onaltilik, sekizlik, kisa bicim yok)
+    if SAYISAL.match(ad):   # anything that looks numeric must be a strict dotted quad (no decimal, hexadecimal, octal or short forms)
         try:
             return ad, ipaddress.IPv4Address(ad)
         except ValueError:
@@ -131,7 +131,7 @@ def _ad(ham):
 
 
 def dogrula(ad, port, cozumleyici=socket.getaddrinfo, yasak_aglar=()):
-    """Hedef dondurur ya da Reddedildi firlatir. Baglanti acmaz; adi en cok bir kez cozer."""
+    """Returns a Hedef or raises Reddedildi. Opens no connection; resolves the name at most once."""
     aglar = [ipaddress.ip_network(a) for a in yasak_aglar]
     ad, ip = _ad(ad)
     port = _port(port)
@@ -157,5 +157,5 @@ def dogrula(ad, port, cozumleyici=socket.getaddrinfo, yasak_aglar=()):
         raise Reddedildi("cozulemedi")
     if not all(adres_uygun(a, aglar) for a in adresler):
         raise Reddedildi("ic_adres")
-    secilen = sorted(adresler, key=lambda a: a.version)[0]   # once IPv4
+    secilen = sorted(adresler, key=lambda a: a.version)[0]   # IPv4 first
     return Hedef(ad, str(secilen), port)

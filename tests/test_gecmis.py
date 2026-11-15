@@ -1,4 +1,4 @@
-"""Gecmis karsilastirmasi (tarama/gecmis.py): ayni firma ve ayni veritabani kimligi; kaybolan kanit cozulmus sayilmaz."""
+"""History comparison (tarama/gecmis.py): the same company and the same database identity; vanished evidence is not counted as resolved."""
 import copy
 import itertools
 import json
@@ -55,9 +55,9 @@ class KimlikTests(unittest.TestCase):
         mon, yed, duz = (json.loads((GERCEK / ("%s.json" % h)).read_text(encoding="utf-8")) for h in ("pg_monitor", "yedek", "yetkisiz"))
         km, ky = gecmis.kimlik(mon), gecmis.kimlik(yed)
         self.assertTrue(km and ky)
-        self.assertEqual(km.split(":")[1], ky.split(":")[1])   # ayni kume tanimlayicisi
+        self.assertEqual(km.split(":")[1], ky.split(":")[1])   # the same cluster identifier
         self.assertEqual((km.split(":")[2], ky.split(":")[2]), ("birincil", "yedek"))
-        self.assertEqual(gecmis.kimlik(duz), km)                 # yetkisiz hesap da okur
+        self.assertEqual(gecmis.kimlik(duz), km)                 # the unprivileged account reads it too
 
 
 class DurumTests(unittest.TestCase):
@@ -96,21 +96,21 @@ class KarsilastirmaTests(unittest.TestCase):
         once = json.loads((GERCEK / "pg_monitor.json").read_text(encoding="utf-8"))
         simdi = copy.deepcopy(once)
         k = simdi["kontroller"]
-        k["pg_slot"]["satirlar"] = []                               # etkin olmayan slot kaldirildi: konu yok
-        k["pg_tablo_autovacuum"]["satirlar"] = []                   # tablolar duzeltildi ama bir veritabani taranmadi
-        k["pg_autovacuum"]["satirlar"][0]["setting"] = "off"        # autovacuum kapatildi: once temizdi
-        del k["pg_arsiv"]                                           # arsiv kaniti kayboldu (once uyari vardi)
-        k["pg_xid_yasi"]["satirlar"][0]["mxid_yas"] = 900000000     # multixact yasi esigi asti
+        k["pg_slot"]["satirlar"] = []                               # the inactive slot was removed: not applicable
+        k["pg_tablo_autovacuum"]["satirlar"] = []                   # the tables were fixed but one database was not scanned
+        k["pg_autovacuum"]["satirlar"][0]["setting"] = "off"        # autovacuum was disabled: it was clean before
+        del k["pg_arsiv"]                                           # the archive evidence vanished (there was a warning before)
+        k["pg_xid_yasi"]["satirlar"][0]["mxid_yas"] = 900000000     # the multixact age crossed the threshold
         simdi["olusturma_utc"] = "2026-11-20T12:00:00Z"
         c = gecmis.karsilastir(once, simdi)
         d = {x["kural"]: x["durum"] for x in c.kurallar}
         self.assertEqual(d["PG-HA-001"], "RESOLVED")
-        self.assertEqual(d["PG-MAINT-007"], "UNKNOWN")              # kisim kapsamla cozuldu denmez
+        self.assertEqual(d["PG-MAINT-007"], "UNKNOWN")              # not called resolved with partial coverage
         self.assertEqual(d["PG-MAINT-006"], "REGRESSED")
         self.assertEqual(d["PG-MAINT-008"], "REGRESSED")
-        self.assertEqual(d["PG-BACKUP-001"], "UNKNOWN")             # kaybolan kanit
+        self.assertEqual(d["PG-BACKUP-001"], "UNKNOWN")             # vanished evidence
         self.assertEqual(d["PG-SEC-001"], "PERSISTING")
-        self.assertNotIn("PG-MAINT-001", d)                         # iki taramada da temiz
+        self.assertNotIn("PG-MAINT-001", d)                         # clean in both scans
         ac = {x["kural"]: x for x in c.kurallar}
         self.assertEqual(ac["PG-BACKUP-001"]["neden"], "kanit_kayboldu")
         self.assertEqual(c.onceki_puan.genel, test_puan.puan.hesapla(kurallar.incele(once)).genel)
@@ -118,7 +118,7 @@ class KarsilastirmaTests(unittest.TestCase):
         self.assertLess(c.yeni_puan.kapsam, c.onceki_puan.kapsam)
         self.assertFalse(c.katalog_farkli)
         sira = [x["durum"] for x in c.kurallar]
-        self.assertEqual(sira, sorted(sira, key=gecmis.DURUMLAR.index))   # once yeni ve kotulesen
+        self.assertEqual(sira, sorted(sira, key=gecmis.DURUMLAR.index))   # new and worsening first
 
     def test_once_olculemeyen_sorun_yeni_sayilmaz(self):
         once, simdi = belge(), belge(zaman="2026-11-20T12:00:00Z")
@@ -141,7 +141,7 @@ class KarsilastirmaTests(unittest.TestCase):
                 so, sy = gecmis.sinif(o[x["kural"]]), gecmis.sinif(y[x["kural"]])
                 self.assertIn("S", (so, sy))
                 if x["durum"] == "RESOLVED":
-                    self.assertIn(sy, ("T", "Y"))      # cozuldu ancak kanitla
+                    self.assertIn(sy, ("T", "Y"))      # resolved, but with evidence
                 if so == "S" and sy == "B":
                     self.assertEqual(x["durum"], "UNKNOWN")
                 if x["durum"] == "NEW":
@@ -163,17 +163,17 @@ class OncekiRaporTests(unittest.TestCase):
     def test_ayni_firma_ayni_kimlik_onceki_en_yeni(self):
         self.ekle("t1", belge(zaman="2026-11-01T00:00:00Z"))
         self.ekle("t2", belge(zaman="2026-11-05T00:00:00Z"))
-        self.ekle("t3", belge(kume="b" * 64, zaman="2026-11-06T00:00:00Z"))      # baska kume
-        self.ekle("t4", belge(yedek=True, zaman="2026-11-07T00:00:00Z"))         # ayni kumenin yedegi
-        self.ekle("t5", belge(zaman="2026-11-08T00:00:00Z"), firma=self.diger)   # baska firma
-        self.ekle("t6", belge(zaman="2026-11-09T00:00:00Z"), dogrulandi=False)   # e-posta dogrulamasi bekliyor
-        self.ekle("t7", belge(zaman="2026-11-20T00:00:00Z"))                     # daha sonraki tarama
+        self.ekle("t3", belge(kume="b" * 64, zaman="2026-11-06T00:00:00Z"))      # another cluster
+        self.ekle("t4", belge(yedek=True, zaman="2026-11-07T00:00:00Z"))         # a standby of the same cluster
+        self.ekle("t5", belge(zaman="2026-11-08T00:00:00Z"), firma=self.diger)   # another company
+        self.ekle("t6", belge(zaman="2026-11-09T00:00:00Z"), dogrulandi=False)   # awaiting email verification
+        self.ekle("t7", belge(zaman="2026-11-20T00:00:00Z"))                     # a later scan
         simdi = self.ekle("t8", belge(zaman="2026-11-10T00:00:00Z"))
         self.assertEqual(depo.onceki_rapor(self.con, simdi)["belge"]["olusturma_utc"], "2026-11-05T00:00:00Z")
 
     def test_ayni_dosya_kendisiyle_ve_suresi_dolanla_karsilastirilmaz(self):
         self.ekle("t1", belge())
-        simdi = self.ekle("t2", belge())                       # ayni dosya ikinci kez yuklendi
+        simdi = self.ekle("t2", belge())                       # the same file was uploaded a second time
         self.assertIsNone(depo.onceki_rapor(self.con, simdi))
         self.ekle("t3", belge(zaman="2026-11-01T00:00:00Z"))
         self.con.execute("UPDATE rapor SET bitis_utc = '2000-01-01T00:00:00Z' WHERE id = 3")
@@ -205,10 +205,10 @@ class GosterimTests(unittest.TestCase):
 
     def test_karsilastirma_bolumu(self):
         once, simdi = belge(), belge(zaman="2026-11-20T12:00:00Z")
-        once["kontroller"]["pg_tls_parola"]["satirlar"][0]["ssl"] = "off"      # cozuldu
-        simdi["kontroller"]["pg_autovacuum"]["satirlar"][0]["setting"] = "off"  # kotulesti
+        once["kontroller"]["pg_tls_parola"]["satirlar"][0]["ssl"] = "off"      # resolved
+        simdi["kontroller"]["pg_autovacuum"]["satirlar"][0]["setting"] = "off"  # worsened
         del simdi["kontroller"]["pg_log_ayarlari"]
-        once["kontroller"]["pg_log_ayarlari"]["satirlar"][0]["setting"] = "off"  # kanit kayboldu
+        once["kontroller"]["pg_log_ayarlari"]["satirlar"][0]["setting"] = "off"  # evidence vanished
         c = gecmis.karsilastir(once, simdi)
         tr, en = self.sayfa(once, simdi), self.sayfa(once, simdi, "en")
         self.assertIn("Önceki taramayla karşılaştırma", tr)

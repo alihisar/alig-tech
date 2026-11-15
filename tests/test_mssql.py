@@ -1,4 +1,4 @@
-"""SQL Server taramasi (on surum): katalog, toplayici, kurallar, yukleme kapisi. Gercek SQL Server gerekmez."""
+"""SQL Server scan (preview): catalog, collector, rules, upload gate. A real SQL Server is not needed."""
 import json
 import os
 import re
@@ -57,7 +57,7 @@ def temiz_mssql():
                                        {"ad": "remote admin connections", "deger": 0}, {"ad": "backup compression default", "deger": 1},
                                        {"ad": "clr enabled", "deger": 0}]
     k["ms_sa"]["satirlar"] = [{"devre_disi": 1, "adi_sa": 1}]
-    k["ms_sysadmin"]["satirlar"] = [{"giris": "sa", "tur": "SQL_LOGIN", "devre_disi": 1}]   # sa her zaman uyedir; bos liste "gorunmedi" demek
+    k["ms_sysadmin"]["satirlar"] = [{"giris": "sa", "tur": "SQL_LOGIN", "devre_disi": 1}]   # sa is always a member; an empty list means "not seen"
     k["ms_parola_politikasi"]["satirlar"] = [{"sayi": 0}]
     k["ms_tempdb"]["satirlar"] = [{"veri_dosyasi": 8, "cpu": 16}]
     k["ms_sifreleme"]["satirlar"] = [{"toplam": 12, "sifreli": 12}]
@@ -113,7 +113,7 @@ class KatalogTests(unittest.TestCase):
 
 class SonsuzSayiTests(unittest.TestCase):
     def test_tur_tablosu_olmayan_motorda_da_sonsuz_sayi_reddedilir(self):
-        """SQL Server kolonlarinin tur tablosu yok; sonsuz sayiyi yalniz skaler denetimi yakalar."""
+        """There is no type table for SQL Server columns; only the scalar check catches an infinite number."""
         b = temiz_mssql()
         b["kontroller"]["ms_tempdb"]["satirlar"] = [{"veri_dosyasi": 8, "cpu": 16}]
         ham = json.dumps(b).replace('"cpu": 16', '"cpu": 1e999').encode()
@@ -219,12 +219,12 @@ class KuralTests(unittest.TestCase):
 
     def test_surum_destegi(self):
         d = temiz_mssql()
-        d["kontroller"]["ms_surum"]["satirlar"][0]["ana_surum"] = 13   # 2016: destek 2026-07-14'te bitti
+        d["kontroller"]["ms_surum"]["satirlar"][0]["ana_surum"] = 13   # 2016: support ended on 2026-07-14
         b = self.sablonlar(d)["ms_surum_eol"]
         self.assertEqual((b["onem"], b["kanit"]["surum"]), ("yuksek", "2016"))
         d["kontroller"]["ms_surum"]["satirlar"][0]["ana_surum"] = 11
         self.assertEqual(self.sablonlar(d)["ms_surum_eol"]["kanit"]["destek_sonu"], "gecmis")
-        d["kontroller"]["ms_surum"]["satirlar"][0].update(ana_surum=12, motor_turu=5)   # Azure SQL: surum kurali uygulanmaz
+        d["kontroller"]["ms_surum"]["satirlar"][0].update(ana_surum=12, motor_turu=5)   # Azure SQL: the version rule does not apply
         self.assertNotIn("ms_surum_eol", self.sablonlar(d))
 
     def test_yedek_ve_checkdb(self):
@@ -265,7 +265,7 @@ class KuralTests(unittest.TestCase):
                     "ms_sifreleme": "orta", "ms_acik_islem": "yuksek", "ms_kimlik": "dusuk", "ms_sysadmin": "bilgi",
                     "ms_sysadmin_ile_tarama": "orta"}
         self.assertEqual({k2: v["onem"] for k2, v in s.items()}, beklenen)
-        self.assertEqual(s["ms_trustworthy"]["kanit"]["nesneler"], ["x"])   # msdb sayilmaz
+        self.assertEqual(s["ms_trustworthy"]["kanit"]["nesneler"], ["x"])   # msdb is not counted
         sira = [kurallar.ONEM.index(b["onem"]) for b in bulgu]
         self.assertEqual(sira, sorted(sira))
 
@@ -317,7 +317,7 @@ class YuklemeKapisiTests(test_tarama.SunucuTests):
         self.assertEqual(self.yukle(json.dumps(d).encode()).status, 422)
 
 
-# Devralinan PostgreSQL sunucu testleri burada yeniden kosmasin.
+# So the inherited PostgreSQL server tests do not run again here.
 for _ad in [a for a in dir(test_tarama.SunucuTests) if a.startswith("test_")]:
     setattr(YuklemeKapisiTests, _ad, None)
 del test_tarama

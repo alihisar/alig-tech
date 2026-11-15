@@ -1,8 +1,8 @@
-"""ALIG-DB-005: PostgreSQL yedek ve geri yukleme (db/yedek.py). Uygulamaya bagli degildir.
-Uctan uca tatbikat gecici PostgreSQL 16 kumesinde (initdb, Unix soketi, trust: yalniz bu test kumesi): sema, ornek veri ve iki
-denetim zinciri, WAL arsivi acik kume, pg_basebackup (alig_backup rolu), pg_verifybackup, yedekten sonra veri, zaman damgasi,
-"kaza" (tablo bosaltma), ikinci bos dizine PITR, zincir dogrulamasi. PostgreSQL yoksa SKIP.
-Tatbikat suresi yerel PG16 ve kucuk veri icindir; RTO hedefi ya da olcusu DEGILDIR."""
+"""ALIG-DB-005: PostgreSQL backup and restore (db/yedek.py). Not tied to the application.
+The end-to-end drill is on a temporary PostgreSQL 16 cluster (initdb, Unix socket, trust: only this test cluster): schema, sample data and two
+audit chains, a cluster with the WAL archive on, pg_basebackup (alig_backup role), pg_verifybackup, data after the backup, a timestamp,
+an "accident" (emptying a table), PITR into a second empty directory, chain verification. SKIPped if PostgreSQL is absent.
+The drill duration is for a local PG16 and small data; it is NOT an RTO target or measurement."""
 import importlib.util
 import os
 import pwd
@@ -43,7 +43,7 @@ def ozet_hesapla():
 
 
 def agac(dizin):
-    """(goreli yol, boyut, mtime_ns) listesi: dizinin degismedigini kanitlar."""
+    """List of (relative path, size, mtime_ns): proves the directory did not change."""
     cikti = []
     for p in sorted(Path(dizin).rglob("*")):
         st = p.lstat()
@@ -52,7 +52,7 @@ def agac(dizin):
 
 
 class YedekBirimTests(unittest.TestCase):
-    """PostgreSQL gerektirmez."""
+    """Does not need PostgreSQL."""
 
     def setUp(self):
         self.y = modul()
@@ -78,7 +78,7 @@ class YedekBirimTests(unittest.TestCase):
             with self.assertRaises(self.y.YedekHatasi, msg=yol):
                 self.y.arsiv_komutu(yol)
         with self.assertRaises(self.y.YedekHatasi):
-            self.y.kurtarma_ayarlari(None, "2026-11-15 10:00:00+00")   # arsivsiz zamana donus yok
+            self.y.kurtarma_ayarlari(None, "2026-11-15 10:00:00+00")   # no point-in-time restore without an archive
         for z in ("dun", "2026-11-15 10:00:00", "2026-11-15'; DROP", "2026-11-15 10:00:00+00'"):
             with self.assertRaises(self.y.YedekHatasi, msg=z):
                 self.y.kurtarma_ayarlari("/wal", z)
@@ -95,12 +95,12 @@ class YedekBirimTests(unittest.TestCase):
     def test_eskileri_sil_en_yeni_n_taneyi_saklar(self):
         adlar = ["pg-2026110%dT010101Z" % i for i in range(1, 6)]
         self._yedek_yap(self.d, adlar)
-        (self.d / "pg-20261101T010101Z.devam").mkdir()          # yarim yedek: sayilmaz, silinmez
-        (self.d / "baska-dizin").mkdir()                          # yabanci: dokunulmaz
-        (self.d / "pg-20261109T010101Z").mkdir()                  # manifestsiz: tamamlanmamis, sayilmaz
+        (self.d / "pg-20261101T010101Z.devam").mkdir()          # partial backup: not counted, not deleted
+        (self.d / "baska-dizin").mkdir()                          # foreign: left alone
+        (self.d / "pg-20261109T010101Z").mkdir()                  # without a manifest: incomplete, not counted
         silinecek = self.y.eskileri_sil(self.d, 2, evet=False)
         self.assertEqual([p.name for p in silinecek], adlar[:3])
-        self.assertTrue(all((self.d / a).exists() for a in adlar))   # kuru calistirma silmez
+        self.assertTrue(all((self.d / a).exists() for a in adlar))   # a dry run does not delete
         self.y.eskileri_sil(self.d, 2, evet=True)
         kalan = sorted(p.name for p in self.d.iterdir())
         self.assertEqual(kalan, sorted(adlar[3:] + ["pg-20261101T010101Z.devam", "baska-dizin", "pg-20261109T010101Z"]))
@@ -114,7 +114,7 @@ class YedekBirimTests(unittest.TestCase):
         e["ALIG_PG_BIN"] = str(self.d / "yok")
         r = subprocess.run([sys.executable, str(YEDEK), "al", "--kok", str(kok)], capture_output=True, text=True, env=e)
         self.assertEqual(r.returncode, 1)
-        self.assertIn("arac bulunamadi", r.stderr)
+        self.assertIn("tool not found", r.stderr)
         self.assertEqual(list(kok.iterdir()), [])
         self.assertEqual((kok.stat().st_mode & 0o777), 0o700)
 
@@ -159,13 +159,13 @@ class YedekTatbikatTests(unittest.TestCase):
                                env=cls.ortam(cls.port, cls.soket, cls.db, "postgres"), timeout=60)
             assert r.returncode == 0, r.stderr
             cls.ornek_veri()
-            # tam yedek (alig_backup rolu), tatbikat saati burada baslar
+            # full backup (alig_backup role), the drill clock starts here
             t0 = time.perf_counter()
             r = cls.yedek_cmd("al", "--kok", str(cls.yedek_kok))
             cls.sureler["yedek_al"] = time.perf_counter() - t0
             assert r.returncode == 0, r.stdout + r.stderr
             cls.yedek = sorted(p for p in cls.yedek_kok.iterdir() if p.name.startswith("pg-"))[-1]
-            # yedekten sonra veri, zaman damgasi, hatali degisiklik
+            # data after the backup, a timestamp, an erroneous change
             cls.sql("postgres", "INSERT INTO alig.firma(anahtar, ad, eposta, kaynak, kayit_utc, son_utc) "
                                 "SELECT 'yb' || g, 'Yedek Sonrasi Şirketi ' || g, 'yb' || g || '@ornek.test', 'test', now(), now() "
                                 "FROM generate_series(1, 50) g")
@@ -175,7 +175,7 @@ class YedekTatbikatTests(unittest.TestCase):
             time.sleep(0.4)
             cls.sql("postgres", "INSERT INTO alig.firma(anahtar, ad, eposta, kaynak, kayit_utc, son_utc) "
                                 "VALUES('hatali', 'Hatali Satir', 'h@ornek.test', 'test', now(), now())")
-            cls.sql("postgres", "DELETE FROM alig.firma")     # "yanlislikla" tablo bosaltma
+            cls.sql("postgres", "DELETE FROM alig.firma")     # "accidentally" emptying the table
             seg = cls.sql("postgres", "SELECT pg_walfile_name(pg_current_wal_lsn())")[1]
             cls.sql("postgres", "SELECT pg_switch_wal()")
             cls.arsivi_bekle(seg)
@@ -193,7 +193,7 @@ class YedekTatbikatTests(unittest.TestCase):
             print("\n[ALIG-DB-005 tatbikat, yerel PG16, kucuk veri; RTO hedefi DEGIL] " +
                   ", ".join("%s=%.2fs" % (k, v) for k, v in cls.sureler.items()), file=sys.stderr)
 
-    # --- yardimcilar ---
+    # --- helpers ---
     @classmethod
     def sahip(cls, yol, ozyinelemeli=False):
         if cls.root_mu:
@@ -249,7 +249,7 @@ class YedekTatbikatTests(unittest.TestCase):
         if seq > 1:
             onceki = cls.sql("postgres", "SELECT ozet FROM %s WHERE seq = %d" % (tablo, seq - 1))[1]
         oz = ozet_hesapla()(seq, aktor, olay, onceki, None, "")
-        # uygulama rolu: yalniz INSERT/SELECT (0005_yetkiler.sql)
+        # application role: only INSERT/SELECT (0005_yetkiler.sql)
         cls.sql("alig_app", "INSERT INTO %s(seq, zaman_utc, aktor, olay, onceki, ozet, mod, alanlar) "
                             "VALUES(%d, now(), '%s', '%s', '%s', '%s', 2, '')" % (tablo, seq, aktor, olay, onceki, oz))
 
@@ -282,7 +282,7 @@ class YedekTatbikatTests(unittest.TestCase):
             self.assertEqual(oz, hesap(int(seq), aktor, olay, on, None, alanlar), "ozet uyusmuyor: %s #%s" % (tablo, seq))
             onceki = oz
 
-    # --- testler ---
+    # --- tests ---
     def test_yedek_dogrulanir_ve_izinleri_dardir(self):
         r = self.yedek_cmd("dogrula", "--yedek", str(self.yedek))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -290,7 +290,7 @@ class YedekTatbikatTests(unittest.TestCase):
         self.assertTrue((self.yedek / "backup_manifest").is_file())
         self.assertTrue(list((self.yedek / "pg_wal").glob("0*")), "akitilmis WAL yedekte yok")
         self.assertFalse([p for p in self.yedek_kok.iterdir() if p.name.endswith(".devam")])
-        # rol: yalniz REPLICATION; veritabanina baglanamaz
+        # role: only REPLICATION; cannot connect to the database
         rc, _ = self.sql("alig_backup", "SELECT 1", kontrol=False)
         self.assertNotEqual(rc, 0)
 
@@ -317,16 +317,16 @@ class YedekTatbikatTests(unittest.TestCase):
             time.sleep(0.1)
         t2 = time.perf_counter()
         self.assertEqual(kurtarmada, "f", "kurtarma bitmedi")
-        # yedekten sonra eklenenler ve "yanlislikla" silinen satirlar geri geldi; sonraki hatali degisiklik gelmedi
+        # the rows added after the backup and the rows "accidentally" deleted came back; the later erroneous change did not
         self.assertEqual(self.sql("postgres", "SELECT count(*) FROM alig.firma", port=port, soket=soket)[1], "250")
         self.assertEqual(self.sql("postgres", "SELECT count(*) FROM alig.firma WHERE anahtar = 'hatali'", port=port, soket=soket)[1], "0")
         self.assertEqual(self.sql("postgres", "SELECT count(*) FROM alig.firma WHERE ad LIKE 'Yedek Sonras_ Şirketi%%'",
                                   port=port, soket=soket)[1], "50")
         self.zincir_saglam("alig.denetim", port, soket, 3)
         self.zincir_saglam("alig.yonetim_denetim", port, soket, 2)
-        # geri yuklenen kume kaynagin arsivine yazmaz
+        # the restored cluster does not write to the source's archive
         self.assertEqual(self.sql("postgres", "SHOW archive_mode", port=port, soket=soket)[1], "off")
-        # kaynak kume bu sirada hala bos tablo (kaza) gosterir: geri yukleme kaynaga dokunmadi
+        # the source cluster still shows an empty table (the accident) at this point: the restore did not touch the source
         self.assertEqual(self.sql("postgres", "SELECT count(*) FROM alig.firma")[1], "0")
         self.sureler["geri_yukle_komutu"] = t1 - t0
         self.sureler["kurtarma_bitisi"] = t2 - t1
@@ -350,7 +350,7 @@ class YedekTatbikatTests(unittest.TestCase):
         r = self.yedek_cmd("geri-yukle", "--yedek", str(kopya), "--hedef", str(hedef), "--evet")
         self.assertEqual(r.returncode, 1)
         self.assertFalse(hedef.exists(), "bozuk yedekten hedef olusturuldu")
-        # asil yedek etkilenmedi
+        # the original backup was not affected
         self.assertEqual(self.yedek_cmd("dogrula", "--yedek", str(self.yedek)).returncode, 0)
 
     def test_dolu_hedef_reddedilir_calisan_kume_dahil(self):
@@ -358,7 +358,7 @@ class YedekTatbikatTests(unittest.TestCase):
         dolu.mkdir()
         (dolu / "onemli.txt").write_text("silinmemeli")
         once = agac(dolu)
-        for hedef in (dolu, self.veri):   # ikincisi calisan kumenin veri dizini
+        for hedef in (dolu, self.veri):   # the second one is the running cluster's data directory
             canli = agac(hedef) if hedef == self.veri else None
             r = self.yedek_cmd("geri-yukle", "--yedek", str(self.yedek), "--hedef", str(hedef), "--evet")
             self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
@@ -367,8 +367,8 @@ class YedekTatbikatTests(unittest.TestCase):
                 self.assertEqual({a[0] for a in agac(hedef)} - {a[0] for a in canli}, set())
         self.assertEqual(agac(dolu), once)
         self.assertEqual((dolu / "onemli.txt").read_text(), "silinmemeli")
-        self.assertEqual(self.sql("postgres", "SELECT 1")[1], "1")   # calisan kume hala yanitliyor
-        # yedegin kendi icine geri yukleme de reddedilir
+        self.assertEqual(self.sql("postgres", "SELECT 1")[1], "1")   # the running cluster still responds
+        # restoring into the backup's own directory is also rejected
         r = self.yedek_cmd("geri-yukle", "--yedek", str(self.yedek), "--hedef", str(self.yedek / "alt"), "--evet")
         self.assertEqual(r.returncode, 1)
 
@@ -386,7 +386,7 @@ class YedekTatbikatTests(unittest.TestCase):
         self.assertEqual(list(bos.iterdir()), [])
         self.assertFalse(yok.exists())
         self.assertEqual((agac(self.yedek_kok), agac(self.arsiv)), once)
-        # eskileri-sil de --evet olmadan silmez
+        # eskileri-sil does not delete without --evet either
         r = self.yedek_cmd("eskileri-sil", "--kok", str(self.yedek_kok), "--sakla", "1")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(agac(self.yedek_kok), once[0])
@@ -403,7 +403,7 @@ class YedekTatbikatTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertTrue((hedef / "PG_VERSION").is_file())
         self.assertTrue(list((hedef / "pg_wal").glob("0*")))
-        self.assertFalse((hedef / "recovery.signal").exists())   # arsivsiz: PITR iddiasi yok
+        self.assertFalse((hedef / "recovery.signal").exists())   # without an archive: no PITR claim
 
 
 if __name__ == "__main__":

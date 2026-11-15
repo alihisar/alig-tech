@@ -1,5 +1,5 @@
-"""Rapor gorunumleri (tarama/rapor.py): yonetici ozeti ve teknik rapor, kanit ile yorum ayri, yazdirma duzeni.
-Ayni belgeden ayni cikti: dil modeli yok, ozet yalniz kural ciktisindan uretilir."""
+"""Report views (tarama/rapor.py): executive summary and technical report, evidence and interpretation separate, print layout.
+The same output from the same document: no language model, the summary is produced only from rule output."""
 import copy
 import re
 import sys
@@ -88,9 +88,9 @@ class YoneticiOzetiTests(unittest.TestCase):
         pn = puan.hesapla(kurallar.incele(belge(kanitsiz=True)))
         self.assertIn("değerlendirme eksik: %d / %d denetim için kanıt geldi" % (pn.olculen, pn.uygulanabilir), h)
         self.assertIn("temiz sayılmadı", h)
-        # yalniz kanitsizlik varken ozet "bulgu yok" demekle yetinmez
+        # when there is only missing evidence the summary does not settle for saying "no findings"
         self.assertNotIn("Bu taramada bulgu çıkmadı", h)
-        # bulgu da varsa bulgu durumu yazilir, eksik kanit ayrica belirtilir
+        # if there are findings too, the finding status is written and the missing evidence is stated separately
         h2 = sayfa(belge(kanitsiz=True, yuksek=True), "yonetici")
         self.assertIn("Dikkat gerekiyor", h2)
         self.assertIn("1 denetim için yeterli kanıt gelmedi", h2)
@@ -121,7 +121,7 @@ class YoneticiOzetiTests(unittest.TestCase):
         self.assertEqual(len(satirlar), min(5, len(bulgu)))
         sirali = sorted(bulgu, key=lambda x: (kurallar.ONEM.index(x["onem"]), x["kural"]))
         self.assertEqual(satirlar, [x["baslik"]["tr"] for x in sirali[:5]])
-        # 5'ten fazla bulgu: kalan sayisi yazilir
+        # more than 5 findings: the remaining count is written
         cok = copy.deepcopy(b)
         cok["kontroller"]["pg_tls_parola"]["satirlar"][0]["ssl"] = "off"
         n = len(kurallar.incele(cok).bulgular)
@@ -137,12 +137,12 @@ class YoneticiOzetiTests(unittest.TestCase):
         self.assertIn(escape(x["neden"]["tr"]), h)
         self.assertIn("Olası iş etkisi", h)
         self.assertIn("Kanıt türü", h)
-        self.assertIn("Kesin kanıt", h)   # HIGH: ayar ya da katalog durumu
+        self.assertIn("Kesin kanıt", h)   # HIGH: a setting or catalog state
 
     def test_dusuk_guvenli_bulgu_hipotez_olarak_etiketlenir(self):
         b = belge(yuksek=True)
         c = kurallar.incele(b)
-        # kanit modelindeki guven HIGH/MEDIUM/LOW her biri ayri etiket alir
+        # the confidence HIGH/MEDIUM/LOW in the evidence model each get a separate label
         from tarama.rapor import M
         for dil in ("tr", "en"):
             etiket = M[dil]["tur"]
@@ -234,7 +234,7 @@ class TeknikRaporTests(unittest.TestCase):
             self.assertLess(kart.index("kanit-blok"), kart.index("yorum-blok"))
             kanit_k = kart[kart.index("kanit-blok"):kart.index("yorum-blok")]
             yorum_k = kart[kart.index("yorum-blok"):]
-            self.assertIn('class="ev"', kanit_k)          # olculen degerler kanit blogunda
+            self.assertIn('class="ev"', kanit_k)          # measured values in the evidence block
             self.assertNotIn('class="ev"', yorum_k)
             for et in (("Kaynak", "Kanıt güveni", "Durum") if dil == "tr" else ("Source", "Evidence confidence", "Status")):
                 self.assertIn(et, kanit_k)
@@ -306,7 +306,7 @@ class SunucuGorunumTests(test_tarama._SunucuTaban):
         self.assertIn("<h2>Genel durum", ozet)
         self.assertNotIn("Denetim sonuçları", ozet)
         self.assertEqual(self.get(yol + "?gorunum=bilinmeyen")[1].decode(), varsayilan)
-        self.assertEqual(self.get(yol + "?gorunum=yonetici&gorunum=teknik")[1].decode(), ozet)   # ilk deger gecerli
+        self.assertEqual(self.get(yol + "?gorunum=yonetici&gorunum=teknik")[1].decode(), ozet)   # the first value is valid
 
     def test_ingilizce_rapor_ingilizce_ozet(self):
         r = self.yukle(__import__("json").dumps(belge(yuksek=True)).encode(), dil="en")

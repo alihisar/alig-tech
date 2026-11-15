@@ -12,7 +12,7 @@ from tarama import depo, posta  # noqa: E402
 
 
 class SahteSmtp:
-    """smtplib.SMTP yerine: cagrilari kaydeder. starttls_yok=True ise sunucu STARTTLS sunmuyor gibi davranir."""
+    """Replaces smtplib.SMTP: records the calls. If starttls_yok=True the server behaves as if it does not offer STARTTLS."""
     kayitlar = []
 
     def __init__(self, sunucu, port, timeout=None, context=None, starttls_yok=False, gonderim_hatasi=None):
@@ -71,7 +71,7 @@ class GondericiTests(unittest.TestCase):
         g = posta.SmtpGonderici("smtp.ornek.com", "tarama@alig.tech", 465, smtp=None, smtp_ssl=sahte())
         g.gonder("ali@firma.com", "Konu", "Metin")
         o = SahteSmtp.kayitlar[0].olaylar
-        self.assertTrue(o[0][4])  # TLS baglami verildi
+        self.assertTrue(o[0][4])  # a TLS context was given
         self.assertNotIn("starttls", [x[0] for x in o])
 
     def test_ayarlar(self):
@@ -107,7 +107,7 @@ class KutuTests(unittest.TestCase):
         self.assertEqual(posta.isle(self.con, g), (2, 0))
         self.assertEqual([x[0] for x in giden], ["ali@firma.com", "b@firma.com"])
         self.assertEqual(self.con.execute("SELECT durum, metin FROM posta").fetchall(), [("gonderildi", ""), ("gonderildi", "")])
-        self.assertEqual(posta.isle(self.con, g), (0, 0))  # ikinci kez gonderilmez
+        self.assertEqual(posta.isle(self.con, g), (0, 0))  # not sent a second time
 
     def test_gecici_hatada_yeniden_denenir_sinirda_vazgecilir(self):
         depo.posta_ekle(self.con, "a@firma.com", "Konu", "gizli")

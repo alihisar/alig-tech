@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""alig.tech saglik taramasi toplayicisi, SQL Server (ON SURUM). Yalnizca standart kutuphane, Python 3.9+.
+"""alig.tech health scan collector, SQL Server (PREVIEW). Standard library only, Python 3.9+.
 
-Musterinin kendi agi icinde calisir, AGA HICBIR SEY GONDERMEZ. Sabit, yalnizca SELECT iceren
-sorgu katalogunu `sqlcmd` ile calistirir ve tek bir JSON dosyasi yazar. SQL Server 2016 ve ustu.
+Runs inside the customer's own network and SENDS NOTHING OVER THE NETWORK. Runs a fixed query catalog containing only SELECT
+with `sqlcmd` and writes a single JSON file. SQL Server 2016 and later.
 
-Kullanim:
+Usage:
   python3 alig-toplayici-mssql.py --sunucu sql.ornek.local,1433 --kullanici alig_hc --sifrele --maskele
   python3 alig-toplayici-mssql.py --sunucu sql.ornek.local --windows --maskele
-Parola: SQLCMDPASSWORD ortam degiskeni. Komut satirindan parola kabul edilmez.
-Calisan sorgularin tam listesi: sorgu-katalogu-mssql.txt
+Password: the SQLCMDPASSWORD environment variable. A password on the command line is not accepted.
+Full list of the queries that run: sorgu-katalogu-mssql.txt
 """
 import argparse
 import hashlib
@@ -39,7 +39,7 @@ def hata_sinifi(metin):
 
 
 def json_ayikla(cikti):
-    """sqlcmd ciktisinda baslik ya da bos satir olabilir: ilk '[' ile son ']' arasini alir."""
+    """sqlcmd output may have a header or blank lines: takes what lies between the first '[' and the last ']'."""
     a, b = cikti.find("["), cikti.rfind("]")
     if a < 0 or b < a:
         raise ValueError("json yok")

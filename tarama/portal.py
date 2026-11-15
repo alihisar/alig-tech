@@ -1,12 +1,12 @@
-"""Musteri portali sayfalari ve yollari (/portal/). Yalnizca standart kutuphane. Varsayilan KAPALI: ALIG_PORTAL=1.
+"""Customer portal pages and routes (/portal/). Standard library only. OFF by default: ALIG_PORTAL=1.
 
-Yollar:
-  GET  /portal/                   giris sayfasi; oturum varsa firmanin raporlari
-  GET  /portal/kayit              hesap isteme formu        POST /portal/kayit
+Routes:
+  GET  /portal/                   login page; if there is a session, the company's reports
+  GET  /portal/kayit              account request form        POST /portal/kayit
   POST /portal/giris              POST /portal/cikis
-  GET  /portal/dogrula/<kod>      e-postadaki baglanti: GET hicbir sey degistirmez, hesap dugmeyle (POST) etkinlesir
-  GET  /portal/rapor/<id>/        firmanin raporu (?gorunum=yonetici|teknik)
-Firma izolasyonu tarama/portal_depo.py'dedir: bu dosya firma kimligi bilmez, yalniz Kapsam kullanir.
+  GET  /portal/dogrula/<kod>      link in the email: GET changes nothing, the account is activated with a button (POST)
+  GET  /portal/rapor/<id>/        the company's report (?gorunum=yonetici|teknik)
+Company isolation lives in tarama/portal_depo.py: this file does not know the company id, it only uses Kapsam.
 """
 import re
 from html import escape
@@ -156,17 +156,17 @@ def dogrula_sayfasi(d, kod):
 
 
 def _bulgu_puan(belge):
-    """(bulgu_sayisi, puan_metni). Bozuk rapor listeyi dusurmez."""
+    """(finding_count, score_text). A corrupt report does not drop the list."""
     try:
         s = kurallar.incele(belge)
         pn = puan.hesapla(s)
         return len(s.bulgular), None if pn.genel is None else "%d/100" % pn.genel
-    except Exception:  # noqa: BLE001 - tek bozuk rapor tum listeyi bozmasin
+    except Exception:  # noqa: BLE001 - a single corrupt report must not break the whole list
         return None, None
 
 
 def _degisim(ks, r, m):
-    """Onceki taramaya gore puan degisimi (ayni firma ve sunucu kimligi); yoksa '-'. Bozuk rapor listeyi dusurmez."""
+    """Score change versus the previous scan (same company and server identity); '-' if none. A corrupt report does not drop the list."""
     try:
         o = ks.onceki(r)
         if not o:
@@ -180,7 +180,7 @@ def _degisim(ks, r, m):
         return m["degisim_yok"]
 
 
-DEGISIM_SATIR = 20   # karsilastirma her satirda onceki raporu okur: yalniz en yeni satirlar icin hesaplanir
+DEGISIM_SATIR = 20   # the comparison reads the previous report for every row: computed only for the newest rows
 
 
 def panel_sayfasi(ks, sirket_adet):
@@ -248,7 +248,7 @@ def hesap_sayfasi(ks):
                                                                    escape(m["hesap_eposta"]), escape(ks.eposta), escape(m["hesap_a"]), islem), ks)
 
 
-# ---- istek isleme ----
+# ---- request handling ----
 
 def _cerez(h):
     for parca in (h.headers.get("Cookie") or "").split(";"):
@@ -259,7 +259,7 @@ def _cerez(h):
 
 
 def _ayni_kaynak(h):
-    """Durum degistiren isteklerde Origin (yoksa Referer) bu sitenin Host'u olmali. Eksikse reddedilir."""
+    """For state-changing requests, Origin (or Referer if absent) must be this site's Host. Rejected if missing."""
     kaynak = h.headers.get("Origin") or h.headers.get("Referer") or ""
     host = h.headers.get("Host") or ""
     try:
@@ -325,7 +325,7 @@ def _get(h, con, yol, q, d):
         if yol == "/portal/hesap":
             return _gonder(h, 200, hesap_sayfasi(ks))
         rid = int(RAPOR_SIL.match(yol).group(1))
-        if not ks.rapor(rid):   # baska firmanin ya da olmayan rapor icin onay sayfasi bile gosterilmez
+        if not ks.rapor(rid):   # not even a confirmation page is shown for another company's or a nonexistent report
             return _gonder(h, 404, _bulunamadi(ks))
         return _gonder(h, 200, sil_sayfasi(ks, rid))
     mr = RAPOR.match(yol)
@@ -393,7 +393,7 @@ def _kayit(h, con, f, d):
     eposta_n = eposta.strip().lower() if isinstance(eposta, str) else ""
     try:
         with depo.islem(con) as c:
-            # Ayni adrese 24 saatte en cok posta_adres_siniri ileti: asilirsa yanit yine ayni (hesap varligi ve sinir sizmaz)
+            # At most posta_adres_siniri messages to the same address in 24 hours: if exceeded the response is still the same (account existence and the limit do not leak)
             sinir_asildi = depo.firma_anahtari(eposta_n) is not None and depo.posta_say(c, eposta_n) >= h.posta_adres_siniri
             if sinir_asildi:
                 depo.denetim_ekle(c, "sistem", "portal kaydi: posta siniri", {"sonuc": "reddedildi", "neden": "posta"})
@@ -412,7 +412,7 @@ def _kayit(h, con, f, d):
 
 
 def _oturumlu_post(h, con, yol, f, ks):
-    """Oturum ve form kodu (csrf) gerektiren islemler. Oturum yoksa giris sayfasina, kod yanlissa 403."""
+    """Actions that need a session and a form code (csrf). Without a session, to the login page; with a wrong code, 403."""
     if ks is None:
         return _yonlendir(h, "/portal/")
     m = M[ks.dil]

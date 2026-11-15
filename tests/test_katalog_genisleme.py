@@ -1,5 +1,5 @@
-"""Katalog genisletme (madde 12): autovacuum, tablo duzeyinde autovacuum, multixact yasi, replikasyon gecikmesi,
-pg_stat_statements, gecici dosyalar ve yedek sunucuda calisan WAL konum sorgulari."""
+"""Catalog extension (item 12): autovacuum, table-level autovacuum, multixact age, replication lag,
+pg_stat_statements, temporary files and the WAL position queries that run on a standby server."""
 import re
 import sys
 import unittest
@@ -47,7 +47,7 @@ class KatalogTests(unittest.TestCase):
         self.assertIn("mxid_freeze_max_age", katalog.PG_BY_ID["pg_xid_yasi"]["kolonlar"])
 
     def test_wal_konumu_yedek_sunucuda_hata_vermez(self):
-        """pg_current_wal_lsn() yedek sunucuda hata verir: her sorgu once pg_is_in_recovery() ile ayirmali."""
+        """pg_current_wal_lsn() fails on a standby server: every query must first branch with pg_is_in_recovery()."""
         gorulen = 0
         for c in katalog.PG:
             for sql in katalog.sorgular(c):
@@ -55,10 +55,10 @@ class KatalogTests(unittest.TestCase):
                     gorulen += 1
                     self.assertRegex(sql, r"CASE WHEN pg_is_in_recovery\(\) THEN pg_last_wal_receive_lsn\(\) ELSE pg_current_wal_lsn\(\) END",
                                      c["id"])
-        self.assertGreaterEqual(gorulen, 3)   # pg_slot (iki bicim) ve pg_replikasyon
+        self.assertGreaterEqual(gorulen, 3)   # pg_slot (two forms) and pg_replikasyon
 
     def test_tablo_autovacuum_sorgusu_bool_yazimlarini_tanir(self):
-        """reloptions degeri yazildigi gibi saklanir (off, 0, false, no...): PostgreSQL'in bool okumasiyla ayni kume."""
+        """The reloptions value is stored as written (off, 0, false, no...): the same set as PostgreSQL's bool parsing."""
         kalip = re.search(r"~\* '([^']+)'", katalog.PG_BY_ID["pg_tablo_autovacuum"]["sql"]).group(1)
         for kapali in ("autovacuum_enabled=off", "autovacuum_enabled=0", "autovacuum_enabled=FALSE", "autovacuum_enabled=no",
                        "autovacuum_enabled=f", "autovacuum_enabled=of", "fillfactor=70,autovacuum_enabled=off",
@@ -90,7 +90,7 @@ class AutovacuumTests(unittest.TestCase):
         k = kayit(belge(pg_tablo_autovacuum=[{"veritabani": "satis db", "schemaname": "public", "relname": "olu"}]), "PG-MAINT-007")
         self.assertEqual((k["durum"], k["onem"]), ("WARNING", "orta"))
         self.assertEqual(k["bulgular"][0]["kanit"]["nesneler"], ["satis db.public.olu"])
-        self.assertEqual(k["gozlem"], {"tablo": 1})   # gozlemde nesne adi yok
+        self.assertEqual(k["gozlem"], {"tablo": 1})   # no object name in the observation
 
 
 class MultixactTests(unittest.TestCase):
@@ -102,7 +102,7 @@ class MultixactTests(unittest.TestCase):
         self.assertEqual(durum(self.yas(1000), "PG-MAINT-008"), ("PASS", None))
         self.assertEqual(onem(self.yas(799999999), "PG-MAINT-008"), ("PASS", None))
         self.assertEqual(onem(self.yas(800000000), "PG-MAINT-008"), ("WARNING", "orta"))
-        self.assertEqual(onem(self.yas(300000000, esik=100000000), "PG-MAINT-008"), ("WARNING", "orta"))   # ayara gore
+        self.assertEqual(onem(self.yas(300000000, esik=100000000), "PG-MAINT-008"), ("WARNING", "orta"))   # depending on the setting
         self.assertEqual(onem(self.yas(1600000000), "PG-MAINT-008"), ("FAIL", "kritik"))
         self.assertEqual(kayit(self.yas(1600000000), "PG-MAINT-008")["bulgular"][0]["kanit"]["veritabani"], "postgres")
 
@@ -123,11 +123,11 @@ class ReplikasyonTests(unittest.TestCase):
 
     def test_esikler(self):
         self.assertEqual(durum(self.rep({}), "PG-HA-002"), ("PASS", None))
-        self.assertEqual(durum(self.rep({"gecikme_sn": None}), "PG-HA-002"), ("PASS", None))   # yetisen replikada gecikme NULL
+        self.assertEqual(durum(self.rep({"gecikme_sn": None}), "PG-HA-002"), ("PASS", None))   # lag is NULL on a caught-up replica
         self.assertEqual(onem(self.rep({"gecikme_sn": 59.9}), "PG-HA-002"), ("PASS", None))
         self.assertEqual(onem(self.rep({"gecikme_sn": 60}), "PG-HA-002"), ("WARNING", "orta"))
         self.assertEqual(onem(self.rep({"gecikme_sn": 600}), "PG-HA-002"), ("FAIL", "yuksek"))
-        self.assertEqual(onem(self.rep({"gecikme_bayt": GB}), "PG-HA-002"), ("WARNING", "orta"))   # yeniden oynatma durunca sure gecikmesi buyumez
+        self.assertEqual(onem(self.rep({"gecikme_bayt": GB}), "PG-HA-002"), ("WARNING", "orta"))   # the time lag does not grow when replay stops
         self.assertEqual(onem(self.rep({"gecikme_bayt": 16 * GB}), "PG-HA-002"), ("FAIL", "yuksek"))
         self.assertEqual(onem(self.rep({"durum": "catchup"}), "PG-HA-002"), ("WARNING", "orta"))
         k = kayit(self.rep({}, {"gecikme_sn": 700, "gecikme_bayt": 5}), "PG-HA-002")
@@ -136,7 +136,7 @@ class ReplikasyonTests(unittest.TestCase):
 
     def test_eksik_ya_da_gecersiz(self):
         self.assertEqual(durum(self.rep({"durum": None, "senkron": None, "gecikme_sn": None, "gecikme_bayt": None}), "PG-HA-002"),
-                         ("UNKNOWN", "eksik_veri"))   # yetkisiz hesap: satir gorunur, degerler bos; replika yok denmez
+                         ("UNKNOWN", "eksik_veri"))   # unprivileged account: the row is visible, the values are empty; it is not said there is no replica
         self.assertEqual(durum(self.rep({"gecikme_bayt": None}), "PG-HA-002"), ("UNKNOWN", "eksik_veri"))
         self.assertEqual(durum(self.rep({"gecikme_bayt": -5}), "PG-HA-002"), ("UNKNOWN", "gecersiz_veri"))
         self.assertEqual(durum(self.rep({"gecikme_sn": -1}), "PG-HA-002"), ("UNKNOWN", "gecersiz_veri"))
@@ -167,7 +167,7 @@ class SorguIstatistigiTests(unittest.TestCase):
 
 
 class GeciciDosyaTests(unittest.TestCase):
-    TARAMA = "2026-11-10T12:00:00Z"   # temiz_belge olusturma zamani
+    TARAMA = "2026-11-10T12:00:00Z"   # temiz_belge creation time
 
     def gd(self, *satirlar):
         return belge(pg_gecici_dosya=[dict({"datname": "db%d" % i, "dosya": 1, "bayt": 0, "sifirlama_utc": None}, **s)
@@ -177,12 +177,12 @@ class GeciciDosyaTests(unittest.TestCase):
         self.assertEqual(durum(self.gd({"dosya": 0}, {"dosya": 0}), "PG-PERF-003"), ("PASS", None))
 
     def test_pencere_bilinirse_gunluk_hiz(self):
-        self.assertEqual(durum(self.gd({"bayt": 50 * GB, "sifirlama_utc": "2026-10-31T12:00:00Z"}), "PG-PERF-003"), ("PASS", None))   # 5 GB/gun
-        k = kayit(self.gd({"bayt": 50 * GB, "sifirlama_utc": "2026-11-08T12:00:00Z"}), "PG-PERF-003")   # 25 GB/gun
+        self.assertEqual(durum(self.gd({"bayt": 50 * GB, "sifirlama_utc": "2026-10-31T12:00:00Z"}), "PG-PERF-003"), ("PASS", None))   # 5 GB/day
+        k = kayit(self.gd({"bayt": 50 * GB, "sifirlama_utc": "2026-11-08T12:00:00Z"}), "PG-PERF-003")   # 25 GB/day
         self.assertEqual((k["durum"], k["onem"]), ("WARNING", "dusuk"))
         self.assertEqual((k["bulgular"][0]["kanit"]["gunluk_bayt"], k["bulgular"][0]["kanit"]["olcum_gunu"]), (25 * GB, 2.0))
         self.assertEqual(onem(self.gd({"bayt": 300 * GB, "sifirlama_utc": "2026-11-09T12:00:00Z"}), "PG-PERF-003"), ("WARNING", "orta"))
-        # bir saatlik pencere bir gun sayilir: kisa pencere hizi buyutmez
+        # a one-hour window counts as one day: a short window does not inflate the rate
         self.assertEqual(durum(self.gd({"bayt": 5 * GB, "sifirlama_utc": "2026-11-10T11:00:00Z"}), "PG-PERF-003"), ("PASS", None))
 
     def test_pencere_bilinmezse_bilgi(self):
@@ -197,8 +197,8 @@ class GeciciDosyaTests(unittest.TestCase):
 
 
 class YedekSunucuTests(unittest.TestCase):
-    """Yedek sunucuda tablo istatistikleri (olu satir, indeks kullanimi) tutulmaz ve arsivleme birincilin isidir:
-    gercek PostgreSQL 16 yedeginde olu satir kurali veri yokken temiz cikiyordu. Bu kurallar yedekte uygulanmaz."""
+    """Table statistics (dead rows, index usage) are not kept on a standby server and archiving is the primary's job:
+    on a real PostgreSQL 16 standby the dead-row rule came out clean when there was no data. These rules do not apply on a standby."""
     BIRINCIL = {"PG-MAINT-003", "PG-MAINT-005", "PG-BACKUP-001"}
 
     def rol(self, yedek):

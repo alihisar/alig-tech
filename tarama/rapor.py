@@ -1,4 +1,4 @@
-"""Rapor HTML'i. Tum degerler html.escape ile yazilir; nesne adlari yalniz kanit listesinde gorunur."""
+"""Report HTML. All values are written with html.escape; object names appear only in the evidence list."""
 from html import escape
 
 from tarama import gecmis, kanit, katalog, kurallar, ozet_llm, puan
@@ -189,7 +189,7 @@ def _kanit(kanit, m):
 
 
 def _db(belge):
-    """(taranan veritabani sayisi, sunucudaki veritabani sayisi, [(atlanan ad, neden)]) ya da None. Bozuk degerde None."""
+    """(number of databases scanned, number of databases on the server, [(skipped name, reason)]) or None. None on a corrupt value."""
     e = (belge.get("kontroller") or {}).get("pg_kapsam")
     try:
         if e["durum"] != "ok" or not e["satirlar"]:
@@ -222,7 +222,7 @@ def _deger(v, m):
 
 
 def _not(k, m):
-    """Durum tablosundaki olcum ve not: gozlenen degerler ve UNKNOWN, UNAVAILABLE, NOT_APPLICABLE nedeni."""
+    """Measurement and note in the status table: the observed values and the reason for UNKNOWN, UNAVAILABLE, NOT_APPLICABLE."""
     parcalar = ["<code>%s</code>: %s" % (escape(str(a)), escape(_deger(v, m))) for a, v in k["gozlem"].items()]
     if k["neden"]:
         parcalar.append(escape(m["nedenler"].get(k["neden"], k["neden"])))
@@ -230,7 +230,7 @@ def _not(k, m):
 
 
 def _surum(s, motor, m):
-    """PostgreSQL ana surumu ve sorgularin o surumde gercek sunucuda sinanip sinanmadigi."""
+    """The PostgreSQL major version and whether the queries were tested on a real server on that version."""
     if motor != "postgresql":
         return ""
     ana = s.baglam.get("ana_surum")
@@ -240,7 +240,7 @@ def _surum(s, motor, m):
 
 
 def _rol(s, motor, m):
-    """PostgreSQL sunucusu birincil mi yedek mi; yedekte birincile ozgu kac denetimin uygulanmadigi."""
+    """Whether the PostgreSQL server is a primary or a standby; on a standby, how many primary-specific checks were not applied."""
     if motor != "postgresql":
         return ""
     yedek = s.baglam.get("yedek")
@@ -264,7 +264,7 @@ def _durumlar(s, m, d):
 
 
 def _sayi(v, d, ondalik=None):
-    """Turkcede ondalik ayirac virgul. ondalik verilirse o kadar basamak; 0'a yuvarlanan pozitif deger '<0,1' yazilir."""
+    """In Turkish the decimal separator is a comma. If ondalik is given, that many digits; a positive value that rounds to 0 is written '<0,1'."""
     if ondalik is None:
         metin = "%g" % v
     elif 0 < v < 0.5 * 10 ** -ondalik:
@@ -275,7 +275,7 @@ def _sayi(v, d, ondalik=None):
 
 
 def _puan(pn, sonuc, m, d):
-    """Saglik puani bolumu: yontem, etkin katsayilar, kategori tablosu ve puani dusuren denetimler (tarama/puan.py)."""
+    """Health score section: method, active coefficients, category table and the checks that lower the score (tarama/puan.py)."""
     k = puan.ETKIN
     onem = lambda o: m["onem"][o].lower()  # noqa: E731
     yontem = m["katsayi"] % (", ".join("%s %s" % (onem(o), _sayi(v, d)) for o, v in k["agirlik"].items()),
@@ -319,7 +319,7 @@ def _fark(a, b):
 
 
 def _durum_metni(k, m):
-    """Karsilastirma tablosundaki onceki ya da simdiki durum: Uyari (orta), Alinamadi (yetki yok)..."""
+    """The previous or current status in the comparison table: Warning (medium), Unavailable (no privilege)..."""
     if k["durum"] is None:
         return "-"
     ek = m["onem"][k["onem"]].lower() if k["onem"] else (m["nedenler"].get(k["neden"], k["neden"]) if k["neden"] else "")
@@ -327,7 +327,7 @@ def _durum_metni(k, m):
 
 
 def _karsilastirma(c, m, d):
-    """Onceki taramayla karsilastirma (tarama/gecmis.py): puan ve kapsam degisimi, kural kural degisim tablosu."""
+    """Comparison with the previous scan (tarama/gecmis.py): score and coverage change, rule-by-rule change table."""
     def puan_m(p):
         return m["puan_yok_k"] if p.genel is None else "%d/100" % p.genel
     op, yp = c.onceki_puan, c.yeni_puan
@@ -353,17 +353,17 @@ def _karsilastirma(c, m, d):
     return "\n".join(p)
 
 
-GORUNUMLER = ("yonetici", "teknik")   # ilki yonetici ozeti; varsayilan gorunum teknik rapordur (onceki davranis)
+GORUNUMLER = ("yonetici", "teknik")   # the first is the executive summary; the default view is the technical report (previous behavior)
 
 
 def gorunum_sec(deger):
-    """Sorgu parametresinden gorunum: bilinmeyen ya da yanlis turdeki deger teknik rapora duser."""
+    """View from the query parameter: an unknown or wrong-typed value falls back to the technical report."""
     return deger if isinstance(deger, str) and deger in GORUNUMLER else "teknik"
 
 
 def _sekme(secili, m, baglantilar=None):
-    """Iki gorunum arasi baglantilar. Goreli sorgu baglantisi: sayfa nereden acildiysa (musteri ya da yonetim paneli) orada kalir.
-    baglantilar: {gorunum: adres}; statik sayfalar (ornek rapor) sorgu degil kendi adreslerini verir."""
+    """Links between the two views. Relative query link: the page stays wherever it was opened (customer or admin panel).
+    baglantilar: {view: address}; static pages (example report) give their own addresses, not a query."""
     ogeler = ["<a href=\"%s\"%s>%s</a>" % (escape((baglantilar or {}).get(g, "?gorunum=" + g)), " aria-current=\"page\"" if g == secili else "", escape(m["gorunumler"][g])) for g in GORUNUMLER]
     return "<nav class=\"rapor-sekme\" aria-label=\"%s\">%s</nav>" % (escape(m["gorunum_a"]), "".join(ogeler))
 
@@ -373,14 +373,14 @@ def _siralama(bulgu):
 
 
 def _yonetici(belge, sonuc, bulgu, pn, onceki, m, d):
-    """Yonetici ozeti: yalniz kural ciktisindan, deterministik. Genel durum en agir bulguya gore; kanitsiz denetim temiz sayilmaz."""
+    """Executive summary: only from rule output, deterministic. The overall status follows the most severe finding; a check without evidence is not counted as clean."""
     sirali = _siralama(bulgu)
     if pn.genel is None:
         durum = m["yo_d"]["yok"]
     else:
         agir = sirali[0]["onem"] if sirali else None
         eksik = pn.uygulanabilir - pn.olculen
-        if agir is None and eksik:   # bulgu yok ama kanit eksik: "temiz" denmez
+        if agir is None and eksik:   # no findings but evidence is missing: not called "clean"
             durum = m["yo_kismi"] % (pn.olculen, pn.uygulanabilir)
         else:
             durum = m["yo_d"]["kritik" if agir == "kritik" else "yuksek" if agir == "yuksek" else "kucuk" if agir else "temiz"]
@@ -425,7 +425,7 @@ def _yonetici(belge, sonuc, bulgu, pn, onceki, m, d):
 
 
 def _bulgu_karti(b, m, d):
-    """Kanit blogu (olculen ve kaynak) ile yorum blogu (anlam, oneri, risk) ayri: yorum kanit gibi okunmasin."""
+    """The evidence block (measured and source) and the interpretation block (meaning, recommendation, risk) are separate: interpretation must not read like evidence."""
     kanit_blok = ["<div class=\"kanit-blok\"><h4>%s</h4>" % escape(m["kanit_b"]),
                   "<p><strong>%s.</strong> %s (%s). %s: %s. %s: %s (%s).</p>" % (
                       escape(m["kural"]), escape(b["kural"]), escape(m["kategori"][b["kategori"]]), escape(m["durum_e"]), escape(m["durum"][b["durum"]]),
@@ -441,8 +441,8 @@ def _bulgu_karti(b, m, d):
 
 
 def _llm_kutu(bulgu, d, m, ortam):
-    """Dil modeli ozeti (madde 23): varsayilan kapali. Yalniz ayri kutu; puan ve bulgu HTML'i bundan bagimsiz uretilir.
-    Ozet yok, reddedildi ya da hata verdiyse bos metin. Ozet duz metindir, escape ile yazilir."""
+    """Language model summary (item 23): off by default. Only a separate box; the score and finding HTML are produced independently of it.
+    Empty text if there is no summary, it was rejected or it failed. The summary is plain text, written with escaping."""
     metin = ozet_llm.ozet_uret(bulgu, d, ortam=ortam)
     if not metin:
         return ""
@@ -450,9 +450,9 @@ def _llm_kutu(bulgu, d, m, ortam):
 
 
 def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik", sekme_baglantilari=None, ozet_ortam=None):
-    """onceki: karsilastirilacak onceki rapor (depo.onceki_rapor) ya da None. gorunum: GORUNUMLER (gecersiz deger teknik).
-    sekme_baglantilari: gorunum sekmelerinin adresleri (varsayilan ?gorunum=). rapor[\"bitis_utc\"] None ise silinme satiri yazilmaz.
-    ozet_ortam: dil modeli ozeti icin ortam sozlugu (None: islem ortami); yalniz yonetici gorunumunde kullanilir."""
+    """onceki: the previous report to compare against (depo.onceki_rapor) or None. gorunum: GORUNUMLER (an invalid value gives technical).
+    sekme_baglantilari: addresses of the view tabs (default ?gorunum=). If rapor[\"bitis_utc\"] is None, the deletion line is not written.
+    ozet_ortam: environment dict for the language model summary (None: process environment); used only in the administrator view."""
     d = dil if dil in M else "tr"
     m = M[d]
     gorunum = gorunum_sec(gorunum)
@@ -484,7 +484,7 @@ def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik", sekme
 
 
 def _teknik(rapor, belge, sonuc, bulgu, pn, onceki, motor, m, d):
-    """Teknik rapor: ozet bilgileri, puan, karsilastirma, bulgu kartlari (kanit ve yorum ayri), denetim tablosu, kapsam."""
+    """Technical report: summary information, score, comparison, finding cards (evidence and interpretation separate), check table, scope."""
     sayim = {o: sum(1 for b in bulgu if b["onem"] == o) for o in kurallar.ONEM}
     durum_sayim = sonuc.sayim()
     p = ["<h2>%s</h2>" % escape(m["ozet"]), "<dl class=\"facts\">",

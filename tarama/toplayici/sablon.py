@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""alig.tech saglik taramasi toplayicisi. Yalnizca standart kutuphane, Python 3.9+.
+"""alig.tech health scan collector. Standard library only, Python 3.9+.
 
-Musterinin kendi agi icinde calisir, AGA HICBIR SEY GONDERMEZ. Sabit, salt okunur
-sorgu katalogunu `psql` ile calistirir ve tek bir JSON dosyasi yazar. Dosyayi okuyup,
-istediginizde siteye kendiniz yuklersiniz.
+Runs inside the customer's own network and SENDS NOTHING OVER THE NETWORK. Runs a fixed, read-only
+query catalog with `psql` and writes a single JSON file. You read the file and upload it to the site
+yourself when you want.
 
-Kullanim:
+Usage:
   python3 alig-toplayici.py --host db.ornek.local --user alig_hc --dbname postgres --maskele
-Parola: PGPASSWORD ortam degiskeni ya da ~/.pgpass. Komut satirindan parola kabul edilmez.
-Sunucu geneli denetimler --dbname veritabaninda bir kez calisir. Tablo, indeks ve sequence denetimleri
-baglanma yetkisi olan her veritabaninda ayri calisir (en cok --en-cok-veritabani); --veritabanlari ile secilebilir.
---maskele verilirse takma ad -> gercek ad eslemesi yalniz bu bilgisayarda <cikti>-maske.json dosyasina yazilir; yuklemeyin.
-Calisan sorgularin tam listesi: sorgu-katalogu.txt (ayni SHA-256 sayfada yazar).
+Password: the PGPASSWORD environment variable or ~/.pgpass. A password on the command line is not accepted.
+Server-wide checks run once in the --dbname database. Table, index and sequence checks run separately in every database
+you have connect privilege on (at most --en-cok-veritabani); can be selected with --veritabanlari.
+If --maskele is given, the alias -> real name mapping is written only on this computer to the <output>-maske.json file; do not upload it.
+Full list of the queries that run: sorgu-katalogu.txt (the same SHA-256 is on the page).
 """
 import argparse
 import hashlib
@@ -40,7 +40,7 @@ def hata_sinifi(stderr):
 
 
 def sorgu_sec(c, ana):
-    """Denetimin bu ana surumde calisacak sorgusu; desteklenmeyen surumde None (tarama/katalog.py sorgu ile ayni)."""
+    """The check's query that will run on this major version; None on an unsupported version (same as sorgu in tarama/katalog.py)."""
     if ana is None:
         return c["sql"]
     if ana < c.get("en_az", 12) or (c.get("en_cok") is not None and ana > c["en_cok"]):
@@ -52,7 +52,7 @@ def sorgu_sec(c, ana):
 
 
 def _ci(deger):
-    """libpq baglanti dizgisi degeri: bosluk, tirnak ya da ters bolu iceriyorsa tirnaklanir ve kacirilir."""
+    """libpq connection string value: quoted and escaped if it contains a space, quote or backslash."""
     d = str(deger)
     if d and not any(ch in d for ch in " '\\=\t\n"):
         return d
@@ -90,7 +90,7 @@ class Maske:
 
 
 def _yaz_600(yol, veri):
-    """Yalniz sahibinin okuyabildigi dosya (var olan dosyanin izni de daraltilir)."""
+    """A file readable only by its owner (the permission of an existing file is also narrowed)."""
     fd = os.open(yol, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as f:
         f.write(veri)
@@ -98,7 +98,7 @@ def _yaz_600(yol, veri):
 
 
 def veritabanlari(psql, args, baglanti):
-    """(taranacak, atlanan). Liste alinamazsa yalniz --dbname taranir."""
+    """(to scan, skipped). If the list cannot be obtained only --dbname is scanned."""
     sonuc = calistir(psql, baglanti(args.dbname), KATALOG["veritabani_listesi"])
     if sonuc["durum"] != "ok":
         return [args.dbname], []
@@ -163,7 +163,7 @@ def main(argv=None):
     kontroller = {}
     for c in KATALOG["kontroller"]:
         sql = sorgu_sec(c, ana)
-        if sql is None:   # bu surumde olmayan ozellik: sorgu calismaz
+        if sql is None:   # feature not present in this version: the query does not run
             kontroller[c["id"]] = {"durum": "hata", "neden": "desteklenmiyor"}
             print("%-26s ATLANDI (desteklenmiyor: PostgreSQL %d)" % (c["id"], ana))
             continue

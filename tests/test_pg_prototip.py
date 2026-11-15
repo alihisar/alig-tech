@@ -1,6 +1,6 @@
-"""ALIG-DB-002: ctypes + libpq surucu prototipi (degerlendirme). Uygulamaya baglanmaz.
+"""ALIG-DB-002: ctypes + libpq driver prototype (evaluation). Not wired into the application.
 
-Gecici PG16 kumesi tests/pg_yardimci.py ile setUpClass'ta kurulur ve sinif temizliginde silinir. PG ya da libpq yoksa testler SKIP olur.
+A temporary PG16 cluster is set up with tests/pg_yardimci.py in setUpClass and deleted in class cleanup. If PG or libpq is absent the tests are SKIPped.
 """
 import os
 import sys
@@ -29,7 +29,7 @@ YANLIS = "YanlisParola-12345"
 
 
 class KumeKarisimi:
-    """Test sinifi icin gecici PG16 kumesi (tests/pg_yardimci.py): uygulama rolu superuser degil, scram-sha-256 ile baglanir."""
+    """Temporary PG16 cluster for the test class (tests/pg_yardimci.py): the application role is not a superuser and connects with scram-sha-256."""
 
     @classmethod
     def setUpClass(cls):
@@ -50,7 +50,7 @@ class KumeKarisimi:
 
 
 class SaltUnitTests(unittest.TestCase):
-    """Sunucu gerektirmeyen birim testler."""
+    """Unit tests that do not need a server."""
 
     def test_baglanti_dizgisi_kacis(self):
         s = pg._baglanti_dizgisi({"host": "/x y", "password": "a'b\\c d"})
@@ -77,7 +77,7 @@ class SaltUnitTests(unittest.TestCase):
         self.assertIsNone(pg._parametre_metni(None))
         self.assertEqual(pg._parametre_metni("ğ"), "ğ".encode("utf-8"))
         with self.assertRaises(ValueError):
-            pg._parametre_metni(datetime(2026, 1, 1))  # saat dilimsiz zaman reddedilir
+            pg._parametre_metni(datetime(2026, 1, 1))  # a time without a time zone is rejected
         with self.assertRaises(TypeError):
             pg._parametre_metni(object())
         with self.assertRaises(ValueError):
@@ -85,7 +85,7 @@ class SaltUnitTests(unittest.TestCase):
 
     @unittest.skipUnless(LIBPQ_VAR, "libpq yok")
     def test_baglanti_hatasi_parola_sizdirmaz(self):
-        # var olmayan soket dizini: hata metni parolayi icermemeli
+        # a socket directory that does not exist: the error text must not contain the password
         with self.assertRaises(pg.BaglantiHatasi) as c:
             pg.Baglanti.baglan(host="/yok-boyle-dizin", port=1, dbname="x", user="u", password=YANLIS,
                                baglanti_zaman_asimi=2)
@@ -118,7 +118,7 @@ class PgPrototipTests(KumeKarisimi, unittest.TestCase):
         kotu = "x'); DROP TABLE kayit; --"
         b.sorgu("INSERT INTO kayit (ad, deger) VALUES ($1, $2)", [kotu, 7])
         self.assertEqual(b.sorgu("SELECT ad, deger FROM kayit WHERE ad = $1", [kotu]), [(kotu, 7)])
-        self.assertEqual(b.sorgu("SELECT count(*) FROM kayit"), [(1,)])  # tablo duruyor
+        self.assertEqual(b.sorgu("SELECT count(*) FROM kayit"), [(1,)])  # the table is still there
 
     def test_null_ve_turkce_gidis_donus(self):
         b = self.baglan()
@@ -173,7 +173,7 @@ class PgPrototipTests(KumeKarisimi, unittest.TestCase):
         self.assertEqual(c.exception.sqlstate, "23505")
         self.assertIsInstance(c.exception, pg.ButunlukHatasi)
         self.assertIsInstance(c.exception, pg.SorguHatasi)
-        # hata sonrasi baglanti kullanilabilir (islem disinda)
+        # after an error the connection is usable (outside a transaction)
         self.assertEqual(b.sorgu("SELECT 1"), [(1,)])
 
     def test_diger_sqlstate_sinifi(self):
@@ -206,7 +206,7 @@ class PgPrototipTests(KumeKarisimi, unittest.TestCase):
         t = threading.Thread(target=calis)
         t0 = time.monotonic()
         t.start()
-        for _ in range(100):  # sorgu sunucuda aktif olana dek bekle
+        for _ in range(100):  # wait until the query is active on the server
             if izleyici.sorgu("SELECT count(*) FROM pg_stat_activity WHERE query LIKE $1 AND state = 'active' "
                               "AND pid <> pg_backend_pid()", ["%iptal-deneme%"])[0][0]:
                 break
@@ -233,7 +233,7 @@ class PgPrototipTests(KumeKarisimi, unittest.TestCase):
     def test_kapali_baglanti_kullanimi_reddedilir(self):
         b = self.baglan()
         b.kapat()
-        b.kapat()  # ikinci kapatma zararsiz
+        b.kapat()  # a second close is harmless
         with self.assertRaises(pg.BaglantiHatasi):
             b.sorgu("SELECT 1")
 
@@ -246,13 +246,13 @@ class PgPrototipTests(KumeKarisimi, unittest.TestCase):
                 return int(f.read().split()[1]) * sayfa
 
         yuk = "ğ" * 2000
-        for _ in range(100):  # isinma
+        for _ in range(100):  # warm-up
             b.sorgu("SELECT $1::text, $2::int", [yuk, 1])
         once = rss()
         for i in range(1000):
             b.sorgu("SELECT $1::text, $2::int", [yuk, i])
             if i % 10 == 0:
-                with self.assertRaises(pg.SorguHatasi):  # hata yolundaki PQclear de sizdirmamali
+                with self.assertRaises(pg.SorguHatasi):  # PQclear on the error path must not leak either
                     b.sorgu("SELECT * FROM yok_boyle_tablo")
         artis = rss() - once
         self.assertLess(artis, 8 * 1024 * 1024, f"RSS artisi {artis} bayt")
@@ -282,7 +282,7 @@ class PgPrototipTests(KumeKarisimi, unittest.TestCase):
         gecen = time.monotonic() - t0
         self.assertEqual(hatalar, [])
         self.assertEqual(sorted(sonuc), ["i1", "i2"])
-        self.assertLess(gecen, 1.15)  # seri olsaydi >= 1.2 sn
+        self.assertLess(gecen, 1.15)  # >= 1.2 s if it were serial
         self.assertEqual(self.baglan().sorgu("SELECT count(*) FROM kayit"), [(2,)])
 
     def test_baglanti_is_parcacigi_arasinda_paylasilamaz(self):
@@ -314,13 +314,13 @@ class BaglantiKesintisiTests(KumeKarisimi, unittest.TestCase):
         b = self.baglan()
         b.sorgu("CREATE TABLE IF NOT EXISTS k (x int)")
         self.assertEqual(b.sorgu("SELECT 1"), [(1,)])
-        with self.assertRaises(pg.BaglantiHatasi):  # islem ortasinda kesinti: basari ilan edilmez
+        with self.assertRaises(pg.BaglantiHatasi):  # interruption in the middle of a transaction: success is not declared
             with b.islem():
                 b.sorgu("INSERT INTO k VALUES ($1)", [1])
                 self._sunucuyu_durdur()
                 b.sorgu("INSERT INTO k VALUES ($1)", [2])
         self.assertFalse(b.islemde)
-        for _ in range(2):  # tekrar denemeyiz; her seferinde ayni guvenli hata
+        for _ in range(2):  # we do not retry; the same safe error every time
             with self.assertRaises(pg.BaglantiHatasi) as c:
                 b.sorgu("INSERT INTO k VALUES ($1)", [1])
             self.assertNotIn(PAROLA, str(c.exception))

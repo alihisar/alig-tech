@@ -1,5 +1,5 @@
-"""Musteri portali (tarama/portal_depo.py, tarama/portal.py): giris, e-posta dogrulama, firma izolasyonu.
-Izolasyon veri erisim katmaninda sinanir: baska firmanin kaydina tahmin edilen kimlikle erisilemez."""
+"""Customer portal (tarama/portal_depo.py, tarama/portal.py): login, email verification, company isolation.
+Isolation is tested in the data access layer: another company's record cannot be reached with a guessed id."""
 import http.client
 import json
 import re
@@ -26,7 +26,7 @@ def yeni_db():
 
 
 def hesap_ac(con, eposta, sirket="Ornek AS", parola=PAROLA, dil="tr"):
-    """Kayit ve dogrulama: (kullanici_id, firma_id)."""
+    """Registration and verification: (user_id, company_id)."""
     durum, kod = portal_depo.kayit(con, eposta, parola, sirket, dil)
     assert durum == "yeni", durum
     d, kid, fid = portal_depo.dogrula(con, kod)
@@ -66,7 +66,7 @@ class KayitTests(unittest.TestCase):
     def test_kayit_firma_olusturmaz_dogrulama_olusturur(self):
         durum, kod = portal_depo.kayit(self.con, "Ali@Ornek.com.tr", PAROLA, "Ornek AS", "tr")
         self.assertEqual(durum, "yeni")
-        self.assertEqual(self.con.execute("SELECT count(*) FROM firma").fetchone()[0], 0)   # sahipligi kanitlanmadan firma yok
+        self.assertEqual(self.con.execute("SELECT count(*) FROM firma").fetchone()[0], 0)   # no company until ownership is proven
         self.assertEqual(self.con.execute("SELECT durum, firma_id, eposta FROM portal_kullanici").fetchone(), ("bekliyor", None, "ali@ornek.com.tr"))
         self.assertIsNone(portal_depo.kapsam(self.con, kod))
         d, kid, fid = portal_depo.dogrula(self.con, kod)
@@ -96,7 +96,7 @@ class KayitTests(unittest.TestCase):
     def test_okuma_hicbir_sey_degistirmez(self):
         _, kod = portal_depo.kayit(self.con, "ali@ornek.com.tr", PAROLA, "A", "en")
         self.assertEqual(portal_depo.kod_bekleyen(self.con, kod), "en")
-        self.assertEqual(portal_depo.kod_bekleyen(self.con, kod), "en")   # tekrar: hala gecerli
+        self.assertEqual(portal_depo.kod_bekleyen(self.con, kod), "en")   # again: still valid
         self.assertEqual(self.con.execute("SELECT durum FROM portal_kullanici").fetchone()[0], "bekliyor")
 
     def test_etkin_hesap_varken_yeni_hesap_acilmaz_parola_degismez(self):
@@ -106,13 +106,13 @@ class KayitTests(unittest.TestCase):
         self.assertEqual((durum, kod), ("var", None))
         self.assertEqual(self.con.execute("SELECT parola FROM portal_kullanici").fetchone()[0], onceki)
         self.assertEqual(self.con.execute("SELECT count(*) FROM portal_kod").fetchone()[0], 0)
-        self.assertTrue(oturum(self.con, "ali@ornek.com.tr"))   # eski parola gecerli
+        self.assertTrue(oturum(self.con, "ali@ornek.com.tr"))   # the old password is valid
 
     def test_baskasinin_adresine_parola_yerlestirme(self):
-        """Saldirgan kurbanin adresiyle kendi parolasini kaydeder; adresin sahibi dogrulama baglantisini acmadikca hesap yok.
-        Kurban kendi istegini yapinca saldirganin parolasi ve kodu gecersiz olur."""
+        """An attacker registers their own password with the victim's address; there is no account unless the address owner opens the verification link.
+        When the victim makes their own request the attacker's password and code become invalid."""
         _, kod_saldirgan = portal_depo.kayit(self.con, "kurban@kurum.com.tr", "saldirgan-parola-1", "Kurum", "tr")
-        self.assertIsNone(portal_depo.giris(self.con, "kurban@kurum.com.tr", "saldirgan-parola-1", IP)[0])   # dogrulanmadan giris yok
+        self.assertIsNone(portal_depo.giris(self.con, "kurban@kurum.com.tr", "saldirgan-parola-1", IP)[0])   # no login without verification
         _, kod_kurban = portal_depo.kayit(self.con, "kurban@kurum.com.tr", "kurbanin-parolasi-2", "Kurum", "tr")
         self.assertEqual(portal_depo.dogrula(self.con, kod_saldirgan), ("yok", None, None))
         self.assertEqual(portal_depo.dogrula(self.con, kod_kurban)[0], "tamam")
@@ -162,7 +162,7 @@ class GirisTests(unittest.TestCase):
         for _ in range(portal_depo.DENEME_EPOSTA):
             self.assertEqual(portal_depo.giris(self.con, "ali@ornek.com.tr", "yanlis-parola-123", IP)[1], "hatali")
         self.assertEqual(portal_depo.giris(self.con, "ali@ornek.com.tr", PAROLA, IP), (None, "engelli"))
-        self.assertEqual(portal_depo.giris(self.con, "ali@ornek.com.tr", PAROLA, "198.51.100.7"), (None, "engelli"))   # baska IP'den de
+        self.assertEqual(portal_depo.giris(self.con, "ali@ornek.com.tr", PAROLA, "198.51.100.7"), (None, "engelli"))   # from another IP too
 
     def test_ip_basina_engel(self):
         for i in range(portal_depo.DENEME_IP):
@@ -212,7 +212,7 @@ class GirisTests(unittest.TestCase):
 
     def test_firma_silinince_kullanici_ve_oturum_gider(self):
         kod, _ = portal_depo.giris(self.con, "ali@ornek.com.tr", PAROLA, IP)
-        portal_depo.kayit(self.con, "bekleyen@ornek.com.tr", PAROLA, "A", "tr")   # ayni firmaya bagli degil (henuz firmasiz)
+        portal_depo.kayit(self.con, "bekleyen@ornek.com.tr", PAROLA, "A", "tr")   # not tied to the same company (no company yet)
         depo.firma_sil(self.con, self.fid)
         self.assertIsNone(portal_depo.kapsam(self.con, kod))
         self.assertEqual(portal_depo.giris(self.con, "ali@ornek.com.tr", PAROLA, IP)[0], None)
@@ -236,7 +236,7 @@ class GirisTests(unittest.TestCase):
 
 
 class IzolasyonTests(unittest.TestCase):
-    """Firma A kullanicisi, firma B'nin verisine hicbir yoldan erisemez."""
+    """A company A user cannot reach company B's data by any path."""
 
     def setUp(self):
         self.con = yeni_db()
@@ -263,10 +263,10 @@ class IzolasyonTests(unittest.TestCase):
 
     def test_var_olmayan_kimlik_ile_baska_firma_ayni_yanit(self):
         self.assertIsNone(self.ks_a.rapor(self.b))
-        self.assertIsNone(self.ks_a.rapor(99999))   # kaydin varligi sizmaz: ikisi de None
+        self.assertIsNone(self.ks_a.rapor(99999))   # the record's existence does not leak: both are None
 
     def test_butun_kimlikler_taranir(self):
-        """Veritabanindaki her rapor kimligi icin yalniz sahibi bulur."""
+        """For every report id in the database only its owner finds it."""
         sahip = {self.a: self.ks_a, self.a2: self.ks_a, self.b: self.ks_b, self.b2: self.ks_b}
         for rid in range(0, 50):
             for ks in (self.ks_a, self.ks_b):
@@ -278,7 +278,7 @@ class IzolasyonTests(unittest.TestCase):
             try:
                 r = self.ks_a.rapor(kotu)
             except OverflowError:
-                continue   # sqlite tamsayi siniri: veri donmez
+                continue   # sqlite integer limit: no data returned
             self.assertIsNone(r if kotu not in (self.a, self.a2) else None, repr(kotu))
         self.assertEqual(self.con.execute("SELECT count(*) FROM rapor").fetchone()[0], 4)
 
@@ -300,11 +300,11 @@ class IzolasyonTests(unittest.TestCase):
         ids = [r[0] for r in con.execute("SELECT id FROM rapor ORDER BY id")]
         ks = oturum(con, "ali@firma-a.com.tr")
         yeni = ks.rapor(ids[2])
-        self.assertEqual(ks.onceki(yeni)["id"], ids[1])   # firma B'nin daha eski raporu degil
-        self.assertIsNone(ks.onceki(ks.rapor(ids[1])))    # A'nin kendi onceki raporu yok; B'ninki sayilmaz
-        yabanci = depo.rapor_getir_id(con, ids[3])         # B'nin, kendi eski raporu olan kaydi
+        self.assertEqual(ks.onceki(yeni)["id"], ids[1])   # not company B's older report
+        self.assertIsNone(ks.onceki(ks.rapor(ids[1])))    # A has no previous report of its own; B's does not count
+        yabanci = depo.rapor_getir_id(con, ids[3])         # B's record that has its own older report
         self.assertEqual(depo.onceki_rapor(con, yabanci)["id"], ids[0])
-        self.assertIsNone(ks.onceki(yabanci))              # ama A'nin kapsami onu karsilastirmaz
+        self.assertIsNone(ks.onceki(yabanci))              # but A's scope does not compare it
 
     def test_kapsam_disaridan_uretilemez_firma_degistirilemez(self):
         with self.assertRaises(TypeError):
@@ -320,7 +320,7 @@ class IzolasyonTests(unittest.TestCase):
     def test_oturum_baska_kullanicinin_kapsamini_vermez(self):
         kod_a, _ = portal_depo.giris(self.con, "ali@firma-a.com.tr", PAROLA, IP)
         self.assertEqual(portal_depo.kapsam(self.con, kod_a).firma_id, self.fa)
-        # oturum satirinin sahibi degistirilirse (veri bozulmasi) kapsam yine kullanici kaydindan gelir, istekten degil
+        # if the owner of the session row is changed (data corruption), the scope still comes from the user record, not from the request
         self.con.execute("UPDATE portal_oturum SET kullanici_id=(SELECT id FROM portal_kullanici WHERE eposta='veli@firma-b.com.tr')")
         self.assertEqual(portal_depo.kapsam(self.con, kod_a).firma_id, self.fb)
 
@@ -331,14 +331,14 @@ class IzolasyonTests(unittest.TestCase):
         self.assertEqual(ks2.firma_id, self.fa)
 
     def test_katman_kaynak_kodu_firma_kosulunu_tasir(self):
-        """Statik koruma: portal_depo'daki her rapor sorgusu firma kosulu tasir; portal.py rapor tablosuna dogrudan erismez."""
+        """Static guard: every report query in portal_depo carries the company condition; portal.py does not access the report table directly."""
         kaynak = (ROOT / "tarama" / "portal_depo.py").read_text(encoding="utf-8")
         for sorgu in re.findall(r'"(SELECT [^"]*FROM rapor[^"]*)"', kaynak):
             self.assertIn("firma_id=?", sorgu, sorgu)
         sayfa = (ROOT / "tarama" / "portal.py").read_text(encoding="utf-8")
         self.assertIsNone(re.search(r"depo\.(rapor_getir|rapor_getir_id|rapor_listele|rapor_bekleyen_getir|onceki_rapor|rapor_sil|rapor_sil_id)", sayfa))
         self.assertNotIn("FROM rapor", sayfa)
-        self.assertNotIn("firma_id", re.sub(r"\{\"firma\": ks\.firma_id.*", "", sayfa).replace("ks.firma_id", ""))   # firma kimligi istekten okunmaz
+        self.assertNotIn("firma_id", re.sub(r"\{\"firma\": ks\.firma_id.*", "", sayfa).replace("ks.firma_id", ""))   # the company id is not read from the request
 
 
 class HttpTaban(test_tarama._SunucuTaban):
@@ -404,7 +404,7 @@ class KapaliTests(test_tarama._SunucuTaban):
         self.assertFalse(tserver.portal_ayarla({}, H))
         self.assertFalse(H.portal)
         with self.assertRaises(ValueError):
-            tserver.portal_ayarla({"ALIG_PORTAL": "1"}, H)   # e-posta dogrulamasi kapali: acilmaz
+            tserver.portal_ayarla({"ALIG_PORTAL": "1"}, H)   # email verification is off: it does not open
         self.assertFalse(H.portal)
         tserver.eposta_ayarla({"ALIG_EPOSTA_DOGRULAMA": "1", "ALIG_SITE_ADRESI": "https://alig.test"}, H)
         self.assertFalse(tserver.portal_ayarla({"ALIG_PORTAL": "0"}, H))
@@ -419,21 +419,21 @@ class SunucuTests(HttpTaban):
         self.assertIn("İstek alındı", r.govde)
         yol = self.posta_baglantisi("ali@ornek.com.tr")
         self.assertTrue(yol)
-        # GET hicbir sey degistirmez
+        # GET changes nothing
         g = self.istek("GET", yol)
         self.assertEqual(g.status, 200)
         self.assertIn("Hesabı etkinleştir", g.govde)
         self.assertEqual(self.con().execute("SELECT durum FROM portal_kullanici").fetchone()[0], "bekliyor")
-        self.assertEqual(self.giris()[0].status, 401)   # henuz giris yok
+        self.assertEqual(self.giris()[0].status, 401)   # no login yet
         p = self.istek("POST", yol, {"dil": "tr"})
         self.assertIn("Hesabınız etkinleştirildi", p.govde)
-        self.assertEqual(self.istek("POST", yol, {"dil": "tr"}).status, 404)   # tek kullanimlik
+        self.assertEqual(self.istek("POST", yol, {"dil": "tr"}).status, 404)   # single-use
         g, kod = self.giris()
         self.assertEqual((g.status, g.getheader("Location")), (303, "/portal/"))
         cerez = g.getheader("Set-Cookie")
         for parca in ("HttpOnly", "SameSite=Strict", "Path=/portal"):
             self.assertIn(parca, cerez)
-        self.assertNotIn("Secure", cerez)   # bu testte portal_cerez_guvenli=False
+        self.assertNotIn("Secure", cerez)   # in this test portal_cerez_guvenli=False
         panel = self.istek("GET", "/portal/", cerez=kod)
         self.assertIn("Ornek AS", panel.govde)
         self.assertIn("Henüz raporunuz yok", panel.govde)
@@ -459,7 +459,7 @@ class SunucuTests(HttpTaban):
         var = self.istek("POST", "/portal/kayit", {"eposta": "ali@ornek.com.tr", "parola": PAROLA, "sirket": "X", "dil": "tr"})
         self.assertEqual((yeni.status, yeni.govde), (var.status, var.govde))
         konu = self.con().execute("SELECT konu FROM posta WHERE alici='ali@ornek.com.tr' ORDER BY id DESC").fetchone()[0]
-        self.assertIn("zaten var", konu)   # bilgi yalniz adresin sahibine gider
+        self.assertIn("zaten var", konu)   # the information goes only to the address owner
         yanlis = self.giris("ali@ornek.com.tr", "yanlis-parola-123")[0]
         yok = self.giris("yok@ornek.com.tr", "yanlis-parola-123")[0]
         self.assertEqual((yanlis.status, yanlis.govde), (yok.status, yok.govde))
@@ -490,13 +490,13 @@ class SunucuTests(HttpTaban):
         ks = portal_depo.kapsam(self.con(), kod)
         r = self.istek("POST", "/portal/cikis", {"csrf": ks.csrf}, cerez=kod, origin="https://kotu.example")
         self.assertEqual(r.status, 403)
-        self.assertTrue(portal_depo.kapsam(self.con(), kod))   # oturum duruyor
+        self.assertTrue(portal_depo.kapsam(self.con(), kod))   # the session remains
 
     def test_cikis_csrf_ister(self):
         self.hesap()
         _, kod = self.giris()
         self.assertEqual(self.istek("POST", "/portal/cikis", {"csrf": "yanlis"}, cerez=kod).status, 303)
-        self.assertTrue(portal_depo.kapsam(self.con(), kod))   # yanlis csrf: oturum kapanmaz
+        self.assertTrue(portal_depo.kapsam(self.con(), kod))   # wrong csrf: the session does not close
         csrf = portal_depo.kapsam(self.con(), kod).csrf
         r = self.istek("POST", "/portal/cikis", {"csrf": csrf}, cerez=kod)
         self.assertEqual(r.status, 303)
@@ -529,26 +529,26 @@ class SunucuTests(HttpTaban):
         b = rapor_ekle(con, fb, "2026-11-02T10:00:00Z")
         _, kod_a = self.giris("ali@firma-a.com.tr")
         _, kod_b = self.giris("veli@firma-b.com.tr")
-        # kendi raporu: iki gorunum
+        # its own report: two views
         own = self.istek("GET", "/portal/rapor/%d/" % a, cerez=kod_a)
         self.assertEqual(own.status, 200)
         self.assertIn("Denetim sonuçları", own.govde)
         self.assertIn("Genel durum", self.istek("GET", "/portal/rapor/%d/?gorunum=yonetici" % a, cerez=kod_a).govde)
         self.assertIn('href="/portal/rapor/%d/sil"' % a, own.govde)
-        self.assertNotIn('action="/rapor/', own.govde)   # tokenli silme yolu yok
-        # baska firmanin raporu: var olmayan kimlikle ayni yanit
+        self.assertNotIn('action="/rapor/', own.govde)   # there is no deletion path with a token
+        # another company's report: the same response as a nonexistent id
         yabanci = self.istek("GET", "/portal/rapor/%d/" % b, cerez=kod_a)
         yok = self.istek("GET", "/portal/rapor/99999/", cerez=kod_a)
         self.assertEqual((yabanci.status, yabanci.govde), (404, yok.govde))
         self.assertEqual(self.istek("GET", "/portal/rapor/%d/" % a, cerez=kod_b).status, 404)
-        # liste
+        # list
         self.assertIn('href="/portal/rapor/%d/"' % a, self.istek("GET", "/portal/", cerez=kod_a).govde)
         self.assertNotIn('href="/portal/rapor/%d/"' % b, self.istek("GET", "/portal/", cerez=kod_a).govde)
-        # oturumsuz
+        # without a session
         for yol in ("/portal/rapor/%d/" % a, "/portal/rapor/%d/" % b):
             r = self.istek("GET", yol)
             self.assertEqual((r.status, r.getheader("Location")), (303, "/portal/"))
-        # sahte cerez
+        # fake cookie
         self.assertEqual(self.istek("GET", "/portal/rapor/%d/" % a, cerez="x" * 43).status, 303)
 
     def test_rapor_kimligi_yolu_katidir(self):
@@ -589,7 +589,7 @@ class SunucuTests(HttpTaban):
         self.assertIn("Sign in", r.govde)
         self.assertIn('lang="en"', r.govde)
         self.assertIn("Request an account", self.istek("GET", "/portal/kayit?dil=en").govde)
-        self.assertIn("Girş" if False else "Giriş yap", self.istek("GET", "/portal/?dil=xx").govde)   # gecersiz dil: Turkce
+        self.assertIn("Girş" if False else "Giriş yap", self.istek("GET", "/portal/?dil=xx").govde)   # invalid language: Turkish
 
     def test_xss(self):
         self.hesap("ali@ornek.com.tr", "<script>alert(1)</script>")
@@ -600,7 +600,7 @@ class SunucuTests(HttpTaban):
 
 
 class PortalIslemTests(unittest.TestCase):
-    """Rapor silme, kullanim hakki, hizmet ve silme talepleri: hepsi firma kapsaminda."""
+    """Report deletion, usage allowance, service and deletion requests: all within the company scope."""
 
     def setUp(self):
         self.con = yeni_db()
@@ -613,14 +613,14 @@ class PortalIslemTests(unittest.TestCase):
 
     def test_rapor_silme_yalniz_kendi_firmasi(self):
         self.assertEqual(self.ks_a.rapor_sil(self.b), 0)
-        self.assertIsNotNone(depo.rapor_getir_id(self.con, self.b))   # baskasinin raporu duruyor
+        self.assertIsNotNone(depo.rapor_getir_id(self.con, self.b))   # the other's report remains
         self.assertEqual(self.ks_a.rapor_sil(99999), 0)
         for kotu in ("1", None, True, 1.0, [self.a], "1 OR 1=1", -1, 0):
             self.assertEqual(self.ks_a.rapor_sil(kotu), 0, repr(kotu))
         self.assertIsNotNone(depo.rapor_getir_id(self.con, self.a))
         self.assertEqual(self.ks_a.rapor_sil(self.a), 1)
         self.assertIsNone(depo.rapor_getir_id(self.con, self.a))
-        self.assertEqual(self.ks_a.rapor_sil(self.a), 0)               # ikinci kez: idempotent
+        self.assertEqual(self.ks_a.rapor_sil(self.a), 0)               # a second time: idempotent
         self.assertIsNotNone(depo.rapor_getir_id(self.con, self.b))
 
     def test_dogrulanmamis_rapor_portaldan_silinemez(self):
@@ -648,10 +648,10 @@ class PortalIslemTests(unittest.TestCase):
         self.assertEqual((k["kullanilan"], k["kalan"]), (2, 0))
         self.assertTrue(k["yenilenme_utc"] > depo.simdi())
         self.assertEqual(self.ks_a.kullanim(1)["kalan"], 0)
-        self.assertEqual(self.ks_b.kullanim(2)["kullanilan"], 0)   # baska firmanin kullanimi sayilmaz
+        self.assertEqual(self.ks_b.kullanim(2)["kullanilan"], 0)   # another company's usage does not count
         eski = (datetime.now(timezone.utc) - timedelta(days=depo.SINIR_GUN + 1)).strftime(portal_depo.BICIM)
         self.con.execute("UPDATE kullanim SET zaman_utc=?", (eski,))
-        self.assertEqual(self.ks_a.kullanim(2)["kullanilan"], 0)   # pencere disindaki hak sayilmaz
+        self.assertEqual(self.ks_a.kullanim(2)["kullanilan"], 0)   # an allowance outside the window does not count
         self.assertEqual(depo.kullanim_say(self.con, anahtar), self.ks_a.kullanim(2)["kullanilan"])
 
     def test_hizmet_talebi_dogrulama(self):
@@ -661,7 +661,7 @@ class PortalIslemTests(unittest.TestCase):
         for tur, konu, mesaj, neden in kotu:
             self.assertEqual(self.ks_a.talep_ekle(tur, konu, mesaj), (None, neden), repr((tur, konu[:5] if konu else konu, neden)))
         self.assertEqual(self.ks_a.talepler(), [])
-        tid, _ = self.ks_a.talep_ekle("destek", "Yavas sorgu", "Birinci satir\nIkinci satir")   # satir sonu mesajda serbest
+        tid, _ = self.ks_a.talep_ekle("destek", "Yavas sorgu", "Birinci satir\nIkinci satir")   # line breaks are free in the message
         self.assertTrue(tid)
         t = self.ks_a.talepler()[0]
         self.assertEqual((t["tur"], t["konu"], t["durum"], t["mesaj"]), ("destek", "Yavas sorgu", "yeni", "Birinci satir\nIkinci satir"))
@@ -670,7 +670,7 @@ class PortalIslemTests(unittest.TestCase):
         for i in range(portal_depo.TALEP_GUNLUK):
             self.assertTrue(self.ks_a.talep_ekle("diger", "Konu %d" % i, "Mesaj")[0])
         self.assertEqual(self.ks_a.talep_ekle("diger", "Fazla", "Mesaj"), (None, "sinir"))
-        self.assertTrue(self.ks_b.talep_ekle("diger", "B talebi", "Mesaj")[0])   # baska firma etkilenmez
+        self.assertTrue(self.ks_b.talep_ekle("diger", "B talebi", "Mesaj")[0])   # the other company is not affected
         self.con.execute("UPDATE portal_talep SET olusturma_utc='2000-01-01T00:00:00Z'")
         self.assertTrue(self.ks_a.talep_ekle("diger", "Yeni gun", "Mesaj")[0])
 
@@ -679,19 +679,19 @@ class PortalIslemTests(unittest.TestCase):
         self.ks_b.talep_ekle("destek", "B konusu", "B mesaji")
         self.assertEqual([t["konu"] for t in self.ks_a.talepler()], ["A konusu"])
         self.assertEqual([t["konu"] for t in self.ks_b.talepler()], ["B konusu"])
-        self.assertEqual({t["firma_id"] for t in depo.portal_talep_listele(self.con)}, {self.fa, self.fb})   # yonetici ikisini de gorur
+        self.assertEqual({t["firma_id"] for t in depo.portal_talep_listele(self.con)}, {self.fa, self.fb})   # the administrator sees both
 
     def test_silme_talebi_tek_acik_ve_firma_kapsamli(self):
         tid, yeni = self.ks_a.silme_talebi_ekle()
         self.assertTrue(yeni)
         self.assertEqual(self.ks_a.silme_talebi_ekle(), (tid, False))
         self.assertEqual(self.con.execute("SELECT count(*) FROM portal_talep WHERE tur='silme'").fetchone()[0], 1)
-        self.assertTrue(self.ks_b.silme_talebi_ekle()[1])                  # baska firmanin talebi ayri
+        self.assertTrue(self.ks_b.silme_talebi_ekle()[1])                  # another company's request is separate
         depo.portal_talep_durum_yaz(self.con, tid, "tamamlandi")
-        tid2, yeni2 = self.ks_a.silme_talebi_ekle()                        # kapanan talepten sonra yenisi acilabilir
+        tid2, yeni2 = self.ks_a.silme_talebi_ekle()                        # after a request is closed a new one can be opened
         self.assertTrue(yeni2 and tid2 != tid)
         import sqlite3
-        with self.assertRaises(sqlite3.IntegrityError):                    # kisit veri tabaninda da
+        with self.assertRaises(sqlite3.IntegrityError):                    # the constraint is in the database too
             self.con.execute("INSERT INTO portal_talep(firma_id, kullanici_id, tur, olusturma_utc, guncelleme_utc) VALUES(?,1,'silme','x','x')", (self.fa,))
         with self.assertRaises(sqlite3.IntegrityError):
             self.con.execute("UPDATE portal_talep SET tur='yonetici' WHERE id=?", (tid,))
@@ -767,7 +767,7 @@ class PortalIslemHttpTests(HttpTaban):
         g = self.istek("GET", "/portal/rapor/%d/sil" % self.a, cerez=self.kod_a)
         self.assertEqual(g.status, 200)
         self.assertIn("Raporu kalıcı olarak sil", g.govde)
-        self.assertTrue(self.var(self.a))                                  # GET hicbir sey silmez
+        self.assertTrue(self.var(self.a))                                  # GET deletes nothing
         self.assertEqual(self.istek("POST", "/portal/rapor/%d/sil" % self.a, {"csrf": "yanlis"}, cerez=self.kod_a).status, 403)
         self.assertEqual(self.istek("POST", "/portal/rapor/%d/sil" % self.a, {}, cerez=self.kod_a).status, 403)
         self.assertTrue(self.var(self.a))
@@ -783,7 +783,7 @@ class PortalIslemHttpTests(HttpTaban):
         self.kur()
         yok = self.istek("GET", "/portal/rapor/99999/sil", cerez=self.kod_a)
         yabanci = self.istek("GET", "/portal/rapor/%d/sil" % self.b, cerez=self.kod_a)
-        self.assertEqual((yabanci.status, yabanci.govde), (404, yok.govde))       # onay sayfasi bile gosterilmez
+        self.assertEqual((yabanci.status, yabanci.govde), (404, yok.govde))       # not even a confirmation page is shown
         p = self.istek("POST", "/portal/rapor/%d/sil" % self.b, {"csrf": self.csrf_a}, cerez=self.kod_a)
         self.assertEqual((p.status, p.govde), (404, yok.govde))
         self.assertTrue(self.var(self.b))
@@ -814,7 +814,7 @@ class PortalIslemHttpTests(HttpTaban):
         liste = self.istek("GET", "/portal/talepler", cerez=self.kod_a).govde
         self.assertIn("Yillik denetim", liste)
         self.assertIn("Alındı", liste)
-        self.assertNotIn("Yillik denetim", self.istek("GET", "/portal/talepler", cerez=self.kod_b).govde)   # baska firma gormez
+        self.assertNotIn("Yillik denetim", self.istek("GET", "/portal/talepler", cerez=self.kod_b).govde)   # the other company does not see it
         self.assertEqual(self.istek("POST", "/portal/talepler", form, cerez=self.kod_a, origin="https://kotu.example").status, 403)
         self.assertEqual(self.con().execute("SELECT count(*) FROM portal_talep").fetchone()[0], 1)
 
@@ -836,13 +836,13 @@ class PortalIslemHttpTests(HttpTaban):
         r = self.istek("POST", "/portal/hesap/silme-talebi", {"csrf": self.csrf_a}, cerez=self.kod_a)
         self.assertEqual(r.status, 200)
         self.assertIn("Silme talebiniz alındı", r.govde)
-        self.istek("POST", "/portal/hesap/silme-talebi", {"csrf": self.csrf_a}, cerez=self.kod_a)   # ikinci tiklama
+        self.istek("POST", "/portal/hesap/silme-talebi", {"csrf": self.csrf_a}, cerez=self.kod_a)   # second click
         self.assertEqual(self.con().execute("SELECT count(*) FROM portal_talep WHERE tur='silme'").fetchone()[0], 1)
         h = self.istek("GET", "/portal/hesap", cerez=self.kod_a).govde
         self.assertIn("Silme talebiniz alındı (durum: Alındı)", h)
         self.assertNotIn("Hesap ve verilerimin silinmesini iste", h)
-        self.assertTrue(self.var(self.a))                                   # veri hemen silinmez
-        self.assertIn("Hesap ve verilerimin silinmesini iste", self.istek("GET", "/portal/hesap", cerez=self.kod_b).govde)   # baska firma etkilenmez
+        self.assertTrue(self.var(self.a))                                   # the data is not deleted immediately
+        self.assertIn("Hesap ve verilerimin silinmesini iste", self.istek("GET", "/portal/hesap", cerez=self.kod_b).govde)   # the other company is not affected
 
     def test_denetim_ve_gizli_veri(self):
         self.kur()

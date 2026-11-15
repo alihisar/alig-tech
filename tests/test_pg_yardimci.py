@@ -1,5 +1,5 @@
-"""ALIG-CI-001: tests/pg_yardimci.py (ortak gecici PostgreSQL kumesi) ve ci/pg_adimi.py (CI ozeti).
-Kume gerektiren testler PostgreSQL yoksa SKIP olur; digerleri her yerde kosar."""
+"""ALIG-CI-001: tests/pg_yardimci.py (shared temporary PostgreSQL cluster) and ci/pg_adimi.py (CI summary).
+Tests that need a cluster are SKIPped if PostgreSQL is absent; the others run everywhere."""
 import os
 import shutil
 import signal
@@ -77,7 +77,7 @@ class KumeTests(unittest.TestCase):
         finally:
             k.durdur()
         self.assertFalse(os.path.exists(dizin))
-        k.durdur()   # ikinci durdurma zararsiz
+        k.durdur()   # a second stop is harmless
 
     def test_sunucu_durdurma_sonrasi_dizin_kalir_silme_ayridir(self):
         k = pg_yardimci.GeciciKume()
@@ -102,7 +102,7 @@ class KumeTests(unittest.TestCase):
         try:
             dizin = p.stdout.readline().strip()
             self.assertTrue(Path(dizin).is_dir(), dizin)
-            p.send_signal(signal.SIGKILL)   # temizlik kodu calisamaz: yalniz bekci kurtarir
+            p.send_signal(signal.SIGKILL)   # the cleanup code cannot run: only the watchdog recovers
             p.wait(10)
             sinir = time.time() + 30
             while Path(dizin).exists() and time.time() < sinir:
@@ -128,7 +128,7 @@ class OzetTests(unittest.TestCase):
     def test_pg_yoksa_atlandi_ve_tamam_denmez(self):
         d, satir, ok = pg_adimi.ozet({"PASS": 0, "FAIL": 0, "SKIP": 30}, None, release=False, pg_var=False)
         self.assertEqual(d, "atlandi")
-        self.assertTrue(ok)    # CI dusmez
+        self.assertTrue(ok)    # CI does not fail
         self.assertIn("atlandı (PostgreSQL yok)", satir)
         self.assertNotIn("tamam", satir)
 
@@ -161,12 +161,12 @@ class OzetTests(unittest.TestCase):
         sayilar, _ = pg_adimi.calistir_sayilari(ROOT, dahil=["test_pg_yardimci"])
         self.assertEqual(sorted(sayilar), ["FAIL", "PASS", "SKIP"])
         self.assertEqual(sayilar["FAIL"], 0)
-        self.assertGreaterEqual(sayilar["PASS"] + sayilar["SKIP"], 3)   # KumeTests etiketli
+        self.assertGreaterEqual(sayilar["PASS"] + sayilar["SKIP"], 3)   # labeled KumeTests
 
 
 class AltiTestinDisHedefi(unittest.TestCase):
     def test_alti_test_etiketli(self):
-        """ALIG_TEST_PG_HOST isteyen 6 test yardimciyla da kosabilir: etiketli siniflarda sayilirlar."""
+        """The 6 tests that want ALIG_TEST_PG_HOST can also run with the helper: they are counted in the labeled classes."""
         import test_tarama
         import test_tarama_guvenlik
         self.assertTrue(getattr(test_tarama.GercekPgTests, "PG_TESTI", False))
