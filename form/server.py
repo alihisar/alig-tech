@@ -3,19 +3,26 @@
 
 POST /api/iletisim  (application/x-www-form-urlencoded)
 GET  /healthz
+When ALIG_BAKIM=1 (maintenance mode) the POST is answered with 503 + Retry-After; /healthz stays live.
 Records go into SQLite (WAL), timestamps in UTC. If the honeypot field (website) is filled,
 the record is discarded but 303 is returned (so the bot does not notice). Rate limit per IP, in memory.
 """
 import argparse
 import hashlib
+import importlib.util
 import os
 import re
 import sqlite3
 import threading
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
+
+_spec = importlib.util.spec_from_file_location("alig_bakim", Path(__file__).resolve().parent.parent / "tarama" / "bakim.py")
+_bakim = importlib.util.module_from_spec(_spec)   # maintenance mode (ALIG-OPS-002) is shared with the other services
+_spec.loader.exec_module(_bakim)
 
 MAX_BODY = 8192
 SECURITY_HEADERS = (
@@ -89,7 +96,7 @@ class RateLimiter:
             return True
 
 
-def make_handler(db_path, limiter, salt, thanks="/tesekkurler/"):
+def make_handler(db_path, limiter, salt, thanks="/tesekkurler/", bakim=False, bakim_bekle=_bakim.BEKLE_VARSAYILAN):
     class H(BaseHTTPRequestHandler):
         server_version = "aligform"
         sys_version = ""
@@ -124,6 +131,8 @@ def make_handler(db_path, limiter, salt, thanks="/tesekkurler/"):
             self._send(404, b"yok\n")
 
         def do_POST(self):
+            if _bakim.engelle(self):   # maintenance mode (ALIG_BAKIM): the write is refused before anything is read
+                return
             if self.path != "/api/iletisim":
                 return self._send(404, b"yok\n")
             if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/x-www-form-urlencoded":
@@ -152,6 +161,7 @@ def make_handler(db_path, limiter, salt, thanks="/tesekkurler/"):
             finally:
                 con.close()
             self._send(303, extra=(("Location", self._thanks()),))
+    H.bakim, H.bakim_bekle = bakim, bakim_bekle
     return H
 
 
@@ -162,10 +172,14 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=8090)
     ap.add_argument("--salt", default=os.environ.get("ALIG_FORM_SALT", ""))
     args = ap.parse_args(argv)
+    try:
+        bakim_acik, bakim_sn = _bakim.etkin(os.environ), _bakim.bekle_sn(os.environ)
+    except ValueError as ex:
+        raise SystemExit("error: %s" % ex)
     if not args.salt:
         raise SystemExit("ALIG_FORM_SALT (or --salt) is required: the salt for the IP digest")
     connect(args.db).close()
-    srv = ThreadingHTTPServer((args.host, args.port), make_handler(args.db, RateLimiter(), args.salt))
+    srv = ThreadingHTTPServer((args.host, args.port), make_handler(args.db, RateLimiter(), args.salt, bakim=bakim_acik, bakim_bekle=bakim_sn))
     print(f"listening on {args.host}:{args.port}", flush=True)
     srv.serve_forever()
 

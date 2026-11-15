@@ -259,6 +259,17 @@ In Mode B the customer gives the connection details and the scan runs on the ali
 
 **Test status.** Certificate verification was tested on PostgreSQL 16 with a real TLS connection (`tests/test_baglanti_tls.py`, a temporary self-signed CA): the correct CA and name succeed; a foreign CA and a mismatched server name fail; the default without a CA connects as before. It was not tested on PG18 or on a real customer server; the behaviour of the runner under systemd (private `/tmp`) was not tested on a real server.
 
+## Maintenance mode (off by default)
+
+Use it to freeze writes, for example for the PostgreSQL cutover write freeze (OPS-K1, `docs/postgresql-gecis.md` sections 5 and 9). With `ALIG_BAKIM=1` the `alig-form`, `alig-tarama` and `alig-yonetim` services answer every POST (contact form, upload, report delete and verify, Mode B, portal, admin login and actions) with `503` + `Retry-After` and a bilingual page; nothing is saved. Reports and admin pages stay readable, static pages are served by nginx as usual, `/healthz` and `/api/tarama/saglik` stay live.
+
+1. Add `ALIG_BAKIM=1` to `/etc/alig/env` (optional: `ALIG_BAKIM_BEKLE_SN=600`, the `Retry-After` seconds, default 300, 1 to 86400).
+2. `systemctl restart alig-form alig-tarama alig-yonetim` (the flag is read at start; an invalid `ALIG_BAKIM_BEKLE_SN` stops the service with an error).
+3. Check: `curl -si -X POST https://<domain>/api/iletisim` returns `503` with `Retry-After`; `curl -si https://<domain>/healthz` returns `200`.
+4. To end: remove the line (or set it to anything other than `1`) and restart the same three services.
+
+Nobody can log into the admin panel while the mode is on (login is a POST); end the mode first if panel work is needed. Not tested on a real server.
+
 ## Troubleshooting
 
 | Symptom | Look at |

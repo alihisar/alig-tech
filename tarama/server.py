@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import importlib.util  # noqa: E402
 
 from tarama import baglanti, basliklar, calistirici, depo, hata, hedef, portal, posta, puan, rapor, saklama, yukleme  # noqa: E402
+from tarama import bakim as bakim_modulu  # noqa: E402  (the handler has an attribute named bakim)
 
 _spec = importlib.util.spec_from_file_location("alig_form_server", Path(__file__).resolve().parent.parent / "form" / "server.py")
 _form = importlib.util.module_from_spec(_spec)
@@ -72,6 +73,8 @@ class H(BaseHTTPRequestHandler):
     SABIT_BAGLANTI_SN = 12.0             # password step: connection could not be made (covers psql connect_timeout=10 s)
     saat = staticmethod(time.monotonic)  # replaced with a fake clock in tests
     bekle = staticmethod(time.sleep)
+    bakim = False                        # maintenance mode (ALIG_BAKIM=1): every POST is 503 + Retry-After, reads stay open
+    bakim_bekle = bakim_modulu.BEKLE_VARSAYILAN
     sys_version = ""
 
     def _send(self, kod, govde=b"", ctype="text/plain; charset=utf-8", extra=()):
@@ -127,6 +130,8 @@ class H(BaseHTTPRequestHandler):
             con.close()
 
     def do_POST(self):
+        if bakim_modulu.engelle(self):   # maintenance mode: nothing below runs, nothing is read or written
+            return
         yol = self.path.split("?")[0]
         if yol.startswith("/portal/"):
             return portal.isle(self, "POST")
@@ -459,6 +464,7 @@ def main(argv=None):
         puan.yukle()   # the service does not start with an invalid score setting (PuanAyarHatasi is a ValueError)
         eposta_ayarla(os.environ, H)
         portal_ayarla(os.environ, H)
+        bakim_modulu.ayarla(os.environ, H)
     except (depo.AnahtarHatasi, saklama.SaklamaHatasi, ValueError) as ex:
         raise SystemExit("error: %s" % ex)
     depo.baglan(a.db).close()
