@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""alig.tech iletisim formu uc noktasi. Yalnizca standart kutuphane.
+"""alig.tech contact form endpoint. Standard library only.
 
 POST /api/iletisim  (application/x-www-form-urlencoded)
 GET  /healthz
-Kayitlar SQLite (WAL) icinde, zaman damgasi UTC. Bal kupu alani (website) doluysa
-kayit atilir ama 303 doner (bot fark etmesin). Hiz siniri IP basina, bellekte.
+Records go into SQLite (WAL), timestamps in UTC. If the honeypot field (website) is filled,
+the record is discarded but 303 is returned (so the bot does not notice). Rate limit per IP, in memory.
 """
 import argparse
 import hashlib
@@ -38,7 +38,7 @@ def connect(path):
 
 
 def validate(form):
-    """(temiz_veri, hatalar). Her alan tek deger; kontrol karakterleri atilir."""
+    """(clean_data, errors). Every field has a single value; control characters are dropped."""
     def one(k):
         v = (form.get(k) or [""])[0]
         return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", v).strip()
@@ -58,8 +58,8 @@ def validate(form):
 
 
 class RateLimiter:
-    """IP basina kayan pencere. Is parcacigi guvenli; suresi gecmis anahtarlar pencere basina bir kez atilir
-    (yoksa her yeni adres, ozellikle IPv6, bellekte sonsuza dek kalir)."""
+    """Sliding window per IP. Thread safe; expired keys are dropped once per window
+    (otherwise every new address, IPv6 in particular, would stay in memory forever)."""
 
     def __init__(self, per_window=5, window=3600, clock=time.monotonic):
         self.n, self.w, self.clock, self.hits = per_window, window, clock, {}
@@ -86,7 +86,7 @@ def make_handler(db_path, limiter, salt, thanks="/tesekkurler/"):
         server_version = "aligform"
         sys_version = ""
 
-        def log_message(self, fmt, *args):  # kisisel veri yazma: yalniz yol ve durum
+        def log_message(self, fmt, *args):  # do not log personal data: only path and status
             print(f"{self.command} {self.path.split('?')[0]} {args[1] if len(args) > 1 else ''}", flush=True)
 
         def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=()):
@@ -100,7 +100,7 @@ def make_handler(db_path, limiter, salt, thanks="/tesekkurler/"):
             self.end_headers()
             self.wfile.write(body)
 
-        def _thanks(self):  # Referer /en/ ise Ingilizce tesekkur sayfasi
+        def _thanks(self):  # if the Referer is /en/, the English thank-you page
             ref = self.headers.get("Referer") or ""
             return "/en" + thanks if re.match(r"^https?://[^/]+/en(/|$)", ref) else thanks
 
@@ -153,10 +153,10 @@ def main(argv=None):
     ap.add_argument("--salt", default=os.environ.get("ALIG_FORM_SALT", ""))
     args = ap.parse_args(argv)
     if not args.salt:
-        raise SystemExit("ALIG_FORM_SALT (veya --salt) gerekli: IP ozetinin tuzu")
+        raise SystemExit("ALIG_FORM_SALT (or --salt) is required: the salt for the IP digest")
     connect(args.db).close()
     srv = ThreadingHTTPServer((args.host, args.port), make_handler(args.db, RateLimiter(), args.salt))
-    print(f"dinliyor {args.host}:{args.port}", flush=True)
+    print(f"listening on {args.host}:{args.port}", flush=True)
     srv.serve_forever()
 
 

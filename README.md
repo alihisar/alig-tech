@@ -58,25 +58,25 @@ python3 ci/uret_readme.py                   # updates the README automatic secti
 <!-- oto:basla denetimler -->
 `run_all.py` runs these 15 checks in order:
 
-1. derleme
-2. toplayici guncel
-3. ornek rapor guncel
-4. birim testleri
-5. postgresql testleri
-6. html yapisi
-7. ic baglantilar
-8. dis kaynak
-9. boyut butcesi
-10. sir taramasi
-11. is akisi sabitleme
-12. yasakli kaliplar
-13. dil esligi
-14. doldurulacak alanlar
-15. readme guncel
+1. build
+2. collector up to date
+3. sample report up to date
+4. unit tests
+5. postgresql tests
+6. html structure
+7. internal links
+8. external resources
+9. size budget
+10. secret scan
+11. workflow pinning
+12. banned patterns
+13. language parity
+14. placeholders
+15. readme up to date
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Unit tests: 824 tests (PostgreSQL tests are counted separately in the `postgresql testleri` step: an external server if `ALIG_TEST_PG_HOST` is set, otherwise a temporary cluster with the system PostgreSQL 16; if neither exists, SKIP, and an error in `--release` mode).
+Unit tests: 824 tests (PostgreSQL tests are counted separately in the `postgresql tests` step: an external server if `ALIG_TEST_PG_HOST` is set, otherwise a temporary cluster with the system PostgreSQL 16; if neither exists, SKIP, and an error in `--release` mode).
 <!-- oto:bitis testler -->
 
 ## Directories

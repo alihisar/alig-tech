@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Canliya alma hazirlik denetimi. Yalnizca standart kutuphane. Hicbir seyi degistirmez.
+"""Go-live readiness check. Standard library only. Changes nothing.
 
-  python3 deploy/hazirlik.py yerel     # bu makinede yapilabilen sozdizimi/yapilandirma denetimleri
-  python3 deploy/hazirlik.py sunucu    # GERCEK sunucuda, dagitimdan sonra: kullanicilar, izinler, disk, servisler
+    python3 deploy/hazirlik.py yerel     # syntax/configuration checks that can be done on this machine
+    python3 deploy/hazirlik.py sunucu    # on the REAL server, after deployment: users, permissions, disk, services
 
-Her satirin durumu: PASS, FAIL, WARN, ATLANDI (arac yok ya da bu makinede anlamsiz). Kuru calistirma ve gercek
-dagitim kaniti yerel makineden uretilemez; docs/canli-kontrol-listesi.md bunlari NOT_TESTED olarak tutar.
-Sir degerleri asla yazdirilmaz.
+Status of each line: PASS, FAIL, WARN, ATLANDI (tool missing or meaningless on this machine). Dry-run and real
+deployment evidence cannot be produced from the local machine; docs/canli-kontrol-listesi.md keeps them as NOT_TESTED.
+Secret values are never printed.
 """
 import argparse
 import json
@@ -22,11 +22,11 @@ from pathlib import Path
 
 KOK = Path(__file__).resolve().parent.parent
 ANSIBLE = KOK / "deploy" / "ansible"
-DISK_UYARI, DISK_HATA = 0.20, 0.10  # bos alan orani
+DISK_UYARI, DISK_HATA = 0.20, 0.10  # free-space ratio
 
 
 def yukle_degiskenler():
-    """group_vars/all.yml (duz anahtar: deger satirlari) -> dict. PyYAML gerekmez."""
+    """group_vars/all.yml (flat key: value lines) -> dict. PyYAML not needed."""
     d = {}
     for satir in (ANSIBLE / "group_vars" / "all.yml").read_text(encoding="utf-8").splitlines():
         m = re.match(r"^([a-z_]+):\s*(.*?)\s*(#.*)?$", satir)
@@ -38,7 +38,7 @@ def yukle_degiskenler():
     return d
 
 
-# ---------------------------------------------------------------- yerel (sozdizimi, yapilandirma)
+# ---------------------------------------------------------------- yerel (syntax, configuration)
 
 def _calistir(komut, **kw):
     return subprocess.run(komut, capture_output=True, text=True, timeout=120, **kw)
@@ -75,8 +75,8 @@ def yerel():
 
 
 def _birimleri_dogrula(ap, sa):
-    """Birim sablonlarini Ansible'in kendisiyle (projeye Jinja bagimliligi eklemeden) isler ve systemd-analyze ile denetler.
-    Kosullu bloklar da denetlensin diye dogrudan_baglanti ve eposta_dogrulama acik verilir."""
+    """Renders the unit templates with Ansible itself (without adding a Jinja dependency to the project) and checks them with systemd-analyze.
+    dogrudan_baglanti and eposta_dogrulama are enabled so that conditional blocks are checked too."""
     sablonlar = sorted((ANSIBLE / "roles" / "servisler" / "templates").glob("*.service.j2"))
     gec = Path(tempfile.mkdtemp())
     oyun = gec / "birimler.yml"
@@ -90,7 +90,7 @@ def _birimleri_dogrula(ap, sa):
                   env=dict(os.environ, ANSIBLE_LOCALHOST_WARNING="False", ANSIBLE_NOCOLOR="1"))
     if r.returncode != 0:
         return [("SOZDIZIMI birim sablonlari islenir", "FAIL", (r.stdout + r.stderr).strip()[-300:])]
-    # Hedef makinede olan ama bu makinede olmayan yurutulebilir dosya ve kullanici uyarilari beklenir.
+    # Warnings about executables and users that exist on the target machine but not on this one are expected.
     gurultu = re.compile(r"(Command .* is not executable|No such file|Failed to resolve (user|group)|Unknown (user|group)|not found)", re.I)
     sonuc = []
     for sb in sablonlar:
@@ -101,7 +101,7 @@ def _birimleri_dogrula(ap, sa):
     return sonuc
 
 
-# ---------------------------------------------------------------- sunucu (dagitimdan sonra)
+# ---------------------------------------------------------------- sunucu (after deployment)
 
 def _mod(yol):
     return os.stat(yol).st_mode & 0o7777
@@ -121,7 +121,7 @@ def _sahip(yol):
 
 
 def disk_durumu(yol, kullanilan=shutil.disk_usage):
-    """(PASS|WARN|FAIL, 'bos alan %x') yol'un bulundugu diskte."""
+    """(PASS|WARN|FAIL, 'free space %x') on the disk where path resides."""
     d = kullanilan(yol)
     oran = d.free / d.total if d.total else 0.0
     durum = "FAIL" if oran < DISK_HATA else "WARN" if oran < DISK_UYARI else "PASS"
@@ -129,7 +129,7 @@ def disk_durumu(yol, kullanilan=shutil.disk_usage):
 
 
 def sunucu(v=None, kok="/", servis_kontrol=True, disk=shutil.disk_usage):
-    """Dagitilmis sunucuyu denetler. kok: sinama icin onek (gercekte '/'). Doner: [(ad, durum, ayrinti)]."""
+    """Checks the deployed server. kok: prefix for testing (in reality '/'). Returns: [(name, status, detail)]."""
     v = v or yukle_degiskenler()
     yol = lambda p: Path(kok) / str(p).lstrip("/")  # noqa: E731
     sonuc = []
@@ -150,7 +150,7 @@ def sunucu(v=None, kok="/", servis_kontrol=True, disk=shutil.disk_usage):
     else:
         ekle("Kip B kapali: calistirici kullanicisi beklenmez", "PASS")
 
-    # (yol, beklenen mod, beklenen sahip:grup ya da None, aciklama)
+    # (path, expected mode, expected owner:group or None, description)
     beklenen = [("/etc/alig", 0o750, ("root", servis)), ("/etc/alig/env", 0o640, ("root", servis)),
                 (v["veri_dizini"], 0o750, (servis, servis)), (v["yedek_dizini"], 0o700, (servis, servis))]
     for p, mod, sahip in beklenen:
@@ -167,7 +167,7 @@ def sunucu(v=None, kok="/", servis_kontrol=True, disk=shutil.disk_usage):
         for anahtar, min_uzunluk in (("ALIG_FORM_SALT", 32), ("ALIG_DENETIM_ANAHTARI", 32)):
             m = re.search(rf"^{anahtar}=(.*)$", icerik, re.M)
             ekle(f"/etc/alig/env {anahtar} tanimli ve >= {min_uzunluk} karakter", "PASS" if m and len(m.group(1)) >= min_uzunluk else "FAIL",
-                 "" if m else "yok")  # deger asla yazdirilmaz
+                 "" if m else "yok")  # the value is never printed
     if v.get("eposta_dogrulama") and env.exists():
         var = re.search(r"^ALIG_SMTP_PAROLA=.+$", env.read_text(encoding="utf-8", errors="replace"), re.M) is not None
         ekle("/etc/alig/env ALIG_SMTP_PAROLA tanimli (e-posta dogrulamasi acik)", "PASS" if var or not v.get("smtp_kullanici") else "FAIL",

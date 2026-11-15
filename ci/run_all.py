@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Tum CI denetimlerini sirayla calistirir. Yerelde ve CI'da ayni komut:
+"""Runs all CI checks in order. The same command locally and in CI:
 
-  python3 ci/run_all.py --theme a            # birlestirme istegi
-  python3 ci/run_all.py --theme a --release  # uretim etiketi: doldurulacak alan kalirsa kirilir
+  python3 ci/run_all.py --theme a            # pull request
+  python3 ci/run_all.py --theme a --release  # production tag: fails if any field remains to be filled in
 """
 import argparse
 import json
@@ -37,10 +37,10 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     dist = ROOT / "dist" / f"ci-{args.theme}"
-    results = []   # (ad, durum, ozet): durum "tamam" | "atlandi" | "HATA". "atlandi" basari sayilmaz ama CI'yi dusurmez.
+    results = []   # (name, status, summary): status "ok" | "skipped" | "ERROR". "skipped" does not count as success but does not fail CI.
 
     def step(name, fn):
-        """fn sorun listesi dondurur; ya da (durum, ozet satiri, ayrinti listesi) uclusu dondurur."""
+        """fn returns a list of problems, or a (status, summary line, detail list) triple."""
         print(f"\n== {name}")
         durum, ozet = None, ""
         try:
@@ -49,22 +49,22 @@ def main(argv=None):
                 durum, ozet, problems = sonuc
             else:
                 problems = sonuc
-        except Exception as exc:  # denetimin kendisi coktu: kirmizi say
-            problems = [f"denetim coktu: {exc!r}"]
-            durum = "HATA"
+        except Exception as exc:  # the check itself crashed: count it as failed
+            problems = [f"check crashed: {exc!r}"]
+            durum = "ERROR"
         if ozet:
             print(f"  {ozet}")
         for p in problems:
             print(f"  - {p}")
         if durum is None:
-            durum = "HATA" if problems else "tamam"
+            durum = "ERROR" if problems else "ok"
         results.append((name, durum, ozet))
 
-    step("derleme", lambda: [] if site_build.main(["--theme", args.theme, "--out", str(dist)]) == 0 else ["derleme basarisiz"])
+    step("build", lambda: [] if site_build.main(["--theme", args.theme, "--out", str(dist)]) == 0 else ["build failed"])
 
     def tests():
         r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(ROOT / "tests"), "-q"],
-                           cwd=ROOT, capture_output=True, text=True, timeout=1200)  # asili kalan test CI'yi sonsuza dek bekletmesin
+                           cwd=ROOT, capture_output=True, text=True, timeout=1200)  # a hung test must not make CI wait forever
         print(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "")
         return [] if r.returncode == 0 else [r.stderr[-1500:]]
 
@@ -76,41 +76,41 @@ def main(argv=None):
         r = subprocess.run([sys.executable, str(ROOT / "tarama" / "uret_ornek_rapor.py"), "--kontrol"], capture_output=True, text=True, timeout=120)
         return [] if r.returncode == 0 else [r.stdout.strip() or r.stderr.strip()]
 
-    step("toplayici guncel", toplayici)
-    step("ornek rapor guncel", ornek_rapor)
-    step("birim testleri", tests)
+    step("collector up to date", toplayici)
+    step("sample report up to date", ornek_rapor)
+    step("unit tests", tests)
 
     def pg_testleri():
-        # PostgreSQL testleri birim testlerinden ayri sayilir; SKIP basari degildir (ci/pg_adimi.py).
+        # PostgreSQL tests are counted separately from the unit tests; SKIP is not success (ci/pg_adimi.py).
         r = subprocess.run([sys.executable, str(ROOT / "ci" / "pg_adimi.py")], cwd=ROOT, capture_output=True, text=True, timeout=1200)
         try:
             veri = json.loads(r.stdout.strip().splitlines()[-1])
         except (IndexError, ValueError):
-            return "HATA", "postgresql testleri: sonuc okunamadi", [(r.stderr or r.stdout)[-800:]]
+            return "ERROR", "postgresql tests: could not read the result", [(r.stderr or r.stdout)[-800:]]
         durum, satir, _ = pg_adimi.ozet(veri["sayilar"], veri["surum"], args.release, veri["pg_var"])
-        return durum, satir, veri.get("ayrinti", []) + ([] if durum != "HATA" else ["bu adim --release kipinde ya da FAIL ile kirilir"])
+        return durum, satir, veri.get("ayrinti", []) + ([] if durum != "ERROR" else ["this step fails in --release mode or on FAIL"])
 
-    step("postgresql testleri", pg_testleri)
-    step("html yapisi", lambda: check_html.check(dist))
-    step("ic baglantilar", lambda: check_links.check(dist))
-    step("dis kaynak", lambda: check_external.check(dist))
-    step("boyut butcesi", lambda: check_size.check(dist, args.budget))
-    step("sir taramasi", lambda: check_secrets.check(dist))
-    step("is akisi sabitleme", lambda: check_workflows.check())
-    step("yasakli kaliplar", lambda: check_banned.check(dist))
-    step("dil esligi", lambda: check_i18n.check(dist))
-    step("doldurulacak alanlar", lambda: check_placeholders.check(dist, args.release))
+    step("postgresql tests", pg_testleri)
+    step("html structure", lambda: check_html.check(dist))
+    step("internal links", lambda: check_links.check(dist))
+    step("external resources", lambda: check_external.check(dist))
+    step("size budget", lambda: check_size.check(dist, args.budget))
+    step("secret scan", lambda: check_secrets.check(dist))
+    step("workflow pinning", lambda: check_workflows.check())
+    step("banned patterns", lambda: check_banned.check(dist))
+    step("language parity", lambda: check_i18n.check(dist))
+    step("placeholders", lambda: check_placeholders.check(dist, args.release))
     def readme():
-        # Yerelde README kendiliginden guncellenir; CI'da (CI ortam degiskeni) yalnizca denetlenir.
+        # Locally the README is updated automatically; in CI (CI environment variable) it is only checked.
         if os.environ.get("CI"):
-            return [] if uret_readme.main(["--kontrol"]) == 0 else ["README otomatik bolumleri guncel degil: python3 ci/uret_readme.py"]
+            return [] if uret_readme.main(["--kontrol"]) == 0 else ["README auto-generated sections are out of date: python3 ci/uret_readme.py"]
         uret_readme.main([])
         return []
 
-    step("readme guncel", readme)
+    step("readme up to date", readme)
 
-    failed = [n for n, durum, _ in results if durum == "HATA"]
-    print("\n== ozet")
+    failed = [n for n, durum, _ in results if durum == "ERROR"]
+    print("\n== summary")
     for name, durum, ozet in results:
         print(f"  {durum:7} {ozet or name}")
     return 1 if failed else 0

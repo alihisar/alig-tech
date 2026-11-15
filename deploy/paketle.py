@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Yayin paketi: dist/alig-site-<surum>.tar.gz (tekrarlanabilir: sirali, mtime=0, sahip yok).
+"""Release package: dist/alig-site-<surum>.tar.gz (reproducible: sorted, mtime=0, no owner).
 
   python3 deploy/paketle.py --surum 1.0.0 [--base-url https://alig.tech] [--release]
 
-Icerik: site/ (derlenmis tema c), form/, tarama/, deploy/bakim.py, deploy/duman_testi.py, VERSION, MANIFEST.sha256.
---release: doldurulacak alan kalirsa durur (CI ile ayni denetim).
+Contents: site/ (built theme c), form/, tarama/, deploy/bakim.py, deploy/duman_testi.py, VERSION, MANIFEST.sha256.
+--release: stops if a field remains to be filled in (same check as CI).
 """
 import argparse
 import gzip

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kirik ic baglanti taramasi: href/src hedefleri ve #parca (id) varligi."""
+"""Broken internal link scan: href/src targets and existence of the #fragment (id)."""
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
@@ -21,9 +21,9 @@ class Collect(HTMLParser):
         if a.get("id"):
             self.ids.add(a["id"])
         if tag == "form":
-            return  # action sunucu uc noktasidir, dosya degil
+            return  # action is a server endpoint, not a file
         if tag == "link" and "alternate" in (a.get("rel") or "") and "hreflang" in a:
-            return  # mutlak adresler, dis kaynak denetimi bakar
+            return  # absolute addresses; the external resource check covers them
         for name in ("href", "src"):
             if a.get(name):
                 self.refs.append((a[name], tag))
@@ -58,16 +58,16 @@ def check(dist):
                 base = parts.path if parts.path.startswith("/") else page_url + parts.path
                 target_path = url_to_file(dist, base)
             if not target_path.is_file():
-                problems.append(f"{rel(path, dist)}: kirik baglanti <{tag}> {ref}")
+                problems.append(f"{rel(path, dist)}: broken link <{tag}> {ref}")
                 continue
             if parts.fragment and target_path.suffix == ".html":
                 ids = pages.get(target_path).ids if target_path in pages else set()
                 if parts.fragment not in ids:
-                    problems.append(f"{rel(path, dist)}: hedefte id yok {ref}")
+                    problems.append(f"{rel(path, dist)}: no such id at the target {ref}")
     return problems
 
 
 if __name__ == "__main__":
     out = check(sys.argv[1])
-    print("\n".join(out) or "baglanti: tamam")
+    print("\n".join(out) or "links: ok")
     sys.exit(1 if out else 0)

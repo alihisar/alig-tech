@@ -1,4 +1,4 @@
-"""Saglik taramasi hazirlik kilavuzu: sayfa, rol SQL dosyalari ve tutarlilik."""
+"""Health scan preparation guide: page, role SQL files and consistency."""
 import re
 import sys
 import tempfile
@@ -16,7 +16,7 @@ YAZMA = re.compile(r"\b(INSERT|UPDATE|DELETE|TRUNCATE|COPY|CREATE\s+TABLE|SUPERU
 
 
 def sql_kodu(metin):
-    """Yorum satirlarini atar."""
+    """Drops comment lines."""
     return "\n".join(s for s in metin.splitlines() if not s.strip().startswith("--"))
 
 

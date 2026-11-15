@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Yasakli kaliplar: abartili vaat ve uretilmis-site kliseleri (metin), gradyan/cam/golge/buyuk harf (stil), emoji."""
+"""Banned patterns: exaggerated promises and generated-site cliches (text), gradient/glass/shadow/uppercase (style), emoji."""
 import json
 import re
 import sys
@@ -16,10 +16,10 @@ PHRASES = [
 PHRASE_RX = re.compile("|".join(PHRASES), re.I)
 EMOJI_RX = re.compile("[\U0001F300-\U0001FAFF☀-➿️]")
 CSS_RX = [
-    ("gradyan", re.compile(r"gradient\(", re.I)),
-    ("cam/bulaniklik", re.compile(r"backdrop-filter|blur\(", re.I)),
-    ("golge", re.compile(r"box-shadow|text-shadow|drop-shadow", re.I)),
-    ("buyuk harf donusumu", re.compile(r"text-transform\s*:\s*uppercase", re.I)),
+    ("gradient", re.compile(r"gradient\(", re.I)),
+    ("glass/blur", re.compile(r"backdrop-filter|blur\(", re.I)),
+    ("shadow", re.compile(r"box-shadow|text-shadow|drop-shadow", re.I)),
+    ("uppercase transform", re.compile(r"text-transform\s*:\s*uppercase", re.I)),
 ]
 
 
@@ -30,7 +30,7 @@ def check(dist, root=ROOT):
         for key, value in json.loads(read_text(path)).items():
             m = PHRASE_RX.search(value)
             if m:
-                problems.append(f"i18n/{lang}.json:{key}: yasakli ifade '{m.group(0)}'")
+                problems.append(f"i18n/{lang}.json:{key}: banned phrase '{m.group(0)}'")
             if EMOJI_RX.search(value):
                 problems.append(f"i18n/{lang}.json:{key}: emoji")
     for base in (Path(root) / "site", Path(dist)):
@@ -47,5 +47,5 @@ def check(dist, root=ROOT):
 
 if __name__ == "__main__":
     out = check(sys.argv[1])
-    print("\n".join(out) or "yasakli kalip: tamam")
+    print("\n".join(out) or "banned patterns: ok")
     sys.exit(1 if out else 0)

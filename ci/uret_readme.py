@@ -83,7 +83,7 @@ def bolumleri_uret(hatalar):
         f"`run_all.py` runs these {len(adimlar)} checks in order:\n\n"
         + "\n".join(satirlar)
     )
-    bolum["testler"] = f"Unit tests: {test_sayisi()} tests (PostgreSQL tests are counted separately in the `postgresql testleri` step: an external server if `ALIG_TEST_PG_HOST` is set, otherwise a temporary cluster with the system PostgreSQL 16; if neither exists, SKIP, and an error in `--release` mode)."
+    bolum["testler"] = f"Unit tests: {test_sayisi()} tests (PostgreSQL tests are counted separately in the `postgresql tests` step: an external server if `ALIG_TEST_PG_HOST` is set, otherwise a temporary cluster with the system PostgreSQL 16; if neither exists, SKIP, and an error in `--release` mode)."
 
     dizin_satirlari = ["| Directory | Contents |", "| --- | --- |"]
     for dizin, aciklama in DIZINLER:

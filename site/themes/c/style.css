@@ -48,7 +48,7 @@
   --r-m:6px;
 }
 
-/* ust cubuk hero ile ayni mavi: sayfa tek blok olarak baslar */
+/* top bar in the same blue as the hero: the page starts as a single block */
 .top,.hero{background:var(--signal) var(--bg-hero-image) center/cover no-repeat;color:#fff}
 .brand img{display:block;height:28px;width:auto}
 .top .brand,.top nav a,.top .lang{color:#fff}
@@ -58,7 +58,7 @@
 .top .btn{background:#fff;border-color:#fff;color:var(--signal)}
 .top :focus-visible,.hero :focus-visible{outline-color:#fff}
 
-/* hero: mavi blok, solda iddia, sagda ajanin gercek onerisi */
+/* hero: blue block, the claim on the left, the agent's actual recommendation on the right */
 .hero{padding-block:clamp(2rem,5vw,4.5rem) clamp(3rem,7vw,6rem)}
 .hero .lead{color:#dfe5ff}
 .hero .btn{background:#fff;border-color:#fff;color:var(--signal)}
@@ -85,7 +85,7 @@
   .card-rows > div{grid-template-columns:7rem minmax(0,1fr);gap:1rem}
 }
 
-/* bolumler: baslik solda buyuk, icerik altinda; arka planlar degisir */
+/* sections: large heading on the left, content below; backgrounds alternate */
 .sec{padding-block:clamp(3rem,8vw,6rem)}
 .sec-head{max-width:46rem}
 .sec-head .lead{font-size:1.1rem}
@@ -102,7 +102,7 @@
   .row{grid-template-columns:minmax(0,1fr)}
 }
 
-/* ajan | siz tablosu: sayfanin ana kavrami */
+/* agent | you table: the central concept of the page */
 .split{width:100%;margin-top:2.5rem;border-collapse:collapse}
 .split th,.split td{padding:1.4rem 1.5rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
 .split thead th{padding-block:.8rem;border-bottom:2px solid var(--fg);color:var(--muted);font-size:.9rem;font-weight:600}
@@ -129,7 +129,7 @@
 .foot a{color:#fff}
 .foot :focus-visible{outline-color:#fff}
 
-/* demo sayfasi */
+/* demo page */
 .demo-page{max-width:none}
 .demo-page > *{max-width:none}
 .demo-page h2{margin-top:3rem;font-size:var(--fs-h2);font-weight:var(--w-h2);line-height:1.2}
@@ -160,7 +160,7 @@ html:not(.demo-ready) .btns,html.demo-ready .nojs-note,html:not(.demo-ready) .au
 .fleet th,.fleet td{padding-inline:1rem}
 .demo-page{padding-inline:max(1rem,4vw);max-width:var(--maxw)}
 
-/* saglik taramasi sayfasi ve rapor */
+/* health scan page and report */
 .tarama-page,.report{max-width:var(--maxw)}
 .tarama-page > *,.report > *{max-width:48rem}
 .tarama-page h2,.report h2{margin-top:2.5rem;font-size:var(--fs-h2);font-weight:var(--w-h2);line-height:1.2}

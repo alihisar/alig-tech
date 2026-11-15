@@ -1,4 +1,4 @@
-/* alig.tech yonetim paneli: tema degiskenlerini kullanir */
+/* alig.tech admin panel (yonetim): uses the theme variables */
 .adm-tag{margin-left:.5rem;padding:.15rem .5rem;border:1px solid rgba(255,255,255,.6);border-radius:var(--r-s);font-size:.8rem;font-weight:650}
 .adm-nav{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem 1.25rem;padding:.75rem max(1rem,4vw,calc((100% - var(--maxw)) / 2 + 4vw));background:#fff;border-bottom:1px solid var(--line);font-size:.95rem}
 .adm-nav a{color:var(--muted);text-decoration:none;padding:.25rem 0;border-bottom:2px solid transparent}

@@ -180,7 +180,7 @@ Test layout (ALIG-CI-001): PostgreSQL tests use the shared temporary cluster `te
 Unix socket, `trust` or `scram-sha-256`, role and database, stop and delete; even if the process dies with SIGKILL a watchdog process
 stops the server and deletes the directory). If there is no system PostgreSQL 16 the tests SKIP. The 6 tests that require `ALIG_TEST_PG_HOST`
 (`GercekPgTests`, `GercekPgOturumTests`) now run with a temporary cluster if the variable is not given (PASS on PG16); if the variable
-is given, the external server is used. `ci/run_all.py` reports these separately in the "postgresql testleri" step with PASS/FAIL/SKIP and the version;
+is given, the external server is used. `ci/run_all.py` reports these separately in the "postgresql tests" step with PASS/FAIL/SKIP and the version;
 if PostgreSQL is missing the step says "skipped" (not counted as success) and gives an error with `--release`.
 
 Environment note: in this development environment only the system PostgreSQL 16 exists. Downloading a PostgreSQL 18 binary was not

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Yayin sonrasi duman testi. Yalnizca stdlib. 0 = tamam, 1 = basarisiz.
+"""Post-release smoke test. stdlib only. 0 = ok, 1 = failed.
 
   python3 deploy/duman_testi.py http://127.0.0.1 [--host alig.tech] [--surum 1.0.0]
-Ana adres yerine nginx'e 127.0.0.1 uzerinden, Host basligiyla baglanmak icin --host kullanin.
+To connect to nginx via 127.0.0.1 with a Host header instead of the main address, use --host.
 """
 import argparse
 import http.client

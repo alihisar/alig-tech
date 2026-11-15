@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""alig.tech yonetim paneli. Yalnizca standart kutuphane, sunucuda uretilen HTML, JavaScript yok.
+"""alig.tech admin panel (yonetim). Standard library only, HTML generated on the server, no JavaScript.
 
-Giris: kullanici + parola (scrypt) + dogrulama kodu (TOTP). Oturum cerezi HttpOnly, SameSite=Strict.
-Her POST'ta CSRF kodu ve Origin denetimi. Tum yonetici islemleri SHA-256 zincirli denetim kaydina yazilir.
-Yalniz 127.0.0.1'de dinler; disariya nginx (IP izin listesi) ya da SSH tuneli ile acilir.
+Login: user + password (scrypt) + verification code (TOTP). Session cookie is HttpOnly, SameSite=Strict.
+CSRF token and Origin check on every POST. All administrator actions are written to an audit log chained with SHA-256.
+Listens on 127.0.0.1 only; it is exposed to the outside through nginx (IP allowlist) or an SSH tunnel.
 """
 import argparse
 import csv
@@ -28,7 +28,7 @@ from yonetim import depo  # noqa: E402
 try:
     from zoneinfo import ZoneInfo
     TR = ZoneInfo("Europe/Istanbul")
-except Exception:  # tzdata yoksa sabit UTC+3
+except Exception:  # if tzdata is missing, a fixed UTC+3
     TR = timezone(timedelta(hours=3))
 
 GOVDE_SINIRI = 8192
@@ -64,38 +64,38 @@ def tablo(basliklar, satirlar, bos="Kayıt yok."):
 
 
 def ro(yol):
-    """Salt okunur baglanti; dosya yoksa None."""
+    """Read-only connection; None if the file does not exist."""
     if not Path(yol).exists():
         return None
     return sqlite3.connect("file:%s?mode=ro" % yol, uri=True)
 
 
 def degerlendir(belge):
-    """(bulgular, saglik puani). Tek bir raporun degerlendirme hatasi tum paneli dusurmesin: hata olursa ([], None)."""
+    """(findings, health score). An evaluation error in a single report must not take down the whole panel: on error ([], None)."""
     try:
         s = kurallar.incele(belge)
         return s.bulgular, puan.hesapla(s)
-    except Exception as ex:  # noqa: BLE001 - bilerek genis: panel ayakta kalmali, olay gunluge yazilir
-        print("UYARI: rapor degerlendirilemedi: %s" % type(ex).__name__, flush=True)
+    except Exception as ex:  # noqa: BLE001 - deliberately broad: the panel must stay up, the event is written to the log
+        print("WARNING: report could not be evaluated: %s" % type(ex).__name__, flush=True)
         return [], None
 
 
 def puan_metni(p):
-    """Panel hucresi: puan kanit kapsamiyla birlikte yazilir, kapsamsiz puan gosterilmez."""
+    """Panel cell: the score is written together with its evidence coverage; a score without coverage is not shown."""
     if p is None:
         return "değerlendirilemedi"
     return "%s (kapsam %%%d)" % ("hesaplanamadı" if p.genel is None else "%d/100" % p.genel, p.kapsam)
 
 
 def eposta_etiketi(f):
-    """Firma e-postasinin dogrulama durumu: e-posta dogrulamasi acik degilken her adres dogrulanmamistir."""
+    """Verification status of the company email: while email verification is off, every address is unverified."""
     if f.get("eposta_dogrulama_utc"):
         return "<span class=\"pill pill-aktif\" title=\"%s\">doğrulandı</span>" % e(ist(f["eposta_dogrulama_utc"]))
     return "<span class=\"pill pill-bekliyor\" title=\"Adres e-postayla doğrulanmadı; yazan kişi bu adresin sahibi olmayabilir.\">doğrulanmamış</span>"
 
 
 def csv_hucre(v):
-    """Hucre tablolama programinda formul olarak calismasin: =, +, -, @ ile baslayan degerin onune tek tirnak konur."""
+    """So that a cell does not run as a formula in a spreadsheet program: a single quote is prepended to values starting with =, +, -, @."""
     m = "" if v is None else str(v)
     m = m.replace("\r", " ").replace("\n", " ")
     return "'" + m if m[:1] in ("=", "+", "-", "@", "\t") else m
@@ -111,7 +111,7 @@ class H(BaseHTTPRequestHandler):
     tarama_portu = 8091
     sys_version = ""
 
-    # ---- altyapi ----
+    # ---- infrastructure ----
     def log_message(self, fmt, *a):
         print(self.command, self.path.split("?")[0], a[1] if len(a) > 1 else "", flush=True)
 
@@ -128,7 +128,7 @@ class H(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Robots-Tag", "noindex, nofollow")
-        # SSH tuneliyle (nginx'siz) acildiginda da ayni koruma: panelde betik ve satir ici stil yok.
+        # The same protection when opened through an SSH tunnel (without nginx): no script and no inline style in the panel.
         self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; "
                                                     "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
         for k, v in extra:
@@ -184,7 +184,7 @@ class H(BaseHTTPRequestHandler):
         o = self.headers.get("Origin")
         return o is None or urlparse(o).netloc == (self.headers.get("Host") or "")
 
-    # ---- yonlendirme ----
+    # ---- routing ----
     def do_GET(self):
         u = urlparse(self.path)
         yol, q = u.path, parse_qs(u.query)
@@ -285,7 +285,7 @@ class H(BaseHTTPRequestHandler):
             con.close()
 
     def _statik(self, yol):
-        """SSH tuneli kipinde stil ve logo: yalniz paketteki site/assets, yalniz bilinen turler."""
+        """Style and logo in SSH tunnel mode: only site/assets from the package, only known types."""
         turler = {".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".woff2": "font/woff2"}
         kok = (KOK / "site" / "assets").resolve()
         hedef = (kok / yol[len("/assets/"):]).resolve()
@@ -293,7 +293,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(404, b"yok\n", "text/plain; charset=utf-8")
         self._send(200, hedef.read_bytes(), turler[hedef.suffix])
 
-    # ---- sayfalar ----
+    # ---- pages ----
     def _giris_sayfasi(self, hata=None, kod=200):
         self._sayfa("Giriş", ("<p class=\"err\" role=\"alert\">%s</p>" % e(hata) if hata else "") +
                     "<form class=\"form adm-login\" method=\"post\" action=\"/yonetim/giris\" autocomplete=\"off\">"
@@ -303,7 +303,7 @@ class H(BaseHTTPRequestHandler):
                     "<p><button class=\"btn\" type=\"submit\">Giriş yap</button></p></form>", None, kod)
 
     def _talep_satirlari(self, limit=None, offset=0):
-        """Iletisim talepleri, yeniden eskiye. limit verilmezse hepsi (CSV ve firma sayimlari icin)."""
+        """Contact requests, newest first. If no limit is given, all of them (for CSV and company counts)."""
         c = ro(self.form_db)
         if not c:
             return []
@@ -361,7 +361,7 @@ class H(BaseHTTPRequestHandler):
             finally:
                 tc.close()
         g = depo.gosterge(con, self.tarama_db, self.form_db)
-        sayi = lambda v: "veri yok" if v is None else v  # noqa: E731 - bilinmeyen sayi 0 gibi gosterilmez
+        sayi = lambda v: "veri yok" if v is None else v  # noqa: E731 - an unknown count is not shown as 0
         kutu = lambda ad, deger, alt="", kotu=False: "<div class=\"stat%s\"><p class=\"stat-k\">%s</p><p class=\"stat-v\">%s</p><p class=\"stat-s\">%s</p></div>" % (" bad" if kotu else "", e(ad), e(deger), e(alt))  # noqa: E731
         zt = g["zincir_tarama"]
         zincir_t = "veri yok" if zt is None else tdepo.denetim_metni(zt).replace("sağlam (anahtarsız kayıtlar)", "sağlam")
@@ -391,10 +391,10 @@ class H(BaseHTTPRequestHandler):
         ic += "<p><a href=\"/yonetim/talepler\">Tüm talepler</a></p>"
         self._sayfa("Özet", ic, o)
 
-    # ---- firmalar ----
+    # ---- companies ----
     def _firma_esitle(self, tc):
-        """Iletisim formundan gelen sirketleri firma kaydina ekler (var olani degistirmez). Yalniz son esitlemeden
-        sonraki talepler, tek islemde; son saniyedeki talepler yeniden bakilir (islem tekrar edilebilir)."""
+        """Adds companies coming from the contact form to the company records (does not change an existing one). Only requests
+        after the last synchronization, in a single transaction; requests in the last second are looked at again (the operation can be repeated)."""
         son = tdepo.esitleme_oku(tc, "talep")
         c = ro(self.form_db)
         if not c:
@@ -410,12 +410,12 @@ class H(BaseHTTPRequestHandler):
         with tdepo.islem(tc) as t:
             for zaman, sirket, eposta in satirlar:
                 anahtar = tdepo.firma_anahtari(eposta or "")
-                if anahtar:  # silinmis firmanin eski talebi kaydi geri getirmez (tdepo.firma_kaydet None doner)
+                if anahtar:  # the old request of a deleted company does not bring the record back (tdepo.firma_kaydet returns None)
                     tdepo.firma_kaydet(t, anahtar, sirket, eposta, "talep", zaman=zaman, guncelle=False)
             tdepo.esitleme_yaz(t, "talep", satirlar[-1][0])
 
     def _talepleri_sil(self, con, o, firma):
-        """Firmanin iletisim taleplerini (form.sqlite) ve durum notlarini siler; denetime adres yazilmaz. Silinen sayi."""
+        """Deletes the company's contact requests (form.sqlite) and status notes; no address is written to the audit. The number deleted."""
         if not Path(self.form_db).exists():
             return 0
         fc = sqlite3.connect(self.form_db, timeout=10)
@@ -446,7 +446,7 @@ class H(BaseHTTPRequestHandler):
                     f["id"], e(o["csrf"]), hedef, donus, " btn-ghost" if hedef == "pasif" else "", "Pasif et" if hedef == "pasif" else "Aktif et")
 
     def _firma_suz(self, q):
-        """(tum firmalar, suzulmus firmalar, ara, durum) dondurur."""
+        """(all companies, filtered companies, search, status) is returned."""
         tc = tdepo.baglan(self.tarama_db)
         try:
             self._firma_esitle(tc)
@@ -565,7 +565,7 @@ class H(BaseHTTPRequestHandler):
         self._sayfa(f["ad"] or "(adsız firma)", ic, o)
 
     def _surec_formu(self, f, csrf):
-        """Ticari surec: yalniz gecerli sonraki durumlar secilir. Not kisisel veri icerebilir; saklama: firma kaydiyla birlikte silinir."""
+        """Commercial process: only valid next statuses are selectable. The note may contain personal data; retention: deleted together with the company record."""
         ic = "<h2>Ticari süreç</h2><p>Durum: <strong>%s</strong>. Not: <span class=\"msg\">%s</span></p>" % (e(SUREC_AD[f["surec"]]), e(f["surec_notu"] or "-"))
         sonraki = tdepo.SUREC_GECISLERI[f["surec"]]
         if not sonraki:
@@ -592,9 +592,9 @@ class H(BaseHTTPRequestHandler):
             if islem == "sil" and f.get("emin") != "evet":
                 return self._send(422, b"onay kutusu isaretlenmeli\n", "text/plain; charset=utf-8")
             ek = ""
-            if islem == "sil" and f.get("talepler") == "evet":   # once talepler: firma silme yarida kalirsa yeniden denenebilir
+            if islem == "sil" and f.get("talepler") == "evet":   # requests first: if company deletion is interrupted it can be retried
                 ek = ", %d talep" % self._talepleri_sil(con, o, firma)
-            with tdepo.islem(tc) as t:   # eylem ve tarama zincirindeki denetim kaydi birlikte
+            with tdepo.islem(tc) as t:   # the action and the audit record in the scan chain together
                 if islem == "durum":
                     tdepo.firma_durum_yaz(t, fid, f["durum"])
                     olay = "firma #%d durumu: %s" % (fid, f["durum"])
@@ -612,7 +612,7 @@ class H(BaseHTTPRequestHandler):
                 else:
                     olay = "firma #%d silindi (%d rapor%s)" % (fid, tdepo.firma_sil(t, fid), ek)
                 tdepo.denetim_ekle(t, "yonetici:" + o["ad"], olay, {"firma": fid, "sonuc": f["surec"]} if islem == "surec" else None)
-        except tdepo.SurecHatasi:   # es zamanli degisim: gecis artik gecerli degil
+        except tdepo.SurecHatasi:   # concurrent change: the transition is no longer valid
             return self._send(409, b"surec arada degisti\n", "text/plain; charset=utf-8")
         finally:
             tc.close()
@@ -623,8 +623,8 @@ class H(BaseHTTPRequestHandler):
     PORTAL_DURUM_AD = {"yeni": "Yeni", "inceleniyor": "İnceleniyor", "tamamlandi": "Tamamlandı", "reddedildi": "Reddedildi"}
 
     def _portal_talepleri(self, con, o, q):
-        """Musteri portalindan gelen hizmet ve silme talepleri. Silme talebi yalniz kayittir: kimlik dogrulamasindan sonra
-        firma sayfasindaki Firmayi sil ile uygulanir."""
+        """Service and deletion requests from the customer portal. A deletion request is only a record: after identity verification
+        it is applied with Delete company on the company page."""
         if not Path(self.tarama_db).exists():
             return self._sayfa("Portal talepleri", "<p class=\"muted\">Tarama veritabanı yok.</p>", o)
         suz = (q.get("durum") or [""])[0]
@@ -658,7 +658,7 @@ class H(BaseHTTPRequestHandler):
                     return self._send(404, b"yok\n", "text/plain; charset=utf-8")
                 olay = "portal talebi #%d durumu: %s" % (tid, f["durum"])
                 tdepo.denetim_ekle(t, "yonetici:" + o["ad"], olay, {"talep": tid, "sonuc": f["durum"]})
-        except sqlite3.IntegrityError:   # ornegin kapanmis silme talebini, ayni firmada baska acik talep varken yeniden acmak
+        except sqlite3.IntegrityError:   # for example, reopening a closed deletion request while another open request exists for the same company
             return self._send(409, b"durum degistirilemedi\n", "text/plain; charset=utf-8")
         finally:
             tc.close()
@@ -694,8 +694,8 @@ class H(BaseHTTPRequestHandler):
         self._sayfa("Talepler", suzgec + tablo(["Zaman", "Kişi", "E-posta", "Veritabanı", "Mesaj", "Durum"], satirlar, "Talep yok.") + gez, o)
 
     def _kipb(self, con, o, q):
-        """Kip B (dogrudan baglanti) istekleri: salt okuma. Parola saklanmadigi icin yoktur; baglanti dizgisi, sahiplik kaniti,
-        belirtec ve IP de gosterilmez."""
+        """Mode B (direct connection) requests: read-only. There is no password because it is not stored; the connection string, proof of ownership,
+        token and IP are not shown either."""
         if not Path(self.tarama_db).exists():
             return self._sayfa("Kip B istekleri", "<p class=\"muted\">Tarama veritabanı yok.</p>", o)
         try:
@@ -762,17 +762,17 @@ class H(BaseHTTPRequestHandler):
                 return self._sayfa("Bulunamadı", "<p>Rapor yok.</p>", o, 404)
             try:
                 onceki = tdepo.onceki_rapor(tc, r)
-            except Exception as ex:  # noqa: BLE001 - bozuk eski rapor bu raporun acilmasini engellemesin
-                print("UYARI: onceki rapor okunamadi #%d: %s" % (rid, type(ex).__name__), flush=True)
+            except Exception as ex:  # noqa: BLE001 - a corrupt old report must not prevent this report from opening
+                print("WARNING: previous report could not be read #%d: %s" % (rid, type(ex).__name__), flush=True)
                 onceki = None
-            tdepo.denetim_ekle(tc, "yonetici:" + o["ad"], "rapor goruntulendi #%d%s" % (rid, " (karsilastirma #%d)" % onceki["id"] if onceki else ""))  # musteri verisine erisim ayni zincirde
+            tdepo.denetim_ekle(tc, "yonetici:" + o["ad"], "rapor goruntulendi #%d%s" % (rid, " (karsilastirma #%d)" % onceki["id"] if onceki else ""))  # customer data access in the same chain
         finally:
             tc.close()
         depo.denetim_ekle(con, o["ad"], "tarama raporu goruntulendi #%d" % rid)
         try:
             govde, _, _ = trapor.govde(r, "tr", "", eylemler=False, onceki=onceki, gorunum=trapor.gorunum_sec(((q or {}).get("gorunum") or [None])[0]))
-        except Exception as ex:  # noqa: BLE001 - bozuk rapor silinebilsin diye sayfa yine acilir
-            print("UYARI: rapor cizilemedi #%d: %s" % (rid, type(ex).__name__), flush=True)
+        except Exception as ex:  # noqa: BLE001 - the page still opens so that a corrupt report can be deleted
+            print("WARNING: report could not be rendered #%d: %s" % (rid, type(ex).__name__), flush=True)
             govde = "<article class=\"wrap prose report\"><h1>Rapor</h1><p class=\"err\">Bu rapor çizilemedi. Aşağıdaki düğmeyle silebilirsiniz.</p></article>"
         govde = govde.replace("<article class=\"wrap prose report\">", "<article class=\"report adm-report\">").replace("<h1>", "<h2 class=\"vh\">").replace("</h1>", "</h2>", 1)
         sil = ("<form method=\"post\" action=\"/yonetim/taramalar/%d/sil\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
@@ -846,19 +846,19 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=8092)
     ap.add_argument("--form-portu", type=int, default=8090)
     ap.add_argument("--tarama-portu", type=int, default=8091)
-    ap.add_argument("--guvensiz-cerez", action="store_true", help="yalniz SSH tuneli ya da yerel deneme (HTTP) icin")
+    ap.add_argument("--guvensiz-cerez", action="store_true", help="only for an SSH tunnel or local testing (HTTP)")
     a = ap.parse_args(argv)
     H.ydb, H.form_db, H.tarama_db, H.yedek_dizini = a.db, a.form_db, a.tarama_db, a.yedek
     H.form_portu, H.tarama_portu, H.guvenli_cerez = a.form_portu, a.tarama_portu, not a.guvensiz_cerez
     try:
         depo.zincir.denetim_anahtari()
         saklama.dogrula()
-        puan.yukle()   # tarama servisiyle ayni ortam dosyasi: rapor ve panel ayni puani gosterir
+        puan.yukle()   # the same environment file as the scan service: report and panel show the same score
     except (depo.zincir.AnahtarHatasi, saklama.SaklamaHatasi, puan.PuanAyarHatasi) as ex:
-        raise SystemExit("hata: %s" % ex)
+        raise SystemExit("error: %s" % ex)
     depo.baglan(a.db).close()
-    print("yonetim paneli dinliyor 127.0.0.1:%d" % a.port, flush=True)
-    ThreadingHTTPServer(("127.0.0.1", a.port), H).serve_forever()  # bilerek yalniz loopback
+    print("admin panel listening on 127.0.0.1:%d" % a.port, flush=True)
+    ThreadingHTTPServer(("127.0.0.1", a.port), H).serve_forever()  # deliberately loopback only
 
 
 if __name__ == "__main__":

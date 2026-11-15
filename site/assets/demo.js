@@ -1,4 +1,4 @@
-/* alig.tech portal demosu: onay kuyrugu ve SHA-256 zincirli denetim kaydi. ES5, bagimlilik yok. */
+/* alig.tech portal demo: approval queue and SHA-256 chained audit log. ES5, no dependencies. */
 (function () {
   'use strict';
   var root = document.getElementById('portal');

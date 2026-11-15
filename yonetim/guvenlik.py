@@ -1,4 +1,4 @@
-"""Parola ozeti (scrypt), TOTP (RFC 6238) ve rastgele kodlar. Yalnizca standart kutuphane."""
+"""Password digest (scrypt), TOTP (RFC 6238) and random codes. Standard library only."""
 import base64
 import hashlib
 import hmac
@@ -27,7 +27,7 @@ def parola_dogrula(parola, kayit):
         return False
 
 
-# Kullanici yokken de ayni sureyi harcamak icin (zamanlama ile kullanici adi sizmasin)
+# To spend the same time when the user does not exist (so timing does not leak the username)
 SAHTE_OZET = parola_ozetle("sahte-parola-zamanlama-icin")
 
 
@@ -43,7 +43,7 @@ def totp_kod(gizli, sayac):
 
 
 def totp_dogrula(gizli, kod, son_sayac=0, simdi=None, pencere=1):
-    """Gecerliyse kullanilan sayaci, degilse None doner. son_sayac'tan buyuk olmayan sayac reddedilir (tekrar kullanim)."""
+    """Returns the counter used if valid, otherwise None. A counter not greater than son_sayac is rejected (replay)."""
     kod = (kod or "").strip().replace(" ", "")
     if len(kod) != 6 or not kod.isdigit():
         return None

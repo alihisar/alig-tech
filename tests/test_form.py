@@ -93,7 +93,7 @@ class FormTests(unittest.TestCase):
     def test_limiter_eski_anahtarlari_bellekten_atar(self):
         t = [0.0]
         rl = server.RateLimiter(5, 10, clock=lambda: t[0])
-        for i in range(20000):  # IPv6 ile her istek ayri adresten gelebilir
+        for i in range(20000):  # with IPv6 every request can come from a different address
             rl.allow("2001:db8::%x" % i)
         t[0] = 25.0
         rl.allow("yeni")

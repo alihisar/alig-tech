@@ -1,4 +1,4 @@
-"""CI denetimleri icin ortak yardimcilar (yalnizca standart kutuphane)."""
+"""Shared helpers for the CI checks (standard library only)."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent

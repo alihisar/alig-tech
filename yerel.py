@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Siteyi yerelde derler ve calistirir (Python 3.9+, ek paket gerekmez).
+"""Builds and runs the site locally (Python 3.9+, no extra packages needed).
 
   python3 yerel.py            # http://localhost:8080/
   python3 yerel.py --port 9000
 
-Iletisim formu da calisir: kayitlar yerel-form.sqlite dosyasina yazilir.
+The contact form works too: records are written to the yerel-form.sqlite file.
 """
 import argparse
 import functools
@@ -36,32 +36,32 @@ def main():
 
     out = ROOT / "dist" / "yerel"
     if site_build.main(["--theme", args.theme, "--out", str(out), "--base-url", f"http://localhost:{args.port}", "--noindex"]) != 0:
-        raise SystemExit("derleme basarisiz")
+        raise SystemExit("build failed")
     db = str(ROOT / "yerel-form.sqlite")
     form.connect(db).close()
     FormH = form.make_handler(db, form.RateLimiter(per_window=100), "yerel")
 
     tarama.H.db_yolu = str(ROOT / "yerel-tarama.sqlite")
     tarama.H.sinir = form.RateLimiter(per_window=100)
-    tarama.H.motorlar = ("postgresql", "mssql")  # yerelde SQL Server on surumu acik
-    tarama.H.dogrudan = True  # yerelde Kip B formu acik; hedef dogrulamasi gercektir, yerel ve ic adresler reddedilir
+    tarama.H.motorlar = ("postgresql", "mssql")  # locally the SQL Server preview is enabled
+    tarama.H.dogrudan = True  # locally the Mode B form is enabled; target validation is real, local and internal addresses are rejected
     depo.baglan(tarama.H.db_yolu).close()
     try:
-        puan.yukle()   # ALIG_PUAN_AYARI verilirse yerelde de o katsayilar kullanilir
+        puan.yukle()   # if ALIG_PUAN_AYARI is given, those coefficients are used locally too
     except puan.PuanAyarHatasi as ex:
-        raise SystemExit("hata: %s" % ex)
+        raise SystemExit("error: %s" % ex)
     if os.environ.get("ALIG_EPOSTA_DOGRULAMA") == "1":
-        # Yerelde e-posta dogrulamasi: iletiler giden kutusunda bekler; okumak icin
+        # Local email verification: messages wait in the outbox; to read them
         #   ALIG_POSTA_DIZINI=yerel-posta python3 tarama/posta.py --db yerel-tarama.sqlite
         tarama.eposta_ayarla({"ALIG_EPOSTA_DOGRULAMA": "1", "ALIG_SITE_ADRESI": f"http://localhost:{args.port}"}, tarama.H)
-        if os.environ.get("ALIG_PORTAL") == "1":   # musteri portali: yalniz e-posta dogrulamasiyla birlikte
+        if os.environ.get("ALIG_PORTAL") == "1":   # customer portal: only together with email verification
             tarama.portal_ayarla(os.environ, tarama.H)
 
-    # Yonetim paneli ayri bir sunucu (canlidaki gibi); /yonetim/ istekleri ona aktarilir
+    # The admin panel is a separate server (as in production); /yonetim/ requests are forwarded to it
     yonetim.H.ydb = str(ROOT / "yerel-yonetim.sqlite")
     yonetim.H.form_db, yonetim.H.tarama_db = db, tarama.H.db_yolu
     yonetim.H.form_portu = yonetim.H.tarama_portu = args.port
-    yonetim.H.guvenli_cerez = False  # yerelde HTTP
+    yonetim.H.guvenli_cerez = False  # HTTP locally
     ydepo.baglan(yonetim.H.ydb).close()
     ysrv = ThreadingHTTPServer(("127.0.0.1", 0), yonetim.H)
     threading.Thread(target=ysrv.serve_forever, daemon=True).start()
@@ -106,15 +106,15 @@ def main():
     handler = functools.partial(Local, directory=str(out))
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
     url = f"http://localhost:{args.port}/"
-    print(f"Site hazir: {url}  (durdurmak icin Ctrl+C)", flush=True)
-    print(f"Yonetim paneli: {url}yonetim/  Ilk kullanici: python3 yonetim/kullanici.py --db yerel-yonetim.sqlite ekle ali", flush=True)
-    print("  Dogrulama uygulamasi olmadan yerelde denemek icin anlik kod: python3 yonetim/kullanici.py --db yerel-yonetim.sqlite kod ali", flush=True)
+    print(f"Site ready: {url}  (Ctrl+C to stop)", flush=True)
+    print(f"Admin panel: {url}yonetim/  First user: python3 yonetim/kullanici.py --db yerel-yonetim.sqlite ekle ali", flush=True)
+    print("  To try locally without an authenticator app, instant code: python3 yonetim/kullanici.py --db yerel-yonetim.sqlite kod ali", flush=True)
     if not args.no_browser:
         webbrowser.open(url)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
-        print("\nkapatildi")
+        print("\nstopped")
 
 
 if __name__ == "__main__":
