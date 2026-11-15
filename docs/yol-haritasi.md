@@ -54,7 +54,7 @@ Sıra `docs/master-prompt-v2.md` belgesindeki önceliklere göredir (P0 önce). 
 | 21 | P1 | İş kuyruğu: yalnızca doğrudan bağlantı için, PostgreSQL tabanlı (`FOR UPDATE SKIP LOCKED`, `pg-gecis` dalında; v5 bölüm 9), ayrı işçi | Durum geçişleri idempotent, yeniden başlatmada toparlanır | bekliyor |
 | 22 | P2 | SQL Server: yetenek tablosu ve gerçek sunucu çıktısına göre düzeltme | Ali'nin gönderdiği `ok` / `ATLANDI` listesi | Ali'yi bekliyor |
 | 23 | P2 | LLM rapor özeti: varsayılan kapalı, kanıt üretemez, puanı değiştiremez | Sağlayıcı yokken rapor aynen çalışır | **kod tamam, kapalı; gerçek sağlayıcı WEB-K5'i bekliyor** (`tarama/ozet_llm.py`: takılabilir arayüz, yalnız test için sahte sağlayıcı; allowlist'li maskeli girdi, çıktı doğrulayıcısı, yönetici görünümünde ayrı kutu; `ALIG_LLM_OZET=1` ve kayıtlı sağlayıcı gerekir; `tests/test_ozet_llm.py`) |
-| 24 | P3 | Kip B kalanları: istek listesi panelde, sunucu sertifikası doğrulaması, yanıt süresini sabitleme, kılavuz bölümü (`channel_binding=require` yapıldı) | Ayrı kabul kapısı | bekliyor |
+| 24 | P3 | Kip B kalanları: istek listesi panelde, sunucu sertifikası doğrulaması, yanıt süresini sabitleme, kılavuz bölümü (`channel_binding=require` yapıldı) | Ayrı kabul kapısı | **tamam, Kip B kapalı kalır** (panelde Kip B istekleri `/yonetim/kip-b`: salt okuma, sayfalı, firma ve durum süzgeçli, parola/kanıt/belirteç/IP yok, oturum zorunlu ve erişim tablosunda; müşteri CA'sı PEM ile `sslmode=verify-full`: 16 KiB, en çok 5 blok, ASCII+base64+DER başlangıcı, özel anahtar ve ek metin reddi, 0600 geçici dosya iş bitince silinir, `sslrootcert` yolu kati kalıptan geçer, geçersiz CA sessizce zayıf moda düşmez; CA verilmezse mevcut varsayılan değişmedi: `sslmode=require` + `channel_binding=require`, sertifika denetlenmez; hedef reddi ve DNS hatası en az 6 sn, bağlantı hatası en az 12 sn sonra aynı sayfayla yanıtlanır (alt sınır, sahte saatle sınandı); kılavuz `site/pages/tarama-hazirlik.html` ve `docs/runbook.md`. PG16'da PASS: verify-full gerçek TLS bağlantısında doğru CA başarılı, yabancı CA ve uyuşmayan ad başarısız. Sınanamayan: PG18, çalıştırıcının gerçek systemd altında özel `/tmp` davranışı, çok yavaş DNS'in ayırt edilebilirliği. Açık: sabit çıkış IP `[doldurulacak]`, kılavuz metni bu yüzden `--release` paketlemeyi durdurur) |
 
 Kod incelemesinden (`docs/kod-inceleme.md`) gelen açık maddeler:
 
@@ -108,6 +108,8 @@ v5'ten bilerek alınmayanlar ya da uyarlananlar:
 | İletişim talebi saklama | Oluşturulmadan 365 gün sonra silinir | `ALIG_SAKLAMA_TALEP_GUN` (`tarama/saklama.py`) |
 | Kip B parola | Saklanmaz, her taramada sorulur | tasarım kararı |
 | Kip B sınırları | İstek 30 dk, 3 deneme, saatte 5 istek, aynı anda 2 tarama | `tarama/depo.py` `ISTEK_*`, `tarama/calistirici.py` |
+| Kip B sunucu sertifikası | Varsayılan `sslmode=require` + `channel_binding=require` (sertifika denetlenmez); müşteri CA PEM'i verirse `verify-full` | `tarama/baglanti.py` `ca_dogrula`, `docs/runbook.md` |
+| Kip B yanıt süresi alt sınırı | Hedef reddi 6 sn, bağlantı hatası 12 sn | `tarama/server.py` `SABIT_RED_SN`, `SABIT_BAGLANTI_SN` |
 | Ticari süreç durumları | `aday` -> `gorusuluyor` -> `teklif` -> `musteri`; her durumdan `kapandi` (kapandı son durumdur, yeniden açılmaz). Yalnız durum ve not; fiyat, tutar, müşteri adı yok. Not firma kaydıyla birlikte silinir | `tarama/depo.py` `SUREC_DURUMLARI`, `SUREC_GECISLERI` |
 | Kip B kimlik | E-posta doğrulaması yerine yönetici izni | panel, firma ayrıntısı |
 | Doğrudan bağlantı ve SQL Server | Kapalı | `ALIG_DOGRUDAN`, `ALIG_MSSQL` |

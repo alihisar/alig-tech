@@ -76,6 +76,20 @@ class CalistiriciTests(Temel):
         self.assertEqual(arg["sslmode"], "require")
         self.assertTrue(arg["maskele"])
 
+    def test_ca_pem_tarayiciya_iletilir_ve_bicim_denetlenir(self):
+        from test_baglanti import SAHTE_CA
+        self.baslat()
+        self.tara(ca_pem=SAHTE_CA)
+        self.assertEqual(self.cagrilar[0][1]["ca_pem"], SAHTE_CA)
+        self.tara()
+        self.assertNotIn("ca_pem", self.cagrilar[1][1])   # CA yoksa mevcut cagri sekli degismez
+        n = len(self.cagrilar)
+        for kotu in ("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n", "x" * 17000, "merhaba"):
+            self.assertEqual(self.kod(ca_pem=kotu), "ca", kotu[:20])
+        self.assertEqual(self.ham(calistirici.paketle({"ad": "db.ornek.com", "ip": "93.184.216.34", "port": 5432, "veritabani": "postgres",
+                                                       "kullanici": "alig_hc", "parola": "p", "kanit": KANIT, "maskele": False, "ca_pem": 5})), {"hata": "ca"})
+        self.assertEqual(len(self.cagrilar), n)   # gecersiz CA ile tarayici hic cagrilmaz
+
     def test_soket_yalniz_sahip_ve_gruba_acik(self):
         self.baslat()
         self.assertEqual(os.stat(self.soket).st_mode & 0o777, 0o660)

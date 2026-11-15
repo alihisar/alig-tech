@@ -43,6 +43,8 @@ M = {
                       "Doğrudan bağlantı formunu yeniden doldurun."),
         "deneme": ("Deneme hakkı doldu", "Bu istek için üç deneme hakkı kullanıldı ya da şirketiniz son bir saatte çok sayıda istek açtı.",
                    "Bilgileri denetleyip bir saat sonra yeni bir istek açın."),
+        "ca": ("CA sertifikası kabul edilmedi", "Yapıştırdığınız metin geçerli bir PEM CA sertifikası değil. Yalnızca -----BEGIN CERTIFICATE----- bloklarından oluşmalı; özel anahtar ve ek metin kabul edilmez. Hiçbir bağlantı kurulmadı, deneme hakkınız harcanmadı.",
+               "Sertifikayı (zincir en çok 5 blok) yeniden yapıştırın ya da sertifika doğrulaması istemiyorsanız alanı boş bırakın."),
         "mesgul": ("Şu an çok sayıda tarama çalışıyor", "Aynı anda çalışan tarama sayısı sınırına ulaşıldı.",
                    "Birkaç dakika sonra parolayı yeniden gönderin."),
         "posta": ("Çok sayıda bağlantı gönderildi", "Bu adrese ya da şirketinize son 24 saatte çok sayıda rapor bağlantısı gönderildi. Bu yükleme kaydedilmedi.",
@@ -89,6 +91,8 @@ M = {
                       "Fill in the direct connection form again."),
         "deneme": ("No attempts left", "The three attempts for this request are used, or your company opened many requests in the last hour.",
                    "Check the details and open a new request in an hour."),
+        "ca": ("CA certificate not accepted", "The text you pasted is not a valid PEM CA certificate. It must consist only of -----BEGIN CERTIFICATE----- blocks; private keys and extra text are not accepted. No connection was made and no attempt was used.",
+               "Paste the certificate again (a chain of at most 5 blocks), or leave the field empty if you do not want certificate verification."),
         "mesgul": ("Many scans are running right now", "The limit on scans running at the same time has been reached.",
                    "Send the password again in a few minutes."),
         "posta": ("Too many links sent", "Many report links were sent to this address or your company in the last 24 hours. This upload was not saved.",
@@ -125,8 +129,8 @@ def dosya_hatasi(kod, ek, dil):
 
 
 ILETISIM = {"pasif", "sinir", "buyuk", "izin", "posta"}
-KILAVUZ = {"json", "bicim", "eski", "tur", "kanit", "super", "zaman", "baglanti"}
-DOGRUDAN = {"hedef", "baglanti", "istek_yok", "deneme", "zaman"}
+KILAVUZ = {"json", "bicim", "eski", "tur", "kanit", "super", "zaman", "baglanti", "ca"}
+DOGRUDAN = {"hedef", "baglanti", "istek_yok", "deneme", "zaman", "ca"}
 
 F = {
     "tr": {"baslik": "Doğrudan bağlantıyla tarama", "lead": "Bağlantı bilgisini verirsiniz, taramayı alig.tech çalıştırır. Parolanız saklanmaz, yalnızca tarama süresince kullanılır.",
@@ -136,6 +140,8 @@ F = {
            "not": "Hesap süper kullanıcı olmamalı ve bağlantı TLS ile şifreli olmalıdır. Hesabı açmak için hazırlık kılavuzuna bakın.",
            "k_baslik": "Sahipliği kanıtlayın", "k_lead": "Bu veritabanının sizin yönetiminizde olduğunu göstermek için aşağıdaki komutu veritabanınızda bir kez çalıştırın. Sonra tarama hesabının parolasını yazın.",
            "k_sure": "Bu istek 30 dakika geçerlidir ve en çok üç kez denenebilir.", "parola": "Tarama hesabının parolası",
+           "ca_etiket": "CA sertifikası (isteğe bağlı, PEM)",
+           "ca_ipucu": "Sunucunuzun sertifikasını doğrulamak için kendi CA sertifikanızı (yalnızca -----BEGIN CERTIFICATE----- blokları) yapıştırın; bağlantı sslmode=verify-full ile kurulur ve sertifika bu CA'ya ya da yazdığınız sunucu adına uymuyorsa tarama yapılmaz. Boş bırakırsanız bağlantı yine şifrelenir ve SCRAM kanal bağlama zorunludur, ancak sunucu sertifikası doğrulanmaz. Özel anahtar yapıştırmayın; CA metni saklanmaz.",
            "k_not": "Parola saklanmaz, günlüklere yazılmaz ve tarama bitince bellekten silinir. Tarama bir dakikadan uzun sürebilir.", "baslat": "Taramayı başlat"},
     "en": {"baslik": "Scan over a direct connection", "lead": "You give the connection details and alig.tech runs the scan. Your password is not stored; it is used only while the scan runs.",
            "sirket": "Company name", "eposta": "Your corporate email address", "sunucu": "Server address (name or IP reachable from the internet)",
@@ -144,6 +150,8 @@ F = {
            "not": "The account must not be a superuser and the connection must be encrypted with TLS. See the preparation guide to open the account.",
            "k_baslik": "Prove ownership", "k_lead": "To show that this database is under your administration, run the command below once on your database. Then enter the password of the scan account.",
            "k_sure": "This request is valid for 30 minutes and can be tried at most three times.", "parola": "Password of the scan account",
+           "ca_etiket": "CA certificate (optional, PEM)",
+           "ca_ipucu": "To verify your server's certificate, paste your own CA certificate (only -----BEGIN CERTIFICATE----- blocks); the connection is then made with sslmode=verify-full and the scan does not run if the certificate does not match this CA or the server name you gave. If you leave it empty the connection is still encrypted and SCRAM channel binding is still required, but the server certificate is not verified. Do not paste a private key; the CA text is not stored.",
            "k_not": "The password is not stored, not written to logs and is cleared from memory when the scan ends. The scan can take over a minute.", "baslat": "Start the scan"},
 }
 
@@ -189,9 +197,11 @@ def kanit_sayfasi(dil, token, komut):
               "<form class=\"form\" method=\"post\" action=\"/api/tarama/baglan/%s\" autocomplete=\"off\">"
               "<div class=\"field field-wide\"><label for=\"b-parola\">%s</label>"
               "<input id=\"b-parola\" name=\"parola\" type=\"password\" required maxlength=\"1024\" autocomplete=\"off\"></div>"
+              "<div class=\"field field-wide\"><label for=\"b-ca\">%s</label>"
+              "<textarea id=\"b-ca\" name=\"ca_pem\" rows=\"6\" maxlength=\"16384\" autocomplete=\"off\" spellcheck=\"false\"></textarea><p class=\"fine\">%s</p></div>"
               "<p class=\"form-foot\"><button class=\"btn\" type=\"submit\">%s</button></p></form><p class=\"fine\">%s</p></article>") % (
         escape(f["k_baslik"]), escape(f["k_lead"]), escape(komut), escape(f["k_sure"]), escape(token),
-        escape(f["parola"]), escape(f["baslat"]), escape(f["k_not"]))
+        escape(f["parola"]), escape(f["ca_etiket"]), escape(f["ca_ipucu"]), escape(f["baslat"]), escape(f["k_not"]))
     return _kabuk(d, f["k_baslik"], icerik)
 
 

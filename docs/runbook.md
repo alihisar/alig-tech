@@ -188,6 +188,37 @@ Portal `/portal/` altındadır. Açmak için `group_vars/all.yml` içinde `muste
 - Yönetici tarafı: panelde **Portal talepleri** (durum: Yeni, İnceleniyor, Tamamlandı, Reddedildi). Silme talebi yalnız kayıttır, veriyi kendiliğinden silmez: kimliği doğrulayıp firma sayfasındaki **Firmayı sil** ile uygulayın (portal hesapları ve talepleri de silinir), sonra talebi Tamamlandı yapın. Talep sahibine otomatik e-posta gitmez; yanıt sizin e-postanızdan verilir.
 - Parola sıfırlama bu dilimde yoktur: parolasını unutan kullanıcı için yeni bir hesap isteği yapılamaz (adreste etkin hesap varsa istek yeni hesap açmaz). Parola sıfırlama sonraki dilimde gelir; o zamana kadar canlıya açmayın.
 
+## Doğrudan bağlantı (Kip B, varsayılan kapalı)
+
+Kip B'de müşteri bağlantı bilgisini verir ve tarama alig.tech tarafında, ayrı `alig-calistirici` sürecinde koşar (`docs/kip-b-tasarim.md`). `ALIG_DOGRUDAN=1` ve çalıştırıcı soketi olmadan açılmaz; açma kararı ayrıdır, bu bölüm açmaz. Müşteri yalnızca yöneticinin firma sayfasında "Doğrudan bağlantı izni ver" dediği firmalar için istek açabilir.
+
+**İstekleri izleme.** Panelde **Kip B istekleri** (`/yonetim/kip-b`): salt okuma, 25'erli sayfalı, `firma` ve `durum` (bekliyor, tamam, iptal, deneme) süzgeçli. Hedef (ad:port), veritabanı, hesap, deneme sayısı ve geçerlilik sonu görünür. Parola, bağlantı dizgisi, sahiplik kanıtı, belirteç ve IP gösterilmez; parola hiçbir yerde saklanmaz. İstek kayıtları süresi dolunca silinir. Panele her bakış denetim zincirine yazılır.
+
+**Müşteriye vereceğiniz hazırlık** (site: `/tarama-hazirlik/`, "Doğrudan bağlantı (Kip B) için hazırlık"):
+
+1. Salt okunur rol: `alig-rol.sql` (pg_monitor üyesi, salt okunur oturum, 15 sn sorgu, 2 sn kilit). Parola `SET password_encryption TO 'scram-sha-256'` ile verilir; süper kullanıcı reddedilir.
+2. `pg_hba.conf`: yalnız TLS ve yalnız sabit çıkış adresimizden, `scram-sha-256`:
+
+   ```
+   hostssl  postgres  alig_hc  [doldurulacak: alig.tech çıkış IP adresi]/32  scram-sha-256
+   ```
+
+   Sabit çıkış IP adresi barındırma seçimine bağlıdır ve **henüz belli değil** (`docs/kip-b-tasarim.md`, karar bekleyenler); adres yazılana kadar müşteriye güvenlik duvarında izin verdirmeyin. Site metnindeki alan doldurulana dek `--release` paketleme durur (`docs/doldurulacak.md`).
+3. `channel_binding=require`: her bağlantıda zorunludur. Hesap SCRAM-SHA-256 ile ve TLS kanalına bağlı doğrulanmalı; `md5` ya da `password` yöntemli hesapla Kip B çalışmaz (bilerek). Müşteri sunucusunda `ssl = on`.
+4. Sunucu sertifikası doğrulaması (isteğe bağlı): parola adımında müşteri kendi CA'sını PEM olarak yapıştırırsa `sslmode=verify-full` ve geçici `sslrootcert` ile bağlanılır.
+
+**Sertifika doğrulaması nasıl işler.**
+
+- **Varsayılan (CA verilmediğinde, değişmedi):** `sslmode=require` + `channel_binding=require`. Bağlantı şifrelidir ve kanal bağlamalıdır ama sunucu sertifikası denetlenmez; bu, bu bölümden önceki davranıştır ve aşağı çekilmez.
+- **CA verilirse:** `sslmode=verify-full`. Sertifika zinciri verilen CA'ya, sertifikadaki ad (SAN) yazılan sunucu adına uymalıdır; uymazsa tarama başlamaz ve müşteri "bağlantı kurulamadı" sayfasını görür. Zayıf moda sessizce düşülmez.
+- **CA girdisi:** en çok 16 KiB, en çok 5 `BEGIN CERTIFICATE` bloğu, yalnızca ASCII ve base64; özel anahtar, ek metin, başlık satırı, NUL ve DER `SEQUENCE` ile başlamayan gövde reddedilir ("CA sertifikası kabul edilmedi" sayfası; deneme hakkı harcanmaz, bağlantı açılmaz). Aynı denetim çalıştırıcıda yeniden yapılır.
+- **Geçici dosya:** çalıştırıcı kullanıcısının özel `/tmp` alanında (`PrivateTmp`) 0700 dizin ve 0600 dosya; tarama başarılı, başarısız ya da hatalı olsun iş bitince silinir. CA metni veritabanına, denetim kaydına ve günlüğe yazılmaz.
+- `sslrootcert` yolu bağlantı dizgisine girmeden önce kati kalıptan geçer (mutlak yol; harf, rakam, `. _ / -`); boşluk, tırnak, `=`, ters bölü ya da satır sonu içeren yol reddedilir.
+
+**Yanıt süresi sabitleme.** Hedef reddi (iç adres, kötü ad ya da port, DNS çözülememesi) ve bağlantı hatası (ulaşılamayan port, yanlış parola) aynı sayfayı ve aynı alt süreyi verir; iç ağın yanıt zamanlamasıyla taranması zorlaşır. Form adımında reddedilen hedefler en az 6 sn (`SABIT_RED_SN`), parola adımında bağlantı hataları en az 12 sn (`SABIT_BAGLANTI_SN`, psql `connect_timeout=10` sn'yi kapsar) sonra yanıtlanır. Bunlar **alt sınırdır**: ad çözümü ya da bağlantı bu süreyi zaten aşarsa ek bekleme olmaz, yani çok yavaş DNS yine ayırt edilebilir. Başarılı akış ve hedefle ilgisiz hatalar (izin yok, e-posta geçersiz) bekletilmez. Bekleyen istek bir iş parçacığı tutar; saatte 5 istek ve eşzamanlı tarama sınırları bu yükü sınırlar.
+
+**Sınama durumu.** Sertifika doğrulaması PostgreSQL 16'da gerçek TLS bağlantısıyla sınandı (`tests/test_baglanti_tls.py`, geçici kendinden imzalı CA): doğru CA ve ad başarılı; yabancı CA ve uyuşmayan sunucu adı başarısız; CA'sız varsayılan aynen bağlanır. PG18'de ve gerçek müşteri sunucusunda sınanmadı; çalıştırıcının systemd altında davranışı (özel `/tmp`) gerçek sunucuda sınanmadı.
+
 ## Sorun giderme
 
 | Belirti | Bak |

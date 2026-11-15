@@ -9,10 +9,12 @@ Bu liste `python3 ci/check_placeholders.py --write docs/doldurulacak.md` ile ür
 | tr | `about_todo` | [doldurulacak: kurucunun adı, deneyim yılı, profil bağlantısı] |
 | tr | `foot_mail` | [doldurulacak: e-posta adresi] |
 | tr | `page_pending` | [doldurulacak] |
+| tr | `hz_b_hba` | [doldurulacak: alig.tech çıkış IP adresi] |
 | en | `sec_v_kvkk` | [doldurulacak: legal review] |
 | en | `about_todo` | [doldurulacak: founder's name, years of experience, profile link] |
 | en | `foot_mail` | [doldurulacak: email address] |
 | en | `page_pending` | [doldurulacak] |
+| en | `hz_b_hba` | [doldurulacak: alig.tech egress IP address] |
 
 Diğer açık kararlar (metinde değil, yapılandırmada):
 

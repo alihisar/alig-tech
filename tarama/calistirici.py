@@ -27,10 +27,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tarama import baglanti, hedef, yukleme  # noqa: E402
 
-ISTEK_SINIRI = 16 * 1024
+ISTEK_SINIRI = 16 * 1024 + 2 * baglanti.CA_PEM_SINIRI   # + CA PEM (JSON kacisi satir sonunu iki bayta cikarir)
 YANIT_SINIRI = yukleme.MAX_BAYT + 64 * 1024
 KANIT = re.compile(r"^[0-9a-f]{32}$")
 ALANLAR = {"ad", "ip", "port", "veritabani", "kullanici", "parola", "kanit", "maskele"}
+ISTEGE_BAGLI = {"ca_pem"}   # verilmezse mevcut davranis: sslmode=require
 SURE = 150
 
 
@@ -78,12 +79,18 @@ class _Isleyici(socketserver.BaseRequestHandler):
             i = cerceve_al(self.request, ISTEK_SINIRI)
         except (ValueError, ConnectionError, OSError, UnicodeError, struct.error):
             return {"hata": "bicim"}
-        if not isinstance(i, dict) or set(i) != ALANLAR:
+        if not isinstance(i, dict) or not ALANLAR <= set(i) <= ALANLAR | ISTEGE_BAGLI:
             return {"hata": "bicim"}
         if (not isinstance(i["kanit"], str) or not KANIT.match(i["kanit"]) or not isinstance(i["parola"], str) or not i["parola"]
                 or not isinstance(i["maskele"], bool) or not isinstance(i["veritabani"], str) or not isinstance(i["kullanici"], str)
                 or not baglanti.AD.match(i["veritabani"]) or not baglanti.AD.match(i["kullanici"])):
             return {"hata": "bicim"}
+        ca_pem = i.get("ca_pem")
+        if "ca_pem" in i:
+            try:
+                ca_pem = baglanti.ca_dogrula(ca_pem)
+            except baglanti.BaglantiHatasi:
+                return {"hata": "ca"}
         try:   # hedefi yeniden denetle: web surecine guvenilmez
             ip = ipaddress.ip_address(i["ip"]) if isinstance(i["ip"], str) else None
             port = hedef._port(i["port"])
@@ -94,10 +101,11 @@ class _Isleyici(socketserver.BaseRequestHandler):
             return {"hata": "hedef"}
         if not s.yuva.acquire(blocking=False):
             return {"hata": "mesgul"}
+        ek = {"ca_pem": ca_pem} if ca_pem is not None else {}
         try:
             belge = s.tara(hedef.Hedef(ad if ad_ip is None else str(ip), str(ip), port), veritabani=i["veritabani"],
                            kullanici=i["kullanici"], parola=i["parola"], kanit=i["kanit"], psql=s.psql, sslmode="require",
-                           maskele=i["maskele"])
+                           maskele=i["maskele"], **ek)
             return {"belge": belge}
         except baglanti.BaglantiHatasi as e:
             return {"hata": e.kod}
@@ -126,10 +134,12 @@ class Sunucu(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         self.yuva = threading.BoundedSemaphore(es_zamanli)
 
 
-def uzaktan_tara(soket, h, veritabani, kullanici, parola, kanit, maskele=False, **_):
+def uzaktan_tara(soket, h, veritabani, kullanici, parola, kanit, maskele=False, ca_pem=None, **_):
     """Web sureci tarafi. Dogrulanmis belgeyi dondurur ya da BaglantiHatasi firlatir."""
     istek = {"ad": h.ad, "ip": h.ip, "port": h.port, "veritabani": veritabani, "kullanici": kullanici,
              "parola": parola, "kanit": kanit, "maskele": bool(maskele)}
+    if ca_pem:
+        istek["ca_pem"] = ca_pem
     sok = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sok.settimeout(SURE + 10)
     try:
@@ -144,7 +154,7 @@ def uzaktan_tara(soket, h, veritabani, kullanici, parola, kanit, maskele=False, 
         raise baglanti.BaglantiHatasi("calistirici")
     if "hata" in yanit:
         kod = yanit["hata"]
-        raise baglanti.BaglantiHatasi(kod if kod in ("baglanti", "kanit", "super", "zaman", "bicim", "hedef", "mesgul", "calistirici") else "baglanti")
+        raise baglanti.BaglantiHatasi(kod if kod in ("baglanti", "kanit", "super", "zaman", "bicim", "hedef", "mesgul", "calistirici", "ca") else "baglanti")
     try:
         return yukleme.dogrula(yanit.get("belge"))   # calistiriciya da guvenilmez
     except (yukleme.Gecersiz, TypeError, KeyError):
