@@ -145,3 +145,45 @@ Her satırda koruma geçici bir kopyada kaldırıldı ve ilgili test modülü ç
 | `channel_binding` ve firma eşitleme işareti | Önce kaçtı: ilkinde mutasyon kalıbı koddaki değil yorumdaki metne denk geldi; ikincisinde test verisi tek talep içerdiği için fark görünmüyordu. Kalıp düzeltildi, test beş talebe çıkarıldı; ikisi de yakalandı |
 | TOTP girişinde kilit | Önce üç denemenin yalnız birinde yakalandı (yarışa bağlı). Test, kod denetimini yavaşlatarak yarış penceresini genişletecek biçimde değiştirildi; üç denemenin üçünde yakalandı |
 
+## ALIG-SCAN-001: tarama güvenliği denetimi (2026-11-15)
+
+Kapsam: Kip A toplayıcı (`tarama/toplayici/sablon.py`, üretilen `site/assets/alig-toplayici.py`, `tarama/onsurum/`) ve Kip B (`tarama/hedef.py`, `tarama/baglanti.py`, `tarama/calistirici.py`, ilgili uçlar). Yöntem: kodu okuma, sondalar, mutasyon denemesi, PG16 geçici kümesi. Testler: `tests/test_tarama_guvenlik.py`. Toplayıcı kaynağı değiştirilmedi; `uret_toplayici.py --kontrol` 0 döner.
+
+### S1 `tarama/hedef.py` ve `tarama/baglanti.py` — IPv6 kapsam kimliği bağlantı dizgisine enjekte edilip SSRF reddini atlatıyordu — DÜZELTİLDİ
+
+- **BULGU:** `[...]` içindeki IPv6 yazımı `ipaddress.IPv6Address` ile ayrıştırılıyordu. Python 3.9+ `%` sonrası kapsam kimliğini (`scope_id`) her metinle kabul eder (boşluk ve `=` dahil) ve `str(ip)` kimliği geri yazar. `Hedef.ad` ve `Hedef.ip` bu metni taşıyor, `baglanti_dizgisi` `host=%s hostaddr=%s` ile doğrudan birleştiriyordu. Adres kısmı genel IP olduğundan `adres_uygun` geçiyordu.
+- **KANIT:** `hedef.dogrula("[2606:2800:220:1::1%x hostaddr=127.0.0.1 sslmode=disable]", 5432)` kabul edildi; dizgi `host=2606:...%x hostaddr=127.0.0.1 sslmode=disable hostaddr=2606:...%x hostaddr=127.0.0.1 sslmode=disable port=54329 ...` oldu. `psql` bu dizgiyle PG16 geçici kümesinde 127.0.0.1:54329'a bağlandı; bağlantıyı yalnız `channel_binding=require` kesti ("channel binding required"; küme `trust` kimlik doğrulamalıydı). Aynı yol `calistirici.py` içinde `ipaddress.ip_address(i["ip"])` ile de açıktı.
+- **RİSK:** Müşteri formundaki "sunucu" alanıyla loopback, RFC1918 ya da bulut meta veri adreslerine bağlantı denenebilir; ek anahtarlarla (`options=-c default_transaction_read_only=off`, `sslmode=disable`) salt okunur ve TLS korumaları da ezilebilirdi. Kip B varsayılan kapalıdır ve çalıştırıcı birimi iç ağa `IPAddressDeny` ile kapalıdır (ikinci katman); ilk katman yine de delikti.
+- **DÜZELTME:** (1) `adres_uygun`: kapsam kimlikli adres hiçbir zaman uygun değil; `dogrula`: kimlikli iç adres `ic_adres`, kimlikli genel adres `ad` ile reddedilir. (2) `baglanti_dizgisi`: `host` ve `hostaddr` yalnız `[0-9A-Za-z.:-]`, port 1-65535 tam sayı değilse `BaglantiHatasi("bicim")` (çalıştırıcı soketinden gelen hedef için de geçerli). (3) `AD` kalıbında `$` yerine `\Z` (sondaki satır sonu). Testler: `HedefTablosuTests`, `BaglantiDizgisiSavunmasi`, `CalistiriciHedefTests`; ilgili korumalar kaldırılınca kırmızıya düştü.
+- **ÖNERİ:** `ALIG_YASAK_AGLAR` ve çalıştırıcı birimindeki `IPAddressDeny` açık kalsın; tek katmana güvenilmemeli.
+
+### S2 `tarama/baglanti.py` `_calistir` — psql çıktısı sınırsız bellekte toplanıyordu — DÜZELTİLDİ
+
+- **BULGU:** `subprocess.run(capture_output=True)` stdout'u süre sınırı dolana kadar (30 sn) bellekte biriktirir. Kip B'de sunucuyu müşteri seçer; düşmanca bir sunucu `LIMIT` ve `statement_timeout` dışında istediği büyüklükte yanıt gönderebilir.
+- **KANIT:** Sahte `psql` 200 MB yazarken test, `CIKTI_SINIRI` olmadığından kırmızıydı. Yeni `_surec_calistir`: stdout 2 MB'ı aşarsa süreç öldürülür, sonuç `hata`.
+- **RİSK:** Çalıştırıcı bellek tüketimiyle düşürülebilir; eşzamanlı iki tarama sınırı bunu hafifletmez.
+- **DÜZELTME:** `selectors` ile sınırlı okuma: stdout 2 MB, stderr 64 KB, toplam süre sınırı, her durumda `kill`. Test: `CiktiSiniriTests`. Kip A'da değişiklik gerekmedi: toplayıcı müşterinin kendi makinesinde, kendi sunucusuna karşı çalışır.
+
+### S3 Toplayıcı ve Kip B: yalnız okuma, allowlist, oturum ayarları — DOĞRULANDI (eksik testler eklendi)
+
+- **BULGU:** Mevcut `KatalogTests` yalnız `katalog.PG` sorgularını denetliyordu; `YASAKLI` listesinde `into`, `set_config`, `nextval`/`setval`, `for update`, `pg_advisory_*`, `pg_stat_reset*` yoktu; veritabanı listesi sorgusu, ilk bağlantı sorguları (Kip A ve Kip B), üretilmiş toplayıcının gömülü katalogu, `sorgu-katalogu*.txt` ve SQL Server toplayıcısı bu allowlist'ten geçmiyordu.
+- **KANIT:** Yeni `TumSqlAllowlistTests`: yalnız `SELECT`/`SHOW`/`WITH ... SELECT`, tek deyim, yorum yok, geniş yasak kalıp listesi (INSERT/UPDATE/DELETE/ALTER/CREATE/DROP/TRUNCATE/GRANT/COPY/`pg_terminate_backend`/`pg_cancel_backend`/`pg_reload_conf`/`set_config`/`SELECT INTO`/`FOR UPDATE` vb.); denetleyici önce 38 kötü örnekle kendini sınar. Kapsam: katalog (eski sürüm biçimleri dahil, 26 denetim), `VT_LISTE_SQL`, `ILK_SORGU`, üretilen toplayıcının AST'deki tüm SQL sabitleri ve gömülü `KATALOG`, `sorgu-katalogu.txt`, SQL Server toplayıcısı ve `sorgu-katalogu-mssql.txt`; `calistir()` çağrılarının SQL'inin yalnız sabit ya da katalogdan geldiği AST ile denetlenir. Hepsi geçti, hiçbir sorgu değişmedi. Oturum: iki yol da her `psql` çağrısında `PGOPTIONS` ile `default_transaction_read_only=on`, `statement_timeout=15000`, `lock_timeout=2000` verir ve ortamdaki düşmanca `PGOPTIONS` ezilir (mock testleri; mutasyonla doğrulandı). PG16'da: toplayıcı oturumu `on / 15s / 2s` döndü, sarmalı kırıp `CREATE TABLE` ekleyen metin salt okunur oturumda reddedildi ve tablo oluşmadı, 26 denetimin hepsi salt okunur oturumda çalıştı. Kip B: toplam süre bütçesi bitince katalog denetimleri çalışmıyor.
+- **RİSK:** `default_transaction_read_only` bir güvenlik sınırı değil, kazaya karşı ağdır: oturumdaki SQL `SET` ile aşabilir. Gerçek sınır, SQL metninin sabit katalogdan gelmesi ve allowlist testidir. Hesabın yetkisiz olması (öneri: `pg_monitor`) üçüncü katmandır.
+- **ÖNERİ:** Toplayıcı kaynağında değişiklik gerekmedi. `BEGIN READ ONLY` eklemek, ilk sorgudan önce `SET TRANSACTION READ WRITE` ile aşılabileceğinden anlamlı ek koruma sağlamaz.
+
+### S4 SQL Server toplayıcısı (ön sürüm): oturum düzeyinde salt okunur kip yok — AÇIK, KABUL EDİLEN
+
+- **BULGU:** `ON_EK` yalnız `SET NOCOUNT ON`, `SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED`, `SET LOCK_TIMEOUT 2000`, `SET DEADLOCK_PRIORITY LOW`, `DECLARE @j`; sorgu zaman aşımı `sqlcmd -t 15`, bağlantı `-l 15`.
+- **KANIT:** `test_mssql_sabit_on_ek_yalniz_oturum_ayari` ön eki sabitler. SQL Server'da `default_transaction_read_only` karşılığı yoktur (`ApplicationIntent=ReadOnly` yalnız kullanılabilirlik grubu yönlendirmesidir, yazmayı engellemez).
+- **RİSK:** Koruma yalnız sabit SELECT'ler ve hesabın yetkisidir (`alig-giris-mssql.sql`: `VIEW SERVER STATE`, `VIEW ANY DEFINITION`).
+- **ÖNERİ:** Yetki betiğinin dışında yetki verilmesin; `ALIG_MSSQL` zaten varsayılan kapalı. Gerçek SQL Server'da sınanmadı.
+
+### S5 Kip B hedef doğrulaması, kaynak sınırları, varsayılan kapalı — DOĞRULANDI (tablo güdümlü testler eklendi)
+
+- **BULGU:** Mevcut testler iyiydi; eksikler: IPv6 kapsam kimliği, IPv4-mapped onaltılık yazımlar (`::ffff:7f00:1`), `::ffff:0:a.b.c.d`, tam genişlikli rakamlar ve kontrol karakterleri, çözümleyicinin bozuk kayıt döndürmesi, port tabloları (`"05432"`, `"+5432"`, Arapça rakam, `True`), hedefin çalıştırıcı soketinden gelmesi, kaynak sınırlarının sınırda ve sınırın üstünde sınanması (5 MB, derinlik 8, 200 ve 5000 satır, 1000 atlanan, yapı/tırnak/kaçış sayısı), `TARAMA_YUVASI` ve çalıştırıcı eşzamanlılığı (2), çerçeve boyutu, Kip B kapalıyken uçların 404'ü.
+- **KANIT:** `HedefTablosuTests` (90 doğrudan girdi, 22 çözümleme senaryosu, port tabloları), `CalistiriciHedefTests`, `SinirTests`, `KapaliTests`, `KapaliUclarTests` (kapalıyken `GET`/`POST` `/api/tarama/baglan` ve `/api/tarama/baglan/<belirteç>` 404; `baglanti.tara` ve çalıştırıcı çağrılmıyor). `ALIG_DOGRUDAN` yalnız tam `1` ve çalıştırıcı soketiyle açılır; `deploy/` ve `config.example` içinde koşulsuz `ALIG_DOGRUDAN=1` yoktur.
+- **RİSK (tasarım, bulgu değil):** İzinli port aralığı 1024-65535 ile 5432/1433; internete açık herhangi bir adresin yüksek portu denenebilir. Yanıt tek tip olduğundan port taraması için işe yaramaz; firma başına istek ve deneme sınırları ek frendir.
+- **ÖNERİ:** İş gereği genişse müşteri başına izinli port listesi düşünülebilir; şimdilik değişiklik yok.
+
+Mutasyon: kapsam kimliği denetimi, `baglanti_dizgisi` doğrulaması, psql çıktı sınırı, Kip A `lock_timeout` ve Kip A `default_transaction_read_only=on` satırları geçici olarak bozuldu; her biri ilgili testi kırmızıya düşürdü, sonra geri alındı.
+
