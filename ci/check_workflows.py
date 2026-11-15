@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CI tanimlarinda her dis eylem (uses:) 40 haneli commit SHA'sina sabitlenmeli."""
+"""In CI definitions, every external action (uses:) must be pinned to a 40-character commit SHA."""
 import re
 import sys
 from pathlib import Path
@@ -19,11 +19,11 @@ def check(root=ROOT):
         for ref in USES.findall(read_text(path)):
             if ref.startswith("./") or PINNED.match(ref):
                 continue
-            problems.append(f"{rel(path, root)}: SHA'ya sabitlenmemis eylem: {ref}")
+            problems.append(f"{rel(path, root)}: action not pinned to a SHA: {ref}")
     return problems
 
 
 if __name__ == "__main__":
     out = check(sys.argv[1] if len(sys.argv) > 1 else ROOT)
-    print("\n".join(out) or "is akisi sabitleme: tamam")
+    print("\n".join(out) or "workflow pinning: ok")
     sys.exit(1 if out else 0)

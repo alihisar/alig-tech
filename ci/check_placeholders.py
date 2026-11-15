@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""'[doldurulacak ...]' alanlarini listeler. --release ile (uretim etiketi) kalan alan varsa kirilir.
+"""Lists '[doldurulacak ...]' (to be filled in) fields. With --release (production tag) it fails if any field remains.
 
---write docs/doldurulacak.md kaynak metinlerdeki (site/i18n) alanlari belge olarak yazar.
+--write docs/doldurulacak.md writes the fields in the source texts (site/i18n) out as a document.
 """
 import argparse
 import json
@@ -48,9 +48,9 @@ def render_doc(rows):
 def check(dist, release=False):
     found = scan_dist(dist)
     for page, hits in found.items():
-        print(f"{page}: {len(hits)} alan")
+        print(f"{page}: {len(hits)} fields")
     if release and found:
-        return [f"{p}: {len(h)} doldurulmamış alan" for p, h in found.items()]
+        return [f"{p}: {len(h)} unfilled fields" for p, h in found.items()]
     return []
 
 
@@ -62,7 +62,7 @@ if __name__ == "__main__":
     args = ap.parse_args()
     if args.write:
         Path(args.write).write_text(render_doc(scan_i18n()), encoding="utf-8")
-        print(f"yazildi: {args.write}")
+        print(f"written: {args.write}")
     out = check(args.dist, args.release)
-    print("\n".join(out) or "placeholder: tamam")
+    print("\n".join(out) or "placeholders: ok")
     sys.exit(1 if out else 0)

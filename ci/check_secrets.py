@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sir taramasi: depo kaynagi ve derlenmis cikti. Ornek degerler (CHANGE_ME, example) hata sayilmaz."""
+"""Secret scan: repository source and built output. Example values (CHANGE_ME, example) are not counted as errors."""
 import re
 import sys
 from pathlib import Path
@@ -7,12 +7,12 @@ from pathlib import Path
 from common import ROOT, TEXT_SUFFIXES, iter_files, read_text, rel
 
 PATTERNS = [
-    ("ozel anahtar blogu", re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")),
-    ("AWS erisim anahtari", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
-    ("GitHub belirteci", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b")),
-    ("Slack belirteci", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b")),
-    ("Bearer belirteci", re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{24,}")),
-    ("atanmis sir", re.compile(
+    ("private key block", re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")),
+    ("AWS access key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("GitHub token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b")),
+    ("Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b")),
+    ("Bearer token", re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{24,}")),
+    ("assigned secret", re.compile(
         r"(?i)\b[\w.-]*(?:password|passwd|secret|api[_-]?key|token)[\w.-]*\s*[:=]\s*['\"]?([A-Za-z0-9/+_\-.]{12,})")),
 ]
 BENIGN = re.compile(r"CHANGE_ME|example|placeholder|dummy|\$\{|\{\{", re.I)
@@ -41,5 +41,5 @@ def check(dist=None, root=ROOT):
 
 if __name__ == "__main__":
     out = check(sys.argv[1] if len(sys.argv) > 1 else None)
-    print("\n".join(out) or "sir: tamam")
+    print("\n".join(out) or "secrets: ok")
     sys.exit(1 if out else 0)

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Boyut butcesi: ana sayfanin (HTML + CSS + JS + yazi tipi + ikon) toplam bayti.
+"""Size budget: total bytes of the home page (HTML + CSS + JS + font + icon).
 
-Her dil icin ana sayfanin istedigi tum kaynaklar tekil sayilir. Yazi tipi alt kumeleri (latin, latin-ext)
-Turkce metinde ikisi de indirildigi icin hepsi sayilir.
+For each language, all resources the home page requests are counted once. Font subsets (latin, latin-ext)
+are all counted because both are downloaded for Turkish text.
 """
 import re
 import sys
@@ -60,20 +60,20 @@ def check(dist, budget=DEFAULT_BUDGET):
     problems = []
     for lang, page in (("tr", dist / "index.html"), ("en", dist / "en" / "index.html")):
         if not page.is_file():
-            problems.append(f"{lang}: ana sayfa yok ({page})")
+            problems.append(f"{lang}: home page missing ({page})")
             continue
         files = page_weight(dist, page)
         total = sum(files.values())
-        print(f"{lang}: {total / 1024:.1f} KB / {budget / 1024:.0f} KB ({len(files)} dosya)")
+        print(f"{lang}: {total / 1024:.1f} KB / {budget / 1024:.0f} KB ({len(files)} files)")
         if total > budget:
             top = sorted(files.items(), key=lambda kv: -kv[1])[:5]
             detail = ", ".join(f"{p.name} {s // 1024} KB" for p, s in top)
-            problems.append(f"{lang}: ana sayfa {total} bayt, butce {budget}. En buyukler: {detail}")
+            problems.append(f"{lang}: home page {total} bytes, budget {budget}. Largest: {detail}")
     return problems
 
 
 if __name__ == "__main__":
     budget = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_BUDGET
     out = check(sys.argv[1], budget)
-    print("\n".join(out) or "boyut: tamam")
+    print("\n".join(out) or "size: ok")
     sys.exit(1 if out else 0)

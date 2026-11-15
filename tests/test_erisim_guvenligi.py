@@ -1,9 +1,9 @@
-"""ALIG-SEC-001: yonetim ve rapor erisim guvenligi denetimi. Negatif testler: erisimin OLMAMASI gereken her yol sinanir.
+"""ALIG-SEC-001: access security review of the admin panel and reports. Negative tests: every path where access must NOT be possible is tested.
 
-Kapsam: rapor belirteci firmalar arasi ve yasam suresi (tarama/server.py), yonetim uclarinin oturumsuz erisime kapaliligi
-ve CSV disa aktarma (yonetim/server.py), rapor HTML kacisi (tarama/rapor.py; musteri, portal ve yonetim gorunumu),
-TOTP tekrar kullanimi ve oturum kodunun ozetle saklanmasi (yonetim/guvenlik.py, yonetim/depo.py), TOTP kurtarma
-(yonetim/kullanici.py) ve bulgularin belgelerde kayitli olmasi."""
+Scope: report token across companies and over its lifetime (tarama/server.py), closure of the admin endpoints to unauthenticated access
+and CSV export (yonetim/server.py), report HTML escaping (tarama/rapor.py; customer, portal and admin views),
+TOTP replay and storing the session code as a digest (yonetim/guvenlik.py, yonetim/depo.py), TOTP recovery
+(yonetim/kullanici.py) and the findings being recorded in the docs."""
 import contextlib
 import hashlib
 import html
@@ -34,7 +34,7 @@ import test_yonetim  # noqa: E402
 
 PAROLA = test_yonetim.PAROLA
 GECMIS = "2000-01-01T00:00:00Z"
-ZQ = 'ZQ"><svg onload=alert(1)>\'</code><script>alert(2)</script>&amp;ZQ'   # tirnak, etiket ve varlik kacislari bir arada (65 karakter)
+ZQ = 'ZQ"><svg onload=alert(1)>\'</code><script>alert(2)</script>&amp;ZQ'   # quote, tag and entity escapes together (65 characters)
 
 
 def belirtec(yol):
@@ -42,7 +42,7 @@ def belirtec(yol):
 
 
 def zehirli_belge():
-    """Her metin kolonunda ZQ bulunan, tum PostgreSQL denetimlerini iceren belge (yukleme denetimini atlayan kayit gibi)."""
+    """A document with ZQ in every text column, containing all PostgreSQL checks (like a record that bypasses the load check)."""
     b = test_tarama.temiz_belge()
     for cid, kolonlar in yukleme.TURLER.items():
         satir = {k: (ZQ if t == "metin" else True if t == "mantik" else 0.5 if t == "sayi" else 1) for k, t in kolonlar.items()}
@@ -53,13 +53,13 @@ def zehirli_belge():
 
 
 def kacis_denetle(tc, sayfa, ad=""):
-    """ZQ'dan etiket ya da oznitelik kirilimi olusmamis olmali."""
+    """No tag or attribute break-out must have arisen from ZQ."""
     for yasak in ("<svg", "<script", "<img src=x", 'ZQ"', "onload=alert(1)>", "</code><script"):
         tc.assertNotIn(yasak, sayfa, "%s: ham %r" % (ad, yasak))
 
 
 class RaporBelirteciTests(test_tarama._SunucuTaban):
-    """/rapor/<belirtec>/ ucu: belirtec yalniz kendi raporunu acar, sure ve silme sonrasi hicbir uc veri vermez."""
+    """The /rapor/<token>/ endpoint: the token opens only its own report, and after expiry and deletion no endpoint gives any data."""
 
     def iki_firma(self):
         self.la = self.yukle(test_tarama.farkli_belge(1), eposta="a@firma-a.com.tr", sirket="Firma A").getheader("Location")
@@ -70,7 +70,7 @@ class RaporBelirteciTests(test_tarama._SunucuTaban):
     def yalniz_a(self, yol):
         r, g = self.get(yol)
         g = g.decode("utf-8", "replace")
-        self.assertNotIn("12:00:02Z", g, yol)   # B'nin tarama zamani
+        self.assertNotIn("12:00:02Z", g, yol)   # B's scan time
         return r, g
 
     def test_firma_belirteci_yalniz_kendi_raporunu_acar(self):
@@ -83,16 +83,16 @@ class RaporBelirteciTests(test_tarama._SunucuTaban):
         self.assertIn("12:00:02Z", gb.decode())
         self.assertNotIn("12:00:01Z", gb.decode())
         for g_ in (ga.decode(), gb.decode()):
-            self.assertNotIn("Firma A", g_)   # rapor firma adini tasimaz
+            self.assertNotIn("Firma A", g_)   # the report does not carry the company name
             self.assertNotIn("Firma B", g_)
-        # silme formu yalniz kendi belirtecine isaret eder
+        # the delete form points only to its own token
         self.assertIn("/rapor/%s/sil" % self.ta, ga.decode())
         self.assertNotIn(self.tb, ga.decode())
 
     def test_bozulmus_belirteclerle_hicbir_rapor_acilmaz(self):
         self.iki_firma()
         alfabe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-        for i in range(43):   # her konumda tek karakter degisimi
+        for i in range(43):   # a single-character change at every position
             ters = alfabe[(alfabe.index(self.ta[i]) + 1) % len(alfabe)]
             kotu = self.ta[:i] + ters + self.ta[i + 1:]
             self.assertEqual(self.get("/rapor/%s/" % kotu)[0].status, 404, "konum %d" % i)
@@ -117,13 +117,13 @@ class RaporBelirteciTests(test_tarama._SunucuTaban):
         self.iki_firma()
         con = depo.baglan(self.db)
         once = con.execute("SELECT id, dogrulandi, bitis_utc FROM rapor ORDER BY id").fetchall()
-        bozuk = ("B" if self.tb[0] == "A" else "A") + self.tb[1:]   # ilk karakter her zaman degisir (64'te 1 cakisma olmasin)
+        bozuk = ("B" if self.tb[0] == "A" else "A") + self.tb[1:]   # the first character always changes (so there is no 1-in-64 collision)
         ters = self.tb[::-1]
         self.assertNotEqual(ters, self.tb)
         for yol in ("/rapor/%s/sil" % bozuk, "/rapor/%s/dogrula" % bozuk, "/rapor/%s/sil" % ters):
             self.assertEqual(self.post(yol)[0].status, 404, yol)
         self.assertEqual(con.execute("SELECT id, dogrulandi, bitis_utc FROM rapor ORDER BY id").fetchall(), once)
-        # A'nin kendi belirteci yalniz A'yi siler
+        # A's own token deletes only A
         self.assertEqual(self.post("/rapor/%s/sil" % self.ta)[0].status, 303)
         self.assertEqual(self.get(self.la)[0].status, 404)
         self.assertEqual(self.get(self.lb)[0].status, 200)
@@ -140,19 +140,19 @@ class RaporBelirteciTests(test_tarama._SunucuTaban):
             self.assertNotIn(b"12:00:01Z", g)
             self.assertNotIn(b"Denetim sonu", g)
         r, g = self.post("/rapor/%s/dogrula" % self.ta)
-        self.assertEqual(r.status, 404)   # dogrulanmis ama suresi dolmus: 303 ile "tamam" denmez
+        self.assertEqual(r.status, 404)   # verified but expired: not answered with 303 as if "ok"
         self.assertEqual(g, b"yok\n")
-        # silme ucu icerik vermez; sonrasinda rapor yine acilmaz
+        # the delete endpoint gives no content; afterwards the report still does not open
         r, g = self.post("/rapor/%s/sil" % self.ta)
-        self.assertIn(r.status, (303, 404))   # temizlik calisana kadar satir durur; hangisi donerse donsun icerik gelmez
+        self.assertIn(r.status, (303, 404))   # the row stays until cleanup runs; whichever is returned, no content comes
         self.assertNotIn(b"12:00:01Z", g)
         self.assertEqual(self.get(self.la)[0].status, 404)
-        self.assertEqual(self.get(self.lb)[0].status, 200)   # B etkilenmez
+        self.assertEqual(self.get(self.lb)[0].status, 200)   # B is not affected
 
     def test_bitis_siniri_saniye_hassasiyetinde(self):
         self.iki_firma()
         con = depo.baglan(self.db)
-        con.execute("UPDATE rapor SET bitis_utc=? WHERE id=1", (depo.simdi(),))   # tam simdi: sure doldu sayilir (bitis > simdi aranir)
+        con.execute("UPDATE rapor SET bitis_utc=? WHERE id=1", (depo.simdi(),))   # exactly now: the time counts as expired (the query looks for end > now)
         con.commit()
         self.assertEqual(self.get(self.la)[0].status, 404)
 
@@ -161,9 +161,9 @@ class RaporBelirteciTests(test_tarama._SunucuTaban):
         self.assertEqual(self.post("/rapor/%s/sil" % self.ta)[0].status, 303)
         for yol in (self.la, self.la.rstrip("/")):
             self.assertEqual(self.get(yol)[0].status, 404)
-        self.assertEqual(self.post("/rapor/%s/dogrula" % self.ta)[0].status, 404)   # silinen rapor dogrulanamaz
+        self.assertEqual(self.post("/rapor/%s/dogrula" % self.ta)[0].status, 404)   # a deleted report cannot be verified
         self.assertEqual(self.post("/rapor/%s/sil" % self.ta)[0].status, 404)
-        # ayni dosya yeniden yuklenirse yeni belirtec: eskisi yine 404
+        # if the same file is uploaded again, a new token: the old one is still 404
         yeni = self.yukle(test_tarama.farkli_belge(1), eposta="a@firma-a.com.tr", sirket="Firma A").getheader("Location")
         self.assertNotEqual(belirtec(yeni), self.ta)
         self.assertEqual(self.get(yeni)[0].status, 200)
@@ -173,7 +173,7 @@ class RaporBelirteciTests(test_tarama._SunucuTaban):
         self.iki_firma()
         r, g = self.get(self.la)
         self.assertEqual(r.getheader("Cache-Control"), "no-store")
-        self.assertEqual(r.getheader("Referrer-Policy"), "no-referrer")   # belirtec yolda: baska siteye sizmasin
+        self.assertEqual(r.getheader("Referrer-Policy"), "no-referrer")   # the token is in the path: it must not leak to another site
         self.assertEqual(r.getheader("X-Content-Type-Options"), "nosniff")
         self.assertIn(b'name="robots" content="noindex,nofollow"', g)
         r404, _ = self.get("/rapor/%s/" % ("A" * 43))
@@ -186,11 +186,11 @@ class RaporBelirteciTests(test_tarama._SunucuTaban):
         for (olay,) in con.execute("SELECT olay FROM denetim"):
             self.assertNotIn(self.ta, olay)
             self.assertNotIn(self.tb, olay)
-        self.assertNotIn(self.tb, "".join(str(x) for x in con.execute("SELECT * FROM rapor")))   # yalniz SHA-256 ozeti
+        self.assertNotIn(self.tb, "".join(str(x) for x in con.execute("SELECT * FROM rapor")))   # only the SHA-256 digest
 
 
 class BekleyenRaporSureTests(test_tarama._SunucuTaban):
-    """E-posta dogrulamasi acikken: bekleyen raporun suresi, silinmesi ve dogrulama ucu."""
+    """With email verification on: the pending report's expiry, deletion and the verification endpoint."""
     H_EK = {"eposta_dogrulama": True, "site_adresi": "https://alig.test"}
 
     def con(self):
@@ -216,9 +216,9 @@ class BekleyenRaporSureTests(test_tarama._SunucuTaban):
         c = self.con()
         c.execute("UPDATE rapor SET bitis_utc=?", (GECMIS,))
         c.commit()
-        self.assertEqual(self.get("/rapor/%s/" % t)[0].status, 404)   # onay sayfasi da gelmez
+        self.assertEqual(self.get("/rapor/%s/" % t)[0].status, 404)   # the confirmation page does not come either
         self.assertEqual(self.post("/rapor/%s/dogrula" % t)[0].status, 404)
-        self.assertEqual(self.get("/rapor/%s/" % t)[0].status, 404)    # dogrulama ile dirilmedi
+        self.assertEqual(self.get("/rapor/%s/" % t)[0].status, 404)    # it was not revived by verification
         self.assertEqual(self.con().execute("SELECT dogrulandi FROM rapor").fetchone()[0], 0)
         self.assertEqual(self.kullanim("a@firma-a.com.tr"), 0)
 
@@ -243,14 +243,14 @@ class BekleyenRaporSureTests(test_tarama._SunucuTaban):
         tb = self.bekleyen(2, "b@firma-b.com.tr")
         self.assertEqual(self.post("/rapor/%s/dogrula" % ta)[0].status, 303)
         c = self.con()
-        self.assertEqual(c.execute("SELECT dogrulandi FROM rapor WHERE id=2").fetchone()[0], 0)   # B hala bekliyor
+        self.assertEqual(c.execute("SELECT dogrulandi FROM rapor WHERE id=2").fetchone()[0], 0)   # B is still pending
         self.assertEqual(self.kullanim("b@firma-b.com.tr"), 0)
         self.assertNotIn(b"12:00:02Z", self.get("/rapor/%s/" % ta)[1])
         self.assertNotIn(b"Denetim sonu", self.get("/rapor/%s/" % tb)[1])
 
 
 class RaporKacisTests(unittest.TestCase):
-    """Rapor HTML'i: nesne adi ve metin degerleri etiket ya da oznitelik kiramaz (yukleme denetimini atlayan kayit dahil)."""
+    """Report HTML: object name and text values cannot break a tag or attribute (including a record that bypasses the load check)."""
 
     def _rapor(self, belge, dil="tr"):
         return {"id": 1, "olusturma_utc": "2026-11-10T12:00:00Z", "bitis_utc": "2026-12-10T12:00:00Z", "motor": "postgresql", "dil": dil, "belge": belge}
@@ -270,7 +270,7 @@ class RaporKacisTests(unittest.TestCase):
         belge["olusturma_utc"] = ZQ
         r = self._rapor(belge)
         r["bitis_utc"] = ZQ
-        sayfa = rapor.sayfa(r, "tr", ZQ)   # belirtec yol deseniyle sinirli; yine de kacislanir
+        sayfa = rapor.sayfa(r, "tr", ZQ)   # the token is limited by the path pattern; it is still escaped
         kacis_denetle(self, sayfa, "ust alanlar")
 
     def test_atlanan_veritabani_adi_kacislidir(self):
@@ -283,7 +283,7 @@ class RaporKacisTests(unittest.TestCase):
 
 
 class RaporKacisSunucuTests(test_tarama._SunucuTaban):
-    """Kotu nesne adli rapor, musteri baglantisindan iki dilde ve iki gorunumde kacisli gelir."""
+    """A report with a bad object name comes escaped from the customer link, in two languages and two views."""
 
     def test_musteri_baglantisi(self):
         con = depo.baglan(self.db)
@@ -295,13 +295,13 @@ class RaporKacisSunucuTests(test_tarama._SunucuTaban):
                 r, govde = self.get("/rapor/%s/?gorunum=%s" % (t, g))
                 self.assertEqual(r.status, 200)
                 kacis_denetle(self, govde.decode(), "%s/%s" % (dil, g))
-        r, govde = self.get("/rapor/%s/?gorunum=%s" % (t, ZQ.replace(" ", "")))   # yansiyan parametre: bilinmeyen gorunum teknik olur
+        r, govde = self.get("/rapor/%s/?gorunum=%s" % (t, ZQ.replace(" ", "")))   # reflected parameter: an unknown view becomes technical
         self.assertEqual(r.status, 200)
         kacis_denetle(self, govde.decode(), "gorunum parametresi")
 
 
 class PortalKacisTests(test_portal.HttpTaban):
-    """Portal sayfalari: firma adi, talep metni ve rapor icerigi kacisli."""
+    """Portal pages: company name, request text and report content are escaped."""
 
     def test_portal_sayfalari(self):
         self.hesap("ali@kacis.com.tr", ZQ[:60])
@@ -326,7 +326,7 @@ class PortalKacisTests(test_portal.HttpTaban):
 
 
 class YonetimKacisTests(test_yonetim.Taban):
-    """Yonetim paneli: depolanmis (rapor, firma notu, talep, giris adi) ve yansiyan (sorgu) degerler kacisli."""
+    """Admin panel: stored (report, company note, request, login name) and reflected (query) values are escaped."""
 
     def setUp(self):
         super().setUp()
@@ -338,7 +338,7 @@ class YonetimKacisTests(test_yonetim.Taban):
         f.execute("INSERT INTO contact VALUES(2,'2026-11-11T10:00:00Z',?,?,'z@zq.com','pg',?,'h')", (ZQ, ZQ, ZQ))
         f.commit()
         f.close()
-        # kotu kullanici adiyla basarisiz giris: yonetim denetim kaydina yazilir ve orada gorunur
+        # failed login with a bad user name: it is written to the admin audit log and appears there
         r, _ = self.istek("POST", "/yonetim/giris", {"ad": ZQ[:64], "parola": "yanlis-parola-000", "kod": "000000"}, cerez=False)
         self.assertEqual(r.status, 401)
         self.assertEqual(self.giris().status, 303)
@@ -363,14 +363,14 @@ class YonetimKacisTests(test_yonetim.Taban):
             r, g = self.istek("GET", yol + ZQ.replace(" ", "%20").replace("&", "%26").replace("#", "%23"))
             self.assertIn(r.status, (200, 404), yol)
             kacis_denetle(self, g, yol)
-        for yol in ("/yonetim/firmalar.csv?ara=", "/yonetim/talepler.csv?durum="):   # CSV: HTML degil, formul kacisi
+        for yol in ("/yonetim/firmalar.csv?ara=", "/yonetim/talepler.csv?durum="):   # CSV: not HTML, formula escaping
             r, g = self.istek("GET", yol + "%3D1%2B1")
             self.assertTrue(r.getheader("Content-Type").startswith("text/csv"))
             self.assertEqual(r.getheader("X-Content-Type-Options"), "nosniff")
 
 
 class YonetimOturumsuzTests(test_yonetim.Taban):
-    """Yonetim uclarinin tamami oturumsuz erisime kapali: tablo guduml, her gecersiz kimlik durumu icin."""
+    """All admin endpoints are closed to unauthenticated access: table driven, for every invalid credential state."""
 
     GET = ("/yonetim", "/yonetim/", "/yonetim/firmalar", "/yonetim/firmalar?ara=ornek", "/yonetim/firmalar?durum=aktif",
            "/yonetim/firmalar.csv", "/yonetim/firmalar.csv?durum=aktif&ara=ornek", "/yonetim/talepler.csv", "/yonetim/talepler.csv?durum=yeni",
@@ -383,7 +383,7 @@ class YonetimOturumsuzTests(test_yonetim.Taban):
             ("/yonetim/firmalar/1/durum", {"durum": "pasif"}), ("/yonetim/firmalar/1/not", {"aciklama": "x"}),
             ("/yonetim/firmalar/1/sinir", {}), ("/yonetim/firmalar/1/izin", {"izin": "1"}),
             ("/yonetim/firmalar/1/sil", {"emin": "evet", "talepler": "evet"}), ("/yonetim/taramalar/1/sil", {}), ("/yonetim/yok", {}))
-    ACIK = {"/yonetim/giris"}   # giris sayfasi bilerek herkese acik
+    ACIK = {"/yonetim/giris"}   # the login page is deliberately open to everyone
     TOHUM = ("ada@ornek.com", "Ornek AS", "ayse@firma.com.tr", "firma.com.tr", "Firma &lt;i&gt;", "TLS kapal", "Ada &lt;", "alig-firmalar", "alig-talepler")
 
     def setUp(self):
@@ -391,9 +391,9 @@ class YonetimOturumsuzTests(test_yonetim.Taban):
         self._k = 0
         self.con_y = ydepo.baglan(self.ydb)
 
-    # ---- yardimcilar ----
+    # ---- helpers ----
     def oturum_ac(self, ad="ali", gizli=None, parola=PAROLA):
-        """Gecerli oturum kodu (TOTP sayaci her cagrida ilerler: tekrar kullanim kuralina takilmaz)."""
+        """A valid session code (the TOTP counter advances on every call: it does not trip the replay rule)."""
         self._k += 1
         t = time.time() + 30 * self._k
         kod, neden = ydepo.giris(self.con_y, ad, parola, guvenlik.totp_kod(gizli or self.gizli, int(t // 30)), "192.0.2.1", simdi=t)
@@ -401,12 +401,12 @@ class YonetimOturumsuzTests(test_yonetim.Taban):
         return kod
 
     def cerezler(self):
-        """{durum: Cookie degeri ya da None}. Hepsi 'oturumsuz' sayilmali; 'gecerli' kontrol amacli."""
+        """{state: Cookie value or None}. All must count as 'unauthenticated'; 'valid' is for control."""
         ad = "__Host-alig_oturum"
         out = {"yok": None, "bos": ad + "=", "sahte": ad + "=" + "A" * 43, "sahte_uzun": ad + "=" + "A" * 5000, "bozuk": "%s=a; ;;=%s" % (ad, ad)}
         g = self.oturum_ac()
-        out["yanlis_cerez_adi"] = "alig_oturum=" + g            # __Host- oneki olmadan
-        out["ozet_cereze_konmus"] = ad + "=" + guvenlik.ozet(g)   # veritabani sizsa bile ozet oturum acmaz
+        out["yanlis_cerez_adi"] = "alig_oturum=" + g            # without the __Host- prefix
+        out["ozet_cereze_konmus"] = ad + "=" + guvenlik.ozet(g)   # even if the database leaks, the digest does not open a session
         e = self.oturum_ac()
         self.con_y.execute("UPDATE oturum SET son_erisim_utc=? WHERE kod_sha256=?", (GECMIS, guvenlik.ozet(e)))
         self.con_y.commit()
@@ -421,7 +421,7 @@ class YonetimOturumsuzTests(test_yonetim.Taban):
         return out
 
     def durum(self, haric=("oturum",)):
-        """Tum veritabanlarinin icerik ozeti: oturumsuz istek hicbir seyi degistirmemeli."""
+        """Content digest of all databases: an unauthenticated request must not change anything."""
         d = {}
         for ad, yol in (("y", self.ydb), ("t", self.tdb), ("f", self.fdb)):
             c = sqlite3.connect(yol)
@@ -441,14 +441,14 @@ class YonetimOturumsuzTests(test_yonetim.Taban):
             self.assertEqual(r.getheader("Location"), "/yonetim/giris", ne)
         self.assertIsNone(r.getheader("Content-Disposition"), ne)
         self.assertFalse((r.getheader("Content-Type") or "").startswith("text/csv"), ne)
-        self.assertIsNone(r.getheader("Set-Cookie"), ne)   # oturumsuz istek cerez vermez
+        self.assertIsNone(r.getheader("Set-Cookie"), ne)   # an unauthenticated request gets no cookie
         for tohum in self.TOHUM:
             self.assertNotIn(tohum, g, "%s: %r sizdi" % (ne, tohum))
         self.assertNotIn(self.gizli, g)
 
-    # ---- tablo butunlugu ----
+    # ---- table integrity ----
     def test_tablo_menu_ve_kaynak_yollarini_kapsar(self):
-        """Yeni bir yonetim yolu eklenirse bu tabloya da eklenmeden test kirilir."""
+        """If a new admin path is added, the test breaks unless it is added to this table too."""
         kaynak = inspect.getsource(server.H.do_GET) + inspect.getsource(server.H.do_POST)
         yollar = set(re.findall(r'"(/yonetim[^"]*)"', kaynak)) | {"/" + m.split("$")[0].lstrip("^/") for m in re.findall(r'r"(\^/yonetim[^"]*\$)"', kaynak)}
         tablo = {u.split("?")[0] for u in self.GET} | {u for u, _ in self.POST}
@@ -456,14 +456,14 @@ class YonetimOturumsuzTests(test_yonetim.Taban):
             self.assertIn(m.split("?")[0], tablo, "menu yolu tabloda yok: " + m)
         self.assertGreater(len(yollar), 15)
         for y in yollar - self.ACIK:
-            if "(" in y:   # duzenli ifade: tabloda onu eslesen bir ornek olmali
+            if "(" in y:   # regular expression: the table must have an example matching it
                 kalip = re.compile("^" + y.replace("\\d", r"\d") + "$")
                 self.assertTrue(any(kalip.match(t) for t in tablo), "tabloda eslesen yok: " + y)
             else:
                 self.assertIn(y, tablo | {"/yonetim/"}, "tabloda yok: " + y)
 
     def test_kontrol_gecerli_oturum_tablodaki_yollari_acar(self):
-        """Tablo bos yere gecmesin: gecerli oturumla GET yollari gercekten acilir (404 olanlar bilerek yok yollar)."""
+        """The table must not pass for nothing: with a valid session the GET paths really open (the 404 ones are deliberately nonexistent paths)."""
         self.cerez = "%s=%s" % ("__Host-alig_oturum", self.oturum_ac())
         yok = {"/yonetim/yok", "/yonetim/%2e%2e/yonetim/sistem", "/yonetim/giris/../sistem", "/yonetim/firmalar/999999999", "/yonetim/firmalar/1/", "/yonetimx"}
         for u in self.GET:
@@ -476,15 +476,15 @@ class YonetimOturumsuzTests(test_yonetim.Taban):
         self.assertTrue(r.getheader("Content-Type").startswith("text/csv"))
         self.assertIn("Ornek AS", g)
 
-    # ---- oturumsuz erisim ----
+    # ---- unauthenticated access ----
     def test_oturumsuz_her_get_yolu_girise_gider_veri_sizmaz(self):
-        cerezler = self.cerezler()   # oturumlarin kendisi once acilir: denetim kayitlari karsilastirmaya girmez
+        cerezler = self.cerezler()   # the sessions themselves are opened first: audit records do not enter the comparison
         once = self.durum()
         for ad, cerez in cerezler.items():
             for u in self.GET:
                 r, g = self.istek_c("GET", u, cerez)
                 self.kapali_mi(r, g, "%s %s" % (ad, u))
-        self.assertEqual(self.durum(), once)   # hic denetim kaydi, firma esitlemesi ya da durum degisikligi yok
+        self.assertEqual(self.durum(), once)   # no audit record, company synchronization or status change at all
 
     def test_oturumsuz_her_post_yolu_girise_gider_durum_degismez(self):
         cerezler = self.cerezler()
@@ -495,7 +495,7 @@ class YonetimOturumsuzTests(test_yonetim.Taban):
                     r, g = self.istek_c("POST", u, cerez, dict(veri, csrf=csrf))
                     self.kapali_mi(r, g, "%s POST %s" % (ad, u))
         self.assertEqual(self.durum(), once)
-        self.assertIsNotNone(tdepo_rapor(self.tdb, 1))   # silme uclari rapor ve firmayi silmedi
+        self.assertIsNotNone(tdepo_rapor(self.tdb, 1))   # the delete endpoints did not delete the report or the company
 
     def test_oturumlu_ama_csrf_ya_da_kaynak_yanlis_post_reddedilir(self):
         g = self.oturum_ac()
@@ -508,7 +508,7 @@ class YonetimOturumsuzTests(test_yonetim.Taban):
             r, _ = self.istek_c("POST", u, cerez, dict(veri, csrf="x"), basliklar={"Origin": "https://kotu.example"})
             self.assertEqual(r.status, 403, u)
         self.assertEqual(self.durum(haric=("oturum", "denetim")), once)
-        self.assertEqual(self.istek_c("GET", "/yonetim/sistem", cerez)[0].status, 200)   # oturum yine gecerli
+        self.assertEqual(self.istek_c("GET", "/yonetim/sistem", cerez)[0].status, 200)   # the session is still valid
 
     def test_oturum_baska_yollarla_gecersiz_olunca_acilmaz(self):
         for ad, islem in (("kullanici silindi", lambda u: ydepo.kullanici_sil(self.con_y, u)),
@@ -533,13 +533,13 @@ class YonetimOturumsuzTests(test_yonetim.Taban):
         for u in ("/yonetim/firmalar.csv", "/yonetim/talepler.csv"):
             r, g = self.istek_c("GET", u, "__Host-alig_oturum=" + guvenlik.rastgele_kod())
             self.assertEqual((r.status, g), (303, ""), u)
-        self.assertEqual(sayac(), 0)   # yetkisiz denemeler indirme olarak yazilmaz
+        self.assertEqual(sayac(), 0)   # unauthorized attempts are not recorded as downloads
         cerez = "__Host-alig_oturum=" + self.oturum_ac()
         r, g = self.istek_c("GET", "/yonetim/talepler.csv", cerez)
         self.assertEqual(r.status, 200)
         self.assertIn("ada@ornek.com", g)
         self.assertEqual(sayac(), 1)
-        self.assertEqual(r.getheader("Cache-Control"), "no-store")   # indirilen kisisel veri onbelleklenmez
+        self.assertEqual(r.getheader("Cache-Control"), "no-store")   # downloaded personal data is not cached
         self.assertIn("attachment", r.getheader("Content-Disposition"))
 
     def test_csv_yontemi_ve_yol_varyantlari(self):
@@ -549,20 +549,20 @@ class YonetimOturumsuzTests(test_yonetim.Taban):
             self.assertIn(r.status, (303, 403), u)
             self.assertNotIn("Ornek AS", g)
         r, _ = self.istek_c("POST", "/yonetim/firmalar.csv", cerez, {"csrf": self.csrf_of(cerez)})
-        self.assertEqual(r.status, 404)   # POST ile dosya verilmez
+        self.assertEqual(r.status, 404)   # no file is served with POST
 
     def csrf_of(self, cerez):
         _, g = self.istek_c("GET", "/yonetim/talepler", cerez)
         return re.search(r'name="csrf" value="([^"]+)"', g).group(1)
 
     def test_yetki_modeli_tek_rol_belgelenmis_varsayim(self):
-        """Panelde rol ayrimi yok: her kullanici her yonetim ucunu acar (docs/kod-inceleme.md, ALIG-SEC-001 S5). Ikinci kullanici da CSV alir."""
+        """There is no role separation in the panel: every user opens every admin endpoint (docs/kod-inceleme.md, ALIG-SEC-001 S5). A second user gets CSV too."""
         ikinci = ydepo.kullanici_ekle(self.con_y, "veli", PAROLA)
         t = time.time() + 30 * 50
         kod, _ = ydepo.giris(self.con_y, "veli", PAROLA, guvenlik.totp_kod(ikinci, int(t // 30)), "192.0.2.2", simdi=t)
         r, g = self.istek_c("GET", "/yonetim/firmalar.csv", "__Host-alig_oturum=" + kod)
         self.assertEqual(r.status, 200)
-        self.assertIn("veli", self.istek_c("GET", "/yonetim/denetim?kaynak=yonetim", "__Host-alig_oturum=" + kod)[1])   # kim indirdiyse izlenir
+        self.assertIn("veli", self.istek_c("GET", "/yonetim/denetim?kaynak=yonetim", "__Host-alig_oturum=" + kod)[1])   # whoever downloaded is tracked
 
 
 def tdepo_rapor(yol, rid):
@@ -575,7 +575,7 @@ def tdepo_rapor(yol, rid):
 
 
 class TotpTekrarVeOturumOzetiTests(unittest.TestCase):
-    """Zaten var oldugu soylenen korumalar testle kanitlanir: TOTP tekrar kullanimi ve oturum kodunun yalniz ozetle saklanmasi."""
+    """Protections said to already exist are proven by tests: TOTP replay and storing the session code only as a digest."""
 
     def setUp(self):
         self.dizin = Path(tempfile.mkdtemp())
@@ -596,21 +596,21 @@ class TotpTekrarVeOturumOzetiTests(unittest.TestCase):
     def test_ayni_kod_ikinci_kez_hicbir_yolla_gecmez(self):
         self.assertIsNotNone(self.giris(self.s)[0])
         self.assertEqual(self.sayac(), self.s)
-        for ip in ("192.0.2.1", "198.51.100.7"):   # baska IP'den de gecmez
+        for ip in ("192.0.2.1", "198.51.100.7"):   # it does not pass from another IP either
             self.assertEqual(self.giris(self.s, ip=ip), (None, "hatali"))
-        self.assertEqual(self.oturum_say(), 1)   # tekrar yeni oturum acmadi
+        self.assertEqual(self.oturum_say(), 1)   # it did not open a new session again
         self.assertEqual(self.sayac(), self.s)
 
     def test_sayac_tek_yonlu_eski_pencere_kodu_da_gecmez(self):
-        self.assertIsNotNone(self.giris(self.s + 1, simdi=self.t0 + 30)[0])   # ileri kod kabul
-        self.assertEqual(self.giris(self.s, simdi=self.t0 + 30), (None, "hatali"))   # pencere icinde ama daha eski sayac
+        self.assertIsNotNone(self.giris(self.s + 1, simdi=self.t0 + 30)[0])   # a forward code is accepted
+        self.assertEqual(self.giris(self.s, simdi=self.t0 + 30), (None, "hatali"))   # within the window but an older counter
         self.assertEqual(self.giris(self.s - 1, simdi=self.t0 + 30), (None, "hatali"))
         self.assertEqual(self.sayac(), self.s + 1)
 
     def test_yanlis_parola_sayaci_ilerletmez_ve_kodu_yakmaz(self):
         self.assertEqual(self.giris(self.s, parola="yanlis-parola-000"), (None, "hatali"))
         self.assertEqual(self.sayac(), 0)
-        self.assertIsNotNone(self.giris(self.s)[0])   # dogru parolayla ayni kod hala gecerli
+        self.assertIsNotNone(self.giris(self.s)[0])   # with the correct password the same code is still valid
 
     def test_tekrar_denemesi_denetime_basarisiz_olarak_yazilir(self):
         self.giris(self.s)
@@ -624,7 +624,7 @@ class TotpTekrarVeOturumOzetiTests(unittest.TestCase):
         yeni = ydepo.kullanici_totp_yenile(self.con, "ali")
         self.assertNotEqual(yeni, self.gizli)
         self.assertEqual(self.sayac(), 0)
-        self.assertEqual(self.giris(self.s + 1, simdi=self.t0 + 30), (None, "hatali"))   # eski anahtarin kodu
+        self.assertEqual(self.giris(self.s + 1, simdi=self.t0 + 30), (None, "hatali"))   # the old key's code
         kod, _ = ydepo.giris(self.con, "ali", PAROLA, guvenlik.totp_kod(yeni, self.s + 1), "192.0.2.1", simdi=self.t0 + 30)
         self.assertIsNotNone(kod)
 
@@ -632,11 +632,11 @@ class TotpTekrarVeOturumOzetiTests(unittest.TestCase):
         kod, _ = self.giris(self.s)
         satirlar = self.con.execute("SELECT * FROM oturum").fetchall()
         self.assertEqual(len(satirlar), 1)
-        self.assertEqual(satirlar[0][0], hashlib.sha256(kod.encode()).hexdigest())   # birincil anahtar = SHA-256 ozeti
+        self.assertEqual(satirlar[0][0], hashlib.sha256(kod.encode()).hexdigest())   # primary key = SHA-256 digest
         self.assertNotIn(kod, [str(v) for v in satirlar[0]])
         self.assertEqual([c[1] for c in self.con.execute("PRAGMA table_info(oturum)")], ["kod_sha256", "ad", "csrf", "olusturma_utc", "son_erisim_utc"])
         self.con.close()
-        for p in self.dizin.iterdir():   # veritabani, WAL ve paylasilan bellek dosyalari dahil hicbir dosyada ham kod yok
+        for p in self.dizin.iterdir():   # no raw code in any file, including the database, WAL and shared-memory files
             self.assertNotIn(kod.encode(), p.read_bytes(), p.name)
         con = ydepo.baglan(str(self.dizin / "y.sqlite"))
         self.assertEqual(ydepo.oturum(con, kod)["ad"], "ali")
@@ -651,7 +651,7 @@ class TotpTekrarVeOturumOzetiTests(unittest.TestCase):
         self.assertEqual(con.execute("SELECT kod_sha256 FROM portal_oturum").fetchone()[0], oz)
         self.assertNotIn(kod, "".join(str(x) for x in con.execute("SELECT * FROM portal_oturum")))
         self.assertIsNotNone(portal_depo.kapsam(con, kod))
-        self.assertIsNone(portal_depo.kapsam(con, oz))   # ozet oturum acmaz
+        self.assertIsNone(portal_depo.kapsam(con, oz))   # the digest does not open a session
 
 
 def guvenlik_ozet(kod):
@@ -659,7 +659,7 @@ def guvenlik_ozet(kod):
 
 
 class TotpSirriSizmazTests(test_yonetim.Taban):
-    """TOTP sirri duz metin saklanir (SEC-K1, acik karar); en azindan hicbir cikti yolundan disari cikmamali."""
+    """The TOTP secret is stored in plain text (SEC-K1, an open decision); at the very least it must not leave through any output path."""
 
     def test_sir_panelde_csvde_denetimde_ve_cli_listesinde_yok(self):
         self.assertEqual(self.giris().status, 303)
@@ -679,7 +679,7 @@ class TotpSirriSizmazTests(test_yonetim.Taban):
         self.assertIn("ali", cikti.getvalue())
 
     def test_sir_veritabaninda_duz_metin_oldugu_belgelenmis_bulgudur(self):
-        """Bu test bulguyu SABITLER: sir sifreli saklanmaya baslarsa (SEC-K1 karari uygulanirsa) bilincli olarak guncellenmeli."""
+        """This test PINS the finding: if the secret starts to be stored encrypted (if decision SEC-K1 is applied), it must be updated deliberately."""
         satir = sqlite3.connect(self.ydb).execute("SELECT totp FROM kullanici WHERE ad='ali'").fetchone()[0]
         self.assertEqual(satir, self.gizli)
         belge = (ROOT / "docs" / "kod-inceleme.md").read_text(encoding="utf-8")
@@ -687,7 +687,7 @@ class TotpSirriSizmazTests(test_yonetim.Taban):
 
 
 class TotpKurtarmaTests(unittest.TestCase):
-    """Dogrulama cihazi kaybi: yonetim/kullanici.py totp-yenile yolu (docs/runbook.md 'Dogrulama cihazi kaybi')."""
+    """Loss of the verification device: the yonetim/kullanici.py totp-yenile path (docs/runbook.md 'Dogrulama cihazi kaybi')."""
 
     def setUp(self):
         self.yol = str(Path(tempfile.mkdtemp()) / "y.sqlite")
@@ -706,23 +706,23 @@ class TotpKurtarmaTests(unittest.TestCase):
     def test_totp_yenile_yeni_anahtar_verir_oturumlari_kapatir_parolayi_degistirmez(self):
         kod, cikti = self.cli("totp-yenile", "ali")
         self.assertEqual(kod, 0)
-        yeni = re.search(r"Anahtar: ([A-Z2-7]+)", cikti).group(1)
+        yeni = re.search(r"Key: ([A-Z2-7]+)", cikti).group(1)
         self.assertNotEqual(yeni, self.eski)
         self.assertIn("otpauth://totp/", cikti)
         con = ydepo.baglan(self.yol)
         self.assertEqual(con.execute("SELECT totp FROM kullanici WHERE ad='ali'").fetchone()[0], yeni)
-        self.assertIsNone(ydepo.oturum(con, self.kod))   # kayip cihazla acilmis oturum kapandi
+        self.assertIsNone(ydepo.oturum(con, self.kod))   # the session opened with the lost device was closed
         t = self.t0 + 60
-        self.assertEqual(ydepo.giris(con, "ali", PAROLA, guvenlik.totp_kod(self.eski, int(t // 30)), "192.0.2.1", simdi=t), (None, "hatali"))   # eski cihaz artik giremez
+        self.assertEqual(ydepo.giris(con, "ali", PAROLA, guvenlik.totp_kod(self.eski, int(t // 30)), "192.0.2.1", simdi=t), (None, "hatali"))   # the old device can no longer log in
         yeni_kod, _ = ydepo.giris(con, "ali", PAROLA, guvenlik.totp_kod(yeni, int(t // 30)), "192.0.2.1", simdi=t)
-        self.assertIsNotNone(yeni_kod)   # parola ayni, yeni anahtarla giris olur
+        self.assertIsNotNone(yeni_kod)   # the password is the same, login works with the new key
         olaylar = [(a, o) for a, o in con.execute("SELECT aktor, olay FROM denetim ORDER BY seq")]
         self.assertIn(("cli", "dogrulama kodu anahtari yenilendi: ali"), olaylar)
         self.assertIsNone(ydepo.denetim_dogrula(con))
 
     def test_olmayan_kullanici_ve_gecersiz_ad_kayit_birakmaz(self):
         once = self.con.execute("SELECT count(*) FROM denetim").fetchone()[0]
-        self.assertEqual(self.cli("totp-yenile", "yok")[1].strip(), "kullanici yok")
+        self.assertEqual(self.cli("totp-yenile", "yok")[1].strip(), "user not found")
         for ad in ("", "a b", "ali;drop", "x" * 33, "ça"):
             with self.assertRaises(SystemExit):
                 self.cli("totp-yenile", ad)
@@ -731,12 +731,12 @@ class TotpKurtarmaTests(unittest.TestCase):
 
     def test_anahtar_yalniz_bir_kez_yazilir_ve_liste_gostermez(self):
         _, cikti = self.cli("totp-yenile", "ali")
-        yeni = re.search(r"Anahtar: ([A-Z2-7]+)", cikti).group(1)
+        yeni = re.search(r"Key: ([A-Z2-7]+)", cikti).group(1)
         self.assertNotIn(yeni, self.cli("liste")[1])
         self.assertNotIn(PAROLA, cikti)
 
     def test_kilitli_kullanici_yenilemeden_sonra_sure_dolana_kadar_kilitli_kalir(self):
-        """Bilinen sinir (runbook'ta yazili): totp-yenile deneme sayacini sifirlamaz; engel 15 dakikada kendiliginden kalkar."""
+        """Known limit (written in the runbook): totp-yenile does not reset the attempt counter; the block lifts by itself after 15 minutes."""
         for _ in range(ydepo.DENEME_KULLANICI):
             ydepo.giris(self.con, "ali", PAROLA, "000000", "192.0.2.9")
         self.cli("totp-yenile", "ali")
@@ -747,13 +747,13 @@ class TotpKurtarmaTests(unittest.TestCase):
 
 
 class CliDosyaIzniTests(unittest.TestCase):
-    """yonetim.sqlite parola ozetleri ve TOTP sirlari tasir: CLI ilk olusturan olsa da dosya yalniz sahibine acik olmali."""
+    """yonetim.sqlite carries password digests and TOTP secrets: even if the CLI is the first creator, the file must be readable by its owner only."""
 
     def test_cli_gevsek_umask_altinda_bile_dosyayi_0600_olusturur(self):
         d = Path(tempfile.mkdtemp())
         yol = d / "y.sqlite"
         r = subprocess.run([sys.executable, str(ROOT / "yonetim" / "kullanici.py"), "--db", str(yol), "liste"],
-                           preexec_fn=lambda: os.umask(0o022), capture_output=True, text=True, timeout=60)   # sudo -u ile gelen tipik umask
+                           preexec_fn=lambda: os.umask(0o022), capture_output=True, text=True, timeout=60)   # the typical umask coming from sudo -u
         self.assertEqual(r.returncode, 0, r.stderr)
         for p in d.iterdir():
             self.assertEqual(stat.S_IMODE(p.stat().st_mode) & 0o077, 0, "%s: %o" % (p.name, stat.S_IMODE(p.stat().st_mode)))
@@ -761,7 +761,7 @@ class CliDosyaIzniTests(unittest.TestCase):
 
 
 class BelgeTests(unittest.TestCase):
-    """Bulgular ve karar kayitli: kod-inceleme.md, kararlar.md, runbook.md."""
+    """Findings and decision are recorded: kod-inceleme.md, kararlar.md, runbook.md."""
 
     def okut(self, ad):
         return (ROOT / "docs" / ad).read_text(encoding="utf-8")
@@ -783,7 +783,7 @@ class BelgeTests(unittest.TestCase):
         self.assertIn("Ali'yi bekliyor", satir[0])
         self.assertIn("0700", satir[0])
         self.assertIn("disk şifreleme", satir[0])
-        self.assertEqual(len(satir[0].split("|")), len([s for s in self.okut("kararlar.md").splitlines() if s.startswith("| DB-K1 |")][0].split("|")))   # sutun sayisi tablo ile ayni
+        self.assertEqual(len(satir[0].split("|")), len([s for s in self.okut("kararlar.md").splitlines() if s.startswith("| DB-K1 |")][0].split("|")))   # the column count is the same as the table
 
     def test_runbook_dogrulama_cihazi_kaybi_proseduru(self):
         m = self.okut("runbook.md")

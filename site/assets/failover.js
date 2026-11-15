@@ -1,5 +1,5 @@
-/* alig.tech ana sayfa konsolu: failover ornegi ve hash zincirli denetim kaydi.
-   Hicbir ag istegi yapmaz. JavaScript kapaliyken sayfa son durumu gosterir. */
+/* alig.tech home page console: a failover example and a hash-chained audit log.
+   Makes no network requests. With JavaScript off, the page shows the final state. */
 (function () {
   'use strict';
 

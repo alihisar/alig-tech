@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HTML yapi denetimi: dengeli etiket, tekil id, baslik, dil, satir ici betik/stil yok (CSP), alt metni, etiketli alanlar."""
+"""HTML structure check: balanced tags, unique ids, title, language, no inline script/style (CSP), alt text, labelled fields."""
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
@@ -28,7 +28,7 @@ class Checker(HTMLParser):
 
     def err(self, msg):
         line, _ = self.getpos()
-        self.problems.append(f"satir {line}: {msg}")
+        self.problems.append(f"line {line}: {msg}")
 
     def _open(self, tag, attrs, selfclose):
         a = dict(attrs)
@@ -44,19 +44,19 @@ class Checker(HTMLParser):
             self.h1 += 1
         if "id" in a:
             if a["id"] in self.ids:
-                self.err(f"yinelenen id: {a['id']}")
+                self.err(f"duplicate id: {a['id']}")
             self.ids.add(a["id"])
         for name in a:
             if name.startswith("on"):
-                self.err(f"satir ici olay isleyicisi: {name} (CSP)")
+                self.err(f"inline event handler: {name} (CSP)")
         if "style" in a:
-            self.err("satir ici style ozniteligi (CSP)")
+            self.err("inline style attribute (CSP)")
         if tag == "style":
-            self.err("<style> etiketi (CSP); stil dosyasi kullanin")
+            self.err("<style> tag (CSP); use a stylesheet file")
         if tag == "script" and not a.get("src") and a.get("type") != "application/ld+json":
-            self.err("satir ici betik (CSP)")
+            self.err("inline script (CSP)")
         if tag == "img" and "alt" not in a:
-            self.err("img icin alt yok")
+            self.err("img without alt")
         if tag == "label" and a.get("for"):
             self.label_for.add(a["for"])
         if tag in ("input", "select", "textarea") and a.get("type") not in UNLABELLED_OK:
@@ -76,7 +76,7 @@ class Checker(HTMLParser):
         if tag == "title":
             self._in_title = False
         if not self.stack or self.stack[-1] != tag:
-            self.err(f"kapanis etiketi eslesmiyor: </{tag}> (aciik: {self.stack[-1] if self.stack else 'yok'})")
+            self.err(f"closing tag does not match: </{tag}> (open: {self.stack[-1] if self.stack else 'none'})")
             if tag in self.stack:
                 while self.stack and self.stack.pop() != tag:
                     pass
@@ -89,18 +89,18 @@ class Checker(HTMLParser):
 
     def finish(self):
         if self.stack:
-            self.problems.append(f"kapanmamis etiketler: {self.stack}")
+            self.problems.append(f"unclosed tags: {self.stack}")
         if not self.has_lang:
-            self.problems.append("<html lang> yok")
+            self.problems.append("missing <html lang>")
         if not self.has_viewport:
-            self.problems.append("viewport meta yok")
+            self.problems.append("missing viewport meta")
         if self.titles != 1 or not self.title_text.strip():
-            self.problems.append(f"tam olarak bir dolu <title> olmali (bulunan: {self.titles})")
+            self.problems.append(f"exactly one non-empty <title> required (found: {self.titles})")
         if self.h1 != 1:
-            self.problems.append(f"tam olarak bir <h1> olmali (bulunan: {self.h1})")
+            self.problems.append(f"exactly one <h1> required (found: {self.h1})")
         for cid, aria, tag, line in self.controls:
             if not aria and (not cid or cid not in self.label_for):
-                self.problems.append(f"satir {line}: etiketsiz form alani ({tag}, id={cid})")
+                self.problems.append(f"line {line}: unlabelled form field ({tag}, id={cid})")
 
 
 def check(dist):
@@ -117,5 +117,5 @@ def check(dist):
 
 if __name__ == "__main__":
     out = check(sys.argv[1])
-    print("\n".join(out) or "html: tamam")
+    print("\n".join(out) or "html: ok")
     sys.exit(1 if out else 0)

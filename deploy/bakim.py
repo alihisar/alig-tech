@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Gunluk bakim (systemd zamanlayicisi): SQLite yedegi, eski yedekleri silme, suresi dolan raporlari silme.
+"""Daily maintenance (systemd timer): SQLite backup, deleting old backups, deleting expired reports.
 
   python3 bakim.py --veri /var/lib/alig --yedek /var/backups/alig --sakla 14
-Yedek: SQLite backup API ile tutarli kopya, <ad>-<UTC zaman>.sqlite.
+Backup: a consistent copy via the SQLite backup API, <name>-<UTC time>.sqlite.
 
-Geri yukleme (servisler durdurulmus olmali; --evet olmadan yalniz kontrol eder, hicbir sey degistirmez):
+Restore (services must be stopped; without --evet it only checks and changes nothing):
   python3 bakim.py geri-yukle --veri /var/lib/alig --dosya /var/backups/alig/tarama-<zaman>.sqlite [--bas bas.json] [--evet]
 """
 import argparse
@@ -43,13 +43,13 @@ def yedekle(kaynak, hedef_dizin, zaman):
     return hedef
 
 
-PAY_BAYT = 64 << 20  # yedek yazilirken diskte kalacak en az bos alan
+PAY_BAYT = 64 << 20  # minimum free space that must remain on disk while a backup is written
 
 
 def disk_yeterli(veri, yedek, kullanilan=shutil.disk_usage, uyari_orani=0.10):
-    """Yedek icin yer var mi: bos alan, veritabanlarinin toplam boyutunun iki kati ve 64 MB pay kadar olmali.
-    (yeterli_mi, aciklama). Yer yoksa yedek alinmaz; veri silinmez. Disk %10'dan az bossa yedek yine alinir
-    ama aciklama UYARI ile baslar: yer daralirken yedegi durdurmak, yedeksiz kalmak demektir."""
+    """Is there room for the backup: free space must be twice the total size of the databases plus a 64 MB margin.
+    (enough, explanation). If there is no room the backup is not taken; nothing is deleted. If less than 10% of the disk is free the backup is still taken
+    but the explanation starts with UYARI: stopping backups when space gets tight means ending up with no backups."""
     toplam = sum((Path(veri) / ad).stat().st_size for ad in VERITABANLARI if (Path(veri) / ad).exists())
     d = kullanilan(str(yedek))
     gereken = 2 * toplam + PAY_BAYT
@@ -69,8 +69,8 @@ def _ozet(yol):
 
 
 def yedegi_dogrula(dosya, ad, bas=None):
-    """Yedegin geri yuklenebilirligini denetler; dosyayi DEGISTIRMEZ (gecici kopya uzerinde calisir).
-    (hatalar, uyarilar) doner. Hata varsa geri yukleme yapilmaz."""
+    """Checks that the backup can be restored; does NOT CHANGE the file (works on a temporary copy).
+    Returns (errors, warnings). If there are errors, no restore is performed."""
     hatalar, uyarilar = [], []
     dosya = Path(dosya)
     if not dosya.is_file():
@@ -99,7 +99,7 @@ def yedegi_dogrula(dosya, ad, bas=None):
             hatalar.append(f"yedegin sema surumu ({surum}) bu kodun bildiginden yeni ({len(gocler)}): once kodu guncelleyin")
         if not hatalar and gocler is not None:
             modul = depo if ad == "tarama.sqlite" else ydepo
-            con = modul.baglan(str(gecici))  # eski yedek ileri goc ile gecici kopyada guncellenir
+            con = modul.baglan(str(gecici))  # an old backup is upgraded by forward migration on the temporary copy
             try:
                 anahtar = depo.denetim_anahtari()
                 d = depo.denetim_durum(con, anahtar, bas)
@@ -117,8 +117,8 @@ def yedegi_dogrula(dosya, ad, bas=None):
 
 
 def acik_tutanlar(yollar, proc="/proc"):
-    """Dosyalardan birini acik tutan diger sureclerin pid listesi; /proc yoksa None (bilinmiyor).
-    Yalniz gorebildigimiz surecler taranir: servislerle ayni kullanici (alig-web) ya da root olarak calistirin."""
+    """PIDs of other processes holding one of the files open; None if /proc is missing (unknown).
+    Only processes we can see are scanned: run as the same user as the services (alig-web) or as root."""
     kok = Path(proc)
     if not kok.is_dir():
         return None
@@ -135,14 +135,14 @@ def acik_tutanlar(yollar, proc="/proc"):
                         break
                 except OSError:
                     continue
-        except OSError:  # surec bitti ya da yetkimiz yok
+        except OSError:  # the process exited or we lack permission
             continue
     return sorted(tutan)
 
 
 def geri_yukle(dosya, veri, evet=False, bas=None, cikti=print):
-    """Yedegi veri dizinindeki ayni adli veritabaninin yerine koyar. Onceki dosya silinmez, '<ad>.onceki-<zaman>' olarak kalir.
-    0 basarili ya da kuru calistirma, 1 dogrulama/yukleme hatasi, 2 kullanim hatasi."""
+    """Replaces the same-named database in the data directory with the backup. The previous file is not deleted; it stays as '<name>.onceki-<time>'.
+    0 success or dry run, 1 validation/load error, 2 usage error."""
     dosya, veri = Path(dosya), Path(veri)
     ad = dosya.name.rsplit("-", 1)[0] + ".sqlite" if "-" in dosya.name else dosya.name
     if ad not in VERITABANLARI:
@@ -175,7 +175,7 @@ def geri_yukle(dosya, veri, evet=False, bas=None, cikti=print):
         try:
             k = sqlite3.connect(str(hedef), timeout=0)
             try:
-                k.execute("BEGIN EXCLUSIVE")  # baska bir surec yaziyor ya da okuyorsa basarisiz olur
+                k.execute("BEGIN EXCLUSIVE")  # fails if another process is writing or reading
                 k.execute("ROLLBACK")
             finally:
                 k.close()
@@ -198,9 +198,9 @@ def geri_yukle(dosya, veri, evet=False, bas=None, cikti=print):
         st = hedef.stat()
         sahip = (st.st_uid, st.st_gid)
         os.replace(hedef, onceki)
-    for ek in ("-wal", "-shm"):  # eski dosyanin gunlugu yeni dosyaya karismasin
+    for ek in ("-wal", "-shm"):  # the old file's journal must not mix into the new file
         (veri / (ad + ek)).unlink(missing_ok=True)
-    if sahip and os.geteuid() == 0:  # root olarak calisirsa servis kullanicisi dosyayi okuyabilsin
+    if sahip and os.geteuid() == 0:  # if run as root, so the service user can read the file
         os.chown(yeni_gecici, *sahip)
     os.replace(yeni_gecici, hedef)
     ok = False
@@ -236,7 +236,7 @@ def eskileri_sil(hedef_dizin, sakla):
 
 
 def talepleri_sil(veri, simdi=None):
-    """Saklama suresi dolan iletisim taleplerini ve durum notlarini siler; silme yonetim zincirine yazilir. Silinen sayiyi doner."""
+    """Deletes contact requests and status notes whose retention period has expired; the deletion is written to the admin chain. Returns the number deleted."""
     g = saklama.gun("talep")
     form = Path(veri) / "form.sqlite"
     if g is None or not form.exists():
@@ -253,7 +253,7 @@ def talepleri_sil(veri, simdi=None):
     if idler and yon.exists():
         y = ydepo.baglan(str(yon))
         try:
-            with depo.islem(y) as c:   # durum notlari ve denetim kaydi birlikte (form.sqlite ayri dosya: once o silinir)
+            with depo.islem(y) as c:   # status notes and audit record together (form.sqlite is a separate file: it is deleted first)
                 c.executemany("DELETE FROM talep_durum WHERE talep_id=?", [(i,) for i in idler])
                 ydepo.denetim_ekle(c, "sistem", "saklama suresi doldu, %d talep silindi" % len(idler))
         finally:
@@ -267,8 +267,8 @@ def main(argv=None):
         gp = argparse.ArgumentParser(prog="bakim.py geri-yukle")
         gp.add_argument("--veri", required=True)
         gp.add_argument("--dosya", required=True)
-        gp.add_argument("--bas", default=None, help="disa aktarilmis zincir basi (JSON)")
-        gp.add_argument("--evet", action="store_true", help="gercekten yukle; yoksa yalniz kontrol")
+        gp.add_argument("--bas", default=None, help="exported chain head (JSON)")
+        gp.add_argument("--evet", action="store_true", help="actually restore; without it, check only")
         g = gp.parse_args(argv[1:])
         return geri_yukle(g.dosya, g.veri, g.evet, g.bas)
     ap = argparse.ArgumentParser()
@@ -296,7 +296,7 @@ def main(argv=None):
         con = depo.baglan(str(tarama))
         print(f"suresi dolan rapor silindi: {depo.suresi_dolanlari_sil(con)}")
         print(f"saklama suresi dolan firma silindi: {depo.saklama_uygula(con)}")
-        portal_depo.temizle(con)   # suresi dolan portal kodu, oturum, deneme kaydi ve dogrulanmamis hesap istegi
+        portal_depo.temizle(con)   # expired portal code, session, attempt record and unverified account request
         con.close()
     print(f"saklama suresi dolan talep silindi: {talepleri_sil(veri)}")
     for ad in VERITABANLARI:
@@ -306,7 +306,7 @@ def main(argv=None):
             continue
         try:
             print("yedek:", yedekle(kaynak, yedek, zaman).name)
-        except Exception as e:  # tum veritabanlari denenir, sonunda hata kodu doner
+        except Exception as e:  # all databases are tried, the error code is returned at the end
             print(f"HATA {ad}: {e}", file=sys.stderr)
             hata = 1
     sil = eskileri_sil(yedek, a.sakla)

@@ -1,9 +1,9 @@
-"""Yonetim paneli deposu: kullanicilar, oturumlar, giris denemeleri, talep durumlari, denetim zinciri. SQLite WAL, UTC."""
+"""Admin panel store: users, sessions, login attempts, request statuses, audit chain. SQLite WAL, UTC."""
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from tarama import depo as zincir  # denetim_ekle / denetim_dogrula ayni sema ile calisir
+from tarama import depo as zincir  # denetim_ekle / denetim_dogrula work with the same schema
 from yonetim import guvenlik
 
 OTURUM_BOSTA_DK = 30
@@ -26,7 +26,7 @@ GOCLER = [
        onceki TEXT NOT NULL, ozet TEXT NOT NULL)""",
     """ALTER TABLE denetim ADD COLUMN mod INTEGER NOT NULL DEFAULT 0""",
     """ALTER TABLE denetim ADD COLUMN alanlar TEXT NOT NULL DEFAULT ''""",
-    # kullanicinin daha once giris yaptigi IP'ler (duz adres yok, ozet)
+    # IPs the user has logged in from before (no plain address, digest only)
     """CREATE TABLE giris_ip(ad TEXT NOT NULL, ip_ozeti TEXT NOT NULL, ilk_utc TEXT NOT NULL, son_utc TEXT NOT NULL, PRIMARY KEY(ad, ip_ozeti))""",
 ]
 BICIM = "%Y-%m-%dT%H:%M:%SZ"
@@ -52,10 +52,10 @@ denetim_dogrula = zincir.denetim_dogrula
 denetim_durum = zincir.denetim_durum
 
 
-# --- kullanicilar --- (her eylem ve denetim kaydi tek islemde: denetim yazilamazsa eylem de geri alinir)
+# --- users --- (each action and its audit record in one transaction: if the audit record cannot be written, the action is rolled back)
 def kullanici_ekle(con, ad, parola):
     gizli = guvenlik.totp_gizli()
-    ozet = guvenlik.parola_ozetle(parola)   # yavas (scrypt): kilit disinda
+    ozet = guvenlik.parola_ozetle(parola)   # slow (scrypt): outside the lock
     with zincir.islem(con) as c:
         c.execute("INSERT INTO kullanici(ad, parola, totp, olusturma_utc) VALUES(?,?,?,?)", (ad, ozet, gizli, _z(_simdi())))
         denetim_ekle(c, "cli", "kullanici eklendi: %s" % ad)
@@ -92,7 +92,7 @@ def kullanici_sil(con, ad):
     return n
 
 
-# --- giris ---
+# --- login ---
 def _deneme_sayisi(con, anahtar):
     esik = _z(_simdi() - timedelta(minutes=DENEME_PENCERE_DK))
     return con.execute("SELECT count(*) FROM giris_denemesi WHERE anahtar=? AND zaman_utc>?", (anahtar, esik)).fetchone()[0]
@@ -109,9 +109,9 @@ def _basarisiz(c, ad, ip):
 
 
 def giris(con, ad, parola, kod, ip, simdi=None):
-    """Basarili ise (oturum_kodu, None), degilse (None, neden). Neden kullaniciya gosterilmez, denetim icindir.
-    Parola (yavas) kilit disinda denetlenir; dogrulama kodu ve sayac, ayni kodun es zamanli iki giriste
-    iki kez kabul edilmemesi icin yazma kilidi altinda okunur ve guncellenir."""
+    """On success (session_code, None), otherwise (None, reason). The reason is not shown to the user, it is for the audit.
+    The password (slow) is checked outside the lock; the verification code and counter are read and updated under the write lock,
+    so the same code cannot be accepted twice by two concurrent logins."""
     ad = (ad or "").strip()[:64]
     if giris_engelli(con, ad, ip):
         denetim_ekle(con, "sistem", "giris engellendi (cok fazla deneme): %s" % ad, {"kullanici": ad, "sonuc": "reddedildi", "ip_ozeti": zincir.ip_ozeti(ip), "neden": "engelli"})
@@ -136,14 +136,14 @@ def giris(con, ad, parola, kod, ip, simdi=None):
             c.execute("UPDATE giris_ip SET son_utc=? WHERE ad=? AND ip_ozeti=?", (z, ad, ioz))
         else:
             c.execute("INSERT INTO giris_ip(ad, ip_ozeti, ilk_utc, son_utc) VALUES(?,?,?,?)", (ad, ioz, z, z))
-        yeni_ip = bool(onceki_ip and not var)  # ilk giris yeni IP uyarisi sayilmaz
+        yeni_ip = bool(onceki_ip and not var)  # a first login does not count as a new-IP warning
         denetim_ekle(c, ad, "giris yapildi" if not yeni_ip else "yeni IP'den giris yapildi",
                      {"kullanici": ad, "sonuc": "basarili", "ip_ozeti": ioz, "yeni_ip": 1 if yeni_ip else 0})
     return kod_, None
 
 
 def oturum(con, kod):
-    """{ad, csrf} ya da None. Bosta 30 dk, en cok 8 saat."""
+    """{ad, csrf} or None. 30 min idle, 8 hours at most."""
     if not kod:
         return None
     oz = guvenlik.ozet(kod)
@@ -173,7 +173,7 @@ def temizle(con):
     con.commit()
 
 
-# --- talep durumlari ---
+# --- request statuses ---
 def talep_durumlari(con):
     return {r[0]: {"durum": r[1], "aciklama": r[2], "guncelleme_utc": r[3], "guncelleyen": r[4]}
             for r in con.execute("SELECT talep_id, durum, aciklama, guncelleme_utc, guncelleyen FROM talep_durum")}
@@ -189,7 +189,7 @@ def talep_durum_yaz(con, talep_id, durum, aciklama, kim):
         denetim_ekle(c, kim, "talep #%d durumu: %s" % (talep_id, durum))
 
 
-# --- gosterge (panel ozeti): salt okuma. Okunamayan sayi None doner; 0 ile karistirilmaz ---
+# --- indicators (panel summary): read-only. An unreadable count returns None; it is never confused with 0 ---
 def _ro(yol):
     if not yol or not Path(yol).exists():
         return None
@@ -200,7 +200,7 @@ def _ro(yol):
 
 
 def _say(con, sorgu, arg=()):
-    """Tek sayim sorgusu; tablo yok, kilit ya da bozukluk durumunda None."""
+    """Single count query; None if the table is missing, or on lock or corruption."""
     if con is None:
         return None
     try:
@@ -210,9 +210,9 @@ def _say(con, sorgu, arg=()):
 
 
 def gosterge(ycon, tarama_yol, form_yol, simdi=None):
-    """Panel ozeti sayilari. Anahtarlar: tarama_7, tarama_30, firma_aktif, firma_pasif, iletisim_acik, portal_acik,
-    kipb_bekleyen, posta_bekleyen (int ya da None=veri yok/okunamadi), zincir_tarama (denetim_durum sozlugu ya da None),
-    zincir_yonetim (sozluk). tarama ve form veritabanlari salt okunur acilir, hicbir sey yazilmaz."""
+    """Panel summary counts. Keys: tarama_7, tarama_30, firma_aktif, firma_pasif, iletisim_acik, portal_acik,
+    kipb_bekleyen, posta_bekleyen (int or None=no data/unreadable), zincir_tarama (denetim_durum dict or None),
+    zincir_yonetim (dict). The scan and form databases are opened read-only, nothing is written."""
     n = simdi or _simdi()
     g = {}
     tc = _ro(tarama_yol)

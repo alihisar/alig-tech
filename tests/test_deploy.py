@@ -44,7 +44,7 @@ class PaketTests(unittest.TestCase):
     def test_surum_bicimi_ve_release_kapisi(self):
         with self.assertRaises(SystemExit):
             paketle.paketle("v1", "https://alig.tech", out_dir=tempfile.mkdtemp())
-        with self.assertRaises(SystemExit):  # yer tutucular dururken --release durur
+        with self.assertRaises(SystemExit):  # while placeholders remain, --release stops
             paketle.paketle("1.0.0", "https://alig.tech", release=True, out_dir=tempfile.mkdtemp())
 
 
@@ -64,7 +64,7 @@ class BakimTests(unittest.TestCase):
             (yedek / f"form-2020010{i}T000000Z.sqlite").write_text("x")
         self.assertEqual(bakim.main(["--veri", str(veri), "--yedek", str(yedek), "--sakla", "2"]), 0)
         yedekler = sorted(p.name for p in yedek.iterdir())
-        self.assertEqual(len([x for x in yedekler if x.startswith("form-")]), 2)  # 3 eski + 1 yeni, 2 kalir
+        self.assertEqual(len([x for x in yedekler if x.startswith("form-")]), 2)  # 3 old + 1 new, 2 remain
         self.assertEqual(len([x for x in yedekler if x.startswith("tarama-")]), 1)
         yeni = next(p for p in yedek.iterdir() if p.name.startswith("tarama-"))
         self.assertEqual(oct(yeni.stat().st_mode)[-3:], "600")
@@ -89,7 +89,7 @@ class SaklamaTests(unittest.TestCase):
         for kotu in ("abc", "-5", "99999", "1.5"):
             with self.assertRaises(saklama.SaklamaHatasi):
                 saklama.gun("firma", {"ALIG_SAKLAMA_FIRMA_GUN": kotu})
-        with self.assertRaises(saklama.SaklamaHatasi):  # rapor suresiz olamaz
+        with self.assertRaises(saklama.SaklamaHatasi):  # a report cannot be without an expiry
             saklama.gun("rapor", {"ALIG_SAKLAMA_RAPOR_GUN": "0"})
 
     def test_rapor_suresi_ortamdan(self):
@@ -111,7 +111,7 @@ class SaklamaTests(unittest.TestCase):
         self.assertEqual(kalan, {raporlu["id"], yeni["id"]})
         olaylar = [r[0] for r in con.execute("SELECT olay FROM denetim")]
         self.assertTrue(any("saklama suresi doldu, firma #%d silindi" % eski["id"] == o for o in olaylar))
-        self.assertFalse(any("Eski A.S." in o or "eski.com" in o for o in olaylar))  # kisisel veri denetime yazilmaz
+        self.assertFalse(any("Eski A.S." in o or "eski.com" in o for o in olaylar))  # personal data is not written to the audit
         self.assertIsNone(depo.denetim_dogrula(con))
 
     def test_saklamayla_silinen_firma_eski_talepten_geri_gelmez(self):
@@ -120,7 +120,7 @@ class SaklamaTests(unittest.TestCase):
         self.assertEqual(depo.saklama_uygula(con), 1)
         self.assertIsNone(depo.firma_kaydet(con, "eski.com", "E", "a@eski.com", "talep", zaman="2020-01-01T00:00:00Z", guncelle=False))
         self.assertEqual(con.execute("SELECT count(*) FROM firma").fetchone()[0], 0)
-        self.assertIsNotNone(depo.firma_kaydet(con, "eski.com", "E", "a@eski.com", "tarama"))  # yeni etkinlik yeni kayit acar
+        self.assertIsNotNone(depo.firma_kaydet(con, "eski.com", "E", "a@eski.com", "tarama"))  # a new event opens a new record
 
     def test_saklama_silmesi_denetimsiz_kalmaz(self):
         veri, con = self.kur()
@@ -188,7 +188,7 @@ class GeriYuklemeTests(unittest.TestCase):
         self.kur()
         hedef = self.veri / "tarama.sqlite"
         c = sqlite3.connect(hedef)
-        c.execute("UPDATE denetim SET olay='sahte' WHERE seq=2")  # veri bozuldu
+        c.execute("UPDATE denetim SET olay='sahte' WHERE seq=2")  # the data was corrupted
         c.execute("DELETE FROM rapor")
         c.commit()
         c.close()
@@ -198,7 +198,7 @@ class GeriYuklemeTests(unittest.TestCase):
         self.assertIsNone(depo.denetim_dogrula(con))
         self.assertEqual(con.execute("SELECT count(*) FROM rapor").fetchone()[0], 1)
         self.assertEqual(oct(hedef.stat().st_mode)[-3:], "600")
-        self.assertEqual(len(list(self.veri.glob("tarama.sqlite.onceki-*"))), 1)  # bozuk dosya silinmez, ayri durur
+        self.assertEqual(len(list(self.veri.glob("tarama.sqlite.onceki-*"))), 1)  # the corrupted file is not deleted, it stays separately
         con.close()
 
     def test_evet_olmadan_hicbir_sey_degismez(self):
@@ -218,7 +218,7 @@ class GeriYuklemeTests(unittest.TestCase):
         hedef = self.veri / "tarama.sqlite"
         once = bakim._ozet(hedef)
         bozuk = self.yedek / "tarama-20261113T000000Z.sqlite"
-        c = sqlite3.connect(self.yd)   # veri tasiyan bir sayfayi boz (bos sayfa bozulmasi butunluk denetiminde gorunmez)
+        c = sqlite3.connect(self.yd)   # corrupt a page that carries data (an empty-page corruption is not visible to the integrity check)
         kok = c.execute("SELECT rootpage FROM sqlite_master WHERE name='denetim'").fetchone()[0]
         boyut = c.execute("PRAGMA page_size").fetchone()[0]
         c.close()
@@ -249,7 +249,7 @@ class GeriYuklemeTests(unittest.TestCase):
         bas_dosya = self.yedek / "bas.json"
         bas_dosya.write_text(json.dumps(bas), encoding="utf-8")
         self.assertEqual(bakim.geri_yukle(self.yd, self.veri, bas=bas_dosya, cikti=self.cikti()), 0)
-        k = self.yedek / "tarama-20261115T000000Z.sqlite"  # son kayit kesilmis yedek
+        k = self.yedek / "tarama-20261115T000000Z.sqlite"  # backup with the last record truncated
         shutil.copyfile(self.yd, k)
         c = sqlite3.connect(k)
         c.execute("DELETE FROM denetim WHERE seq=3")
@@ -264,7 +264,7 @@ class GeriYuklemeTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: "k" * 40}):
             self.assertEqual(bakim.geri_yukle(self.yd, self.veri, cikti=self.cikti()), 0)
             self.assertFalse(any("anahtar olmadan" in x for x in self.satirlar))
-        with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: "y" * 40}):  # yanlis anahtar
+        with mock.patch.dict(os.environ, {depo.ANAHTAR_ORTAM: "y" * 40}):  # wrong key
             self.assertEqual(bakim.geri_yukle(self.yd, self.veri, cikti=self.cikti()), 1)
 
     def test_hedef_kullanimdaysa_durur(self):
@@ -280,7 +280,7 @@ class GeriYuklemeTests(unittest.TestCase):
             tutan.close()
 
     def test_bosta_baglanti_tutan_surec_varken_durur(self):
-        """Calisan servis istekler arasinda bosta olsa bile dosyayi acik tutabilir; kilit denetimi bunu goremez."""
+        """A running service can hold the file open even while idle between requests; the lock check cannot see this."""
         import multiprocessing as mp
         self.kur()
         ctx = mp.get_context("fork")
@@ -288,7 +288,7 @@ class GeriYuklemeTests(unittest.TestCase):
 
         def tut(yol):
             c = sqlite3.connect(yol)
-            c.execute("SELECT count(*) FROM denetim").fetchone()  # okuma yapildi, islem acik degil
+            c.execute("SELECT count(*) FROM denetim").fetchone()  # a read was done, no transaction is open
             hazir.set()
             bitir.wait(30)
             c.close()
@@ -318,7 +318,7 @@ class GeriYuklemeTests(unittest.TestCase):
         x = self.yedek / "baska-20261116T000000Z.sqlite"
         shutil.copyfile(self.yd, x)
         self.assertEqual(bakim.geri_yukle(x, self.veri, evet=True, cikti=self.cikti()), 2)
-        bos = Path(tempfile.mkdtemp())  # sunucu kaybi: hedef dizin bos
+        bos = Path(tempfile.mkdtemp())  # server loss: target directory is empty
         self.assertEqual(bakim.geri_yukle(self.yd, bos, evet=True, cikti=self.cikti()), 0)
         self.assertIsNone(depo.denetim_dogrula(depo.baglan(str(bos / "tarama.sqlite"))))
 
@@ -342,7 +342,7 @@ class GeriYuklemeTests(unittest.TestCase):
 
 
 class HazirlikTests(unittest.TestCase):
-    """deploy/hazirlik.py: sunucu denetimi gecici dizinde sinanir; gercek sunucu kaniti degildir."""
+    """deploy/hazirlik.py: the server check is tested in a temporary directory; it is not evidence from a real server."""
     def kur(self, mod_env=0o640, mod_veri=0o750, mod_db=0o600):
         kok = Path(tempfile.mkdtemp())
         v = hazirlik.yukle_degiskenler()
@@ -410,7 +410,7 @@ class HazirlikTests(unittest.TestCase):
         for x in satirlar:
             durum = x.split("|")[2].strip()
             self.assertIn(durum, ("DONE", "NOT_TESTED"), x)
-            if durum == "DONE":  # kanitsiz DONE olmaz
+            if durum == "DONE":  # there is no DONE without evidence
                 self.assertTrue(x.split("|")[3].strip(), x)
 
     def test_yazdir_fail_varsa_hata_kodu(self):
@@ -433,7 +433,7 @@ class BakimDiskTests(unittest.TestCase):
 
     def test_buyuk_diskte_oran_dusuk_ama_yer_yeterliyse_yedek_alinir(self):
         veri, yedek = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
-        D = type("D", (), {"total": 2000 << 30, "free": 40 << 30})  # %2 bos ama 40 GB yer var
+        D = type("D", (), {"total": 2000 << 30, "free": 40 << 30})  # 2% free but 40 GB of space
         yeterli, mesaj = bakim.disk_yeterli(veri, yedek, lambda _: D)
         self.assertTrue(yeterli)
         self.assertTrue(mesaj.startswith("UYARI"))
@@ -455,7 +455,7 @@ class DumanTests(unittest.TestCase):
             def log_message(self, *a):
                 pass
 
-            def end_headers(self):  # nginx'in verdigi basliklari taklit et
+            def end_headers(self):  # imitate the headers nginx provides
                 for k, v in (("Content-Security-Policy", "default-src 'self'"), ("X-Content-Type-Options", "nosniff"),
                              ("Referrer-Policy", "no-referrer"), ("X-Frame-Options", "DENY")):
                     self.send_header(k, v)
@@ -486,14 +486,14 @@ if __name__ == "__main__":
 
 
 class YapilandirmaTests(unittest.TestCase):
-    """Sunucuya gitmeden yakalanabilecek yapilandirma hatalari."""
+    """Configuration errors that can be caught without going to a server."""
     SABLON = ROOT / "deploy" / "ansible" / "roles"
 
     def test_nginx_konumlari_ortak_basliklari_icerir(self):
         konum = (self.SABLON / "web" / "templates" / "alig-konumlar.conf.j2").read_text()
         self.assertEqual(konum.count("location "), konum.count("include snippets/alig-basliklar.conf"))
         https = (self.SABLON / "web" / "templates" / "alig-https.conf.j2").read_text()
-        self.assertNotIn("http2 on", https)  # Ubuntu 24.04 nginx 1.24 tanimaz
+        self.assertNotIn("http2 on", https)  # Ubuntu 24.04 nginx 1.24 does not recognize it
         self.assertIn("proxy_set_header X-Real-IP $remote_addr", konum)
         self.assertIn("client_max_body_size 6m", konum)
 
@@ -503,8 +503,8 @@ class YapilandirmaTests(unittest.TestCase):
         konum = (self.SABLON / "web" / "templates" / "alig-konumlar.conf.j2").read_text()
         blok = konum[konum.index("location /portal"):konum.index("location /yonetim")]
         self.assertIn("{% if musteri_portali %}", blok)
-        self.assertIn("return 404", blok)                      # kapaliyken nginx hicbir sey iletmez
-        self.assertIn("proxy_set_header Host $host", blok)     # Origin denetimi icin
+        self.assertIn("return 404", blok)                      # when disabled, nginx forwards nothing
+        self.assertIn("proxy_set_header Host $host", blok)     # for the Origin check
         self.assertIn("include snippets/alig-basliklar.conf", blok)
         birim = (self.SABLON / "servisler" / "templates" / "alig-tarama.service.j2").read_text()
         self.assertIn("{% if musteri_portali %}", birim)
@@ -526,10 +526,10 @@ class YapilandirmaTests(unittest.TestCase):
         for ayar in ("NoNewPrivileges=true", "ProtectSystem=strict", "CapabilityBoundingSet=", "UMask=0077",
                      "InaccessiblePaths={{ yedek_dizini }}", "IPAddressDeny=localhost link-local multicast 10.0.0.0/8"):
             self.assertIn(ayar, t)
-        self.assertNotIn("Environment=ALIG_SMTP_PAROLA", t)  # parola sablonda degil, /etc/alig/env icinde
+        self.assertNotIn("Environment=ALIG_SMTP_PAROLA", t)  # the password is not in the template, it is in /etc/alig/env
         tarama = (self.SABLON / "servisler" / "templates" / "alig-tarama.service.j2").read_text()
         self.assertIn("{% if eposta_dogrulama %}", tarama)
-        self.assertIn("IPAddressDeny=any", tarama)  # web sureci posta icin aga acilmaz
+        self.assertIn("IPAddressDeny=any", tarama)  # the web process is not opened to the network for mail
 
     def test_eposta_dogrulamasi_varsayilan_kapali(self):
         self.assertIs(hazirlik.yukle_degiskenler()["eposta_dogrulama"], False)

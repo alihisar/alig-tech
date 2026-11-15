@@ -33,7 +33,7 @@ python3 -m http.server 8080 --directory dist/c
 ```
 
 <!-- oto:basla temalar -->
-Tasarım temaları: `a`, `b`, `c`. Varsayılan tema `c` (`--theme c`).
+Design themes: `a`, `b`, `c`. Default theme: `c` (`--theme c`).
 <!-- oto:bitis temalar -->
 
 Tarayıcıda `http://localhost:8080/` (Türkçe) ve `/en/` (İngilizce). Hash özetleri için
@@ -51,73 +51,73 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 ```
 
 <!-- oto:basla denetimler -->
-`run_all.py` şu 15 denetimi sırayla çalıştırır:
+`run_all.py` runs these 15 checks in order:
 
-1. derleme
-2. toplayici guncel
-3. ornek rapor guncel
-4. birim testleri
-5. postgresql testleri
-6. html yapisi
-7. ic baglantilar
-8. dis kaynak
-9. boyut butcesi
-10. sir taramasi
-11. is akisi sabitleme
-12. yasakli kaliplar
-13. dil esligi
-14. doldurulacak alanlar
-15. readme guncel
+1. build
+2. collector up to date
+3. sample report up to date
+4. unit tests
+5. postgresql tests
+6. html structure
+7. internal links
+8. external resources
+9. size budget
+10. secret scan
+11. workflow pinning
+12. banned patterns
+13. language parity
+14. placeholders
+15. readme up to date
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 824 test (PostgreSQL testleri ayrı `postgresql testleri` adımında sayılır: `ALIG_TEST_PG_HOST` varsa dış sunucu, yoksa sistem PostgreSQL 16 ile geçici küme; ikisi de yoksa SKIP, `--release` kipinde hata).
+Unit tests: 824 tests (PostgreSQL tests are counted in the separate `postgresql tests` step: an external server if `ALIG_TEST_PG_HOST` is set, otherwise a temporary cluster with the system PostgreSQL 16; if neither exists they are SKIP, and an error in `--release` mode).
 <!-- oto:bitis testler -->
 
 ## Dizinler
 
 <!-- oto:basla dizinler -->
-| Dizin | İçerik |
+| Directory | Contents |
 | --- | --- |
-| `site/` | Kaynak: `i18n/` (TR, EN metinler), `partials/`, `pages/`, `themes/`, `assets/` |
-| `build/` | `build.py`, tekrarlanabilir derleme ve SHA-256 manifest |
-| `ci/` | Denetim betikleri, `run_all.py`, bu README'nin uretici betigi |
-| `tests/` | Birim testleri |
-| `docs/` | Tasarim notlari, plan, runbook, DNS, doldurulacak alanlar |
-| `form/` | İletişim formu uç noktası (stdlib, SQLite) |
-| `tarama/` | Sağlık taraması: toplayıcı şablonları, katalog, kurallar, sunucu, depo; `onsurum/` SQL Server ön sürümü |
-| `yonetim/` | Yönetim paneli (TOTP girişli, denetim zincirli) |
-| `deploy/` | Paketleme, bakım, duman testi, Ansible |
+| `site/` | Source: `i18n/` (TR, EN texts), `partials/`, `pages/`, `themes/`, `assets/` |
+| `build/` | `build.py`, reproducible build and SHA-256 manifest |
+| `ci/` | Check scripts, `run_all.py`, the generator script for this README |
+| `tests/` | Unit tests |
+| `docs/` | Design notes, plan, runbook, DNS, fields to be filled in |
+| `form/` | Contact form endpoint (stdlib, SQLite) |
+| `tarama/` | Health scan (tarama): collector templates, catalog, rules, server, store; `onsurum/` SQL Server preview |
+| `yonetim/` | Admin panel (yonetim; TOTP login, audit chain) |
+| `deploy/` | Packaging, maintenance, smoke test, Ansible |
 <!-- oto:bitis dizinler -->
 
 ## Rotalar
 
 <!-- oto:basla rotalar -->
-| Yol | Kaynak | Açıklama |
+| Path | Source | Description |
 | --- | --- | --- |
-| `/` | `site` | Statik site (TR), `/en/` İngilizce |
-| `/demo/` | `site` | Portal demosu (istemci tarafı, sunucu yok) |
-| `/saglik-taramasi/` | `site` | Tarama yükleme sayfası |
-| `/tarama-hazirlik/` | `site` | Müşteri hazırlık kılavuzu (tarama hesabı, adımlar) |
-| `/api/iletisim` | `form/server.py` | İletişim formu (POST) |
-| `/healthz` | `form/server.py` | Form sağlık denetimi |
-| `/api/tarama/yukle` | `tarama/server.py` | Tarama dosyası yükleme (POST) |
-| `/rapor/<token>/` | `tarama/server.py` | Rapor sayfası (rastgele bağlantı) |
-| `/rapor/<token>/sil` | `tarama/server.py` | Raporu hemen silme (POST) |
-| `/rapor/<token>/dogrula` | `tarama/server.py` | E-posta doğrulaması: raporu açar, hakkı harcar (POST, varsayılan kapalı) |
-| `/api/tarama/saglik` | `tarama/server.py` | Tarama sunucu sağlık denetimi |
-| `/api/tarama/baglan` | `tarama/server.py` | Doğrudan bağlantı formu ve isteği (varsayılan kapalı) |
-| `/api/tarama/baglan/<token>` | `tarama/server.py` | Parolayı alıp taramayı çalıştırma (POST, varsayılan kapalı) |
-| `/yonetim/giris` | `yonetim/server.py` | Yönetici girişi (parola + TOTP) |
-| `/yonetim/` | `yonetim/server.py` | Özet |
-| `/yonetim/firmalar` | `yonetim/server.py` | Firmalar: liste, aktif/pasif |
-| `/yonetim/firmalar/<id>` | `yonetim/server.py` | Firma ayrıntısı, not, tarama hakkı, silme |
-| `/yonetim/talepler` | `yonetim/server.py` | İletişim talepleri |
-| `/yonetim/firmalar.csv` | `yonetim/server.py` | Firma listesi CSV dışa aktarımı |
-| `/yonetim/talepler.csv` | `yonetim/server.py` | Talep listesi CSV dışa aktarımı |
-| `/yonetim/taramalar` | `yonetim/server.py` | Tarama raporları |
-| `/yonetim/denetim` | `yonetim/server.py` | Denetim kaydı ve zincir doğrulaması |
-| `/yonetim/sistem` | `yonetim/server.py` | Sistem durumu |
+| `/` | `site` | Static site (TR), `/en/` English |
+| `/demo/` | `site` | Portal demo (client side, no server) |
+| `/saglik-taramasi/` | `site` | Health scan upload page |
+| `/tarama-hazirlik/` | `site` | Customer preparation guide (scan account, steps) |
+| `/api/iletisim` | `form/server.py` | Contact form (POST) |
+| `/healthz` | `form/server.py` | Form health check |
+| `/api/tarama/yukle` | `tarama/server.py` | Scan file upload (POST) |
+| `/rapor/<token>/` | `tarama/server.py` | Report page (random link) |
+| `/rapor/<token>/sil` | `tarama/server.py` | Delete the report immediately (POST) |
+| `/rapor/<token>/dogrula` | `tarama/server.py` | Email verification: opens the report, spends the allowance (POST, off by default) |
+| `/api/tarama/saglik` | `tarama/server.py` | Scan server health check |
+| `/api/tarama/baglan` | `tarama/server.py` | Direct connection form and request (off by default) |
+| `/api/tarama/baglan/<token>` | `tarama/server.py` | Take the password and run the scan (POST, off by default) |
+| `/yonetim/giris` | `yonetim/server.py` | Admin login (password + TOTP) |
+| `/yonetim/` | `yonetim/server.py` | Summary |
+| `/yonetim/firmalar` | `yonetim/server.py` | Companies: list, active/inactive |
+| `/yonetim/firmalar/<id>` | `yonetim/server.py` | Company detail, note, scan allowance, deletion |
+| `/yonetim/talepler` | `yonetim/server.py` | Contact requests |
+| `/yonetim/firmalar.csv` | `yonetim/server.py` | Company list CSV export |
+| `/yonetim/talepler.csv` | `yonetim/server.py` | Request list CSV export |
+| `/yonetim/taramalar` | `yonetim/server.py` | Scan reports |
+| `/yonetim/denetim` | `yonetim/server.py` | Audit log and chain verification |
+| `/yonetim/sistem` | `yonetim/server.py` | System status |
 <!-- oto:bitis rotalar -->
 
 ## Yeni metin ekleme
@@ -174,5 +174,5 @@ Canlı kullanım: `docs/runbook.md`.
 `deploy/bakim.py` (yedek), `deploy/duman_testi.py`. Adımlar: `docs/runbook.md`, DNS: `docs/dns.md`.
 
 <!-- oto:basla ansible -->
-Ansible rolleri: `servisler`, `temel`, `web`, `yayin`.
+Ansible roles: `servisler`, `temel`, `web`, `yayin`.
 <!-- oto:bitis ansible -->

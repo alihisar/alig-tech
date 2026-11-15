@@ -118,7 +118,7 @@ class KumeTests(unittest.TestCase):
 class OzetTests(unittest.TestCase):
     def test_hepsi_gecti(self):
         d, satir, ok = pg_adimi.ozet({"PASS": 24, "FAIL": 0, "SKIP": 0}, "16.4", release=False, pg_var=True)
-        self.assertEqual(d, "tamam")
+        self.assertEqual(d, "ok")
         self.assertTrue(ok)
         self.assertIn("PASS 24", satir)
         self.assertIn("FAIL 0", satir)
@@ -127,35 +127,35 @@ class OzetTests(unittest.TestCase):
 
     def test_pg_yoksa_atlandi_ve_tamam_denmez(self):
         d, satir, ok = pg_adimi.ozet({"PASS": 0, "FAIL": 0, "SKIP": 30}, None, release=False, pg_var=False)
-        self.assertEqual(d, "atlandi")
-        self.assertTrue(ok)    # CI dusmez
-        self.assertIn("atlandı (PostgreSQL yok)", satir)
-        self.assertNotIn("tamam", satir)
+        self.assertEqual(d, "skipped")
+        self.assertTrue(ok)    # CI does not fail
+        self.assertIn("skipped (no PostgreSQL)", satir)
+        self.assertNotIn("ok", satir.replace("skipped", ""))
 
     def test_release_kipinde_pg_yoksa_hata(self):
         d, satir, ok = pg_adimi.ozet({"PASS": 0, "FAIL": 0, "SKIP": 30}, None, release=True, pg_var=False)
-        self.assertEqual(d, "HATA")
+        self.assertEqual(d, "ERROR")
         self.assertFalse(ok)
-        self.assertIn("atlandı (PostgreSQL yok)", satir)
+        self.assertIn("skipped (no PostgreSQL)", satir)
 
     def test_kismi_atlama_tamam_sayilmaz(self):
         d, satir, ok = pg_adimi.ozet({"PASS": 20, "FAIL": 0, "SKIP": 4}, "16.4", release=False, pg_var=True)
-        self.assertEqual(d, "atlandi")
+        self.assertEqual(d, "skipped")
         self.assertTrue(ok)
         self.assertIn("SKIP 4", satir)
-        self.assertIn("kısmen atlandı", satir)
+        self.assertIn("partly skipped", satir)
         d, _, ok = pg_adimi.ozet({"PASS": 20, "FAIL": 0, "SKIP": 4}, "16.4", release=True, pg_var=True)
-        self.assertEqual((d, ok), ("HATA", False))
+        self.assertEqual((d, ok), ("ERROR", False))
 
     def test_fail_her_kipte_hata(self):
         for rel in (False, True):
             d, satir, ok = pg_adimi.ozet({"PASS": 3, "FAIL": 1, "SKIP": 0}, "16.4", release=rel, pg_var=True)
-            self.assertEqual((d, ok), ("HATA", False))
+            self.assertEqual((d, ok), ("ERROR", False))
             self.assertIn("FAIL 1", satir)
 
     def test_hic_pg_testi_bulunamazsa_tamam_denmez(self):
         d, _, ok = pg_adimi.ozet({"PASS": 0, "FAIL": 0, "SKIP": 0}, "16.4", release=False, pg_var=True)
-        self.assertNotEqual(d, "tamam")
+        self.assertNotEqual(d, "ok")
 
     def test_sayac_ve_etiketli_siniflar(self):
         sayilar, _ = pg_adimi.calistir_sayilari(ROOT, dahil=["test_pg_yardimci"])

@@ -36,7 +36,7 @@ class GuvenlikTests(unittest.TestCase):
         self.assertEqual(guvenlik.totp_dogrula(g, guvenlik.totp_kod(g, s), 0, t), s)
         self.assertEqual(guvenlik.totp_dogrula(g, guvenlik.totp_kod(g, s - 1), 0, t), s - 1)
         self.assertIsNone(guvenlik.totp_dogrula(g, guvenlik.totp_kod(g, s - 2), 0, t))
-        self.assertIsNone(guvenlik.totp_dogrula(g, guvenlik.totp_kod(g, s), s, t))  # ayni kod ikinci kez
+        self.assertIsNone(guvenlik.totp_dogrula(g, guvenlik.totp_kod(g, s), s, t))  # the same code a second time
         self.assertIsNone(guvenlik.totp_dogrula(g, "12345", 0, t))
         self.assertIsNone(guvenlik.totp_dogrula(g, "abcdef", 0, t))
 
@@ -44,7 +44,7 @@ class GuvenlikTests(unittest.TestCase):
         h = guvenlik.parola_ozetle(PAROLA)
         self.assertTrue(h.startswith("scrypt$"))
         self.assertNotIn(PAROLA, h)
-        self.assertNotEqual(h, guvenlik.parola_ozetle(PAROLA))  # tuz
+        self.assertNotEqual(h, guvenlik.parola_ozetle(PAROLA))  # salt
         self.assertTrue(guvenlik.parola_dogrula(PAROLA, h))
         self.assertFalse(guvenlik.parola_dogrula(PAROLA + "x", h))
         self.assertFalse(guvenlik.parola_dogrula(PAROLA, "bozuk"))
@@ -123,7 +123,7 @@ class GirisTests(Taban):
         self.assertEqual(r.status, 200)
         self.assertIn("Özet", g)
         self.assertEqual(r.getheader("Cache-Control"), "no-store")
-        # oturum kodu veritabaninda duz saklanmaz
+        # the session code is not stored in plain text in the database
         satirlar = json.dumps(sqlite3.connect(self.ydb).execute("SELECT * FROM oturum").fetchall())
         self.assertNotIn(self.cerez.split("=", 1)[1], satirlar)
 
@@ -141,7 +141,7 @@ class GirisTests(Taban):
     def test_kilitleme(self):
         for _ in range(depo.DENEME_KULLANICI):
             self.assertEqual(self.giris(parola="yanlis-parola-000").status, 401)
-        self.assertEqual(self.giris().status, 401)  # dogru bilgiyle de engelli
+        self.assertEqual(self.giris().status, 401)  # blocked even with the correct credentials
         olaylar = [o[0] for o in sqlite3.connect(self.ydb).execute("SELECT olay FROM denetim")]
         self.assertTrue(any("engellendi" in o for o in olaylar))
 
@@ -176,19 +176,19 @@ class PanelTests(Taban):
     def test_firmalar_listesi_iki_kaynaktan_gelir(self):
         r, g = self.istek("GET", "/yonetim/firmalar")
         self.assertEqual(r.status, 200)
-        self.assertIn("Firma &lt;i&gt;AS&lt;/i&gt;", g)   # taramadan, kacisli
+        self.assertIn("Firma &lt;i&gt;AS&lt;/i&gt;", g)   # from the scan, escaped
         self.assertNotIn("<i>AS</i>", g)
-        self.assertIn("Ornek AS", g)                        # iletisim talebinden
+        self.assertIn("Ornek AS", g)                        # from the contact request
         self.assertIn("Pasif et", g)
         self.assertIn("Ornek AS", self.istek("GET", "/yonetim/firmalar?ara=ornek")[1])
         self.assertNotIn("Ornek AS", self.istek("GET", "/yonetim/firmalar?ara=firma.com")[1])
         self.assertEqual(len(tdepo.firma_listele(tdepo.baglan(self.tdb))), 2)
-        self.istek("GET", "/yonetim/firmalar")              # ikinci goruntuleme kayit cogaltmaz
+        self.istek("GET", "/yonetim/firmalar")              # a second view does not duplicate records
         self.assertEqual(len(tdepo.firma_listele(tdepo.baglan(self.tdb))), 2)
 
     def test_firmalar_csv(self):
-        self.assertEqual(self.istek("GET", "/yonetim/firmalar.csv", cerez=False)[0].status, 303)   # giris gerekir
-        self.istek("GET", "/yonetim/firmalar")   # iletisim taleplerinden firmalari esitler
+        self.assertEqual(self.istek("GET", "/yonetim/firmalar.csv", cerez=False)[0].status, 303)   # login required
+        self.istek("GET", "/yonetim/firmalar")   # syncs companies from contact requests
         r, g = self.istek("GET", "/yonetim/firmalar.csv")
         self.assertEqual(r.status, 200)
         self.assertTrue(r.getheader("Content-Type").startswith("text/csv"))
@@ -243,7 +243,7 @@ class PanelTests(Taban):
         self.assertEqual(self.istek("GET", "/yonetim/firmalar/999")[0].status, 404)
 
     def test_silinen_firma_talepten_geri_gelmez(self):
-        self.istek("GET", "/yonetim/firmalar")  # talepten firma kaydi olusur
+        self.istek("GET", "/yonetim/firmalar")  # a company record is created from the request
         t = tdepo.baglan(self.tdb)
         f = next(x for x in tdepo.firma_listele(t) if x["anahtar"] == "ornek.com")
         r, _ = self.istek("POST", "/yonetim/firmalar/%d/sil" % f["id"], {"emin": "evet", "csrf": self.csrf()})
@@ -251,8 +251,8 @@ class PanelTests(Taban):
         for yol in ("/yonetim/", "/yonetim/firmalar", "/yonetim/firmalar.csv"):
             self.istek("GET", yol)
         self.assertNotIn("ornek.com", [x["anahtar"] for x in tdepo.firma_listele(t)])
-        self.assertNotIn("ornek.com", json.dumps(t.execute("SELECT * FROM firma_silinen").fetchall()))  # iz duz adres tutmaz
-        fc = sqlite3.connect(self.fdb)  # silmeden SONRA gelen yeni talep yeni kayit acar
+        self.assertNotIn("ornek.com", json.dumps(t.execute("SELECT * FROM firma_silinen").fetchall()))  # the trace does not keep a plain address
+        fc = sqlite3.connect(self.fdb)  # a new request coming AFTER deletion opens a new record
         fc.execute("INSERT INTO contact VALUES(2,'2999-01-01T00:00:00Z','Ada','Ornek AS','ada@ornek.com','pg','yeniden','h')")
         fc.commit()
         fc.close()
@@ -284,12 +284,12 @@ class PanelTests(Taban):
         g2 = self.istek("GET", "/yonetim/talepler?sayfa=2")[1]
         self.assertEqual(g2.count("action=\"/yonetim/talepler/"), 51)
         csv_ = self.istek("GET", "/yonetim/talepler.csv")[1]
-        self.assertEqual(len([x for x in csv_.splitlines() if x.strip()]), 152)   # baslik + 151 satir, sessiz kesme yok
+        self.assertEqual(len([x for x in csv_.splitlines() if x.strip()]), 152)   # header + 151 rows, no silent truncation
 
     def test_zehirli_rapor_paneli_dusurmez(self):
         t = tdepo.baglan(self.tdb)
         b = temiz_belge()
-        b["kontroller"]["pg_surum"] = {"durum": "ok", "satirlar": [{"surum_num": "abc"}]}  # yukleme denetimini atlayan bozuk kayit
+        b["kontroller"]["pg_surum"] = {"durum": "ok", "satirlar": [{"surum_num": "abc"}]}  # a corrupt record that bypasses the load check
         tdepo.rapor_ekle(t, "zehir", "postgresql", "tr", b, self.firma["id"])
         t.close()
         for yol in ("/yonetim/", "/yonetim/taramalar", "/yonetim/taramalar/2", "/yonetim/firmalar/%d" % self.firma["id"]):
@@ -320,7 +320,7 @@ class PanelTests(Taban):
             g = self.istek("GET", yol)[1]
             self.assertIn("<th scope=\"col\">Puan</th>", g, yol)
             self.assertIn(beklenen, g, yol)
-            self.assertIn("hesaplanamadı (kapsam %0)", g, yol)   # kanit yoksa puan yazilmaz
+            self.assertIn("hesaplanamadı (kapsam %0)", g, yol)   # no score is written without evidence
         g = self.istek("GET", "/yonetim/taramalar/1")[1]
         self.assertIn("Sağlık puanı", g)
         self.assertIn("%d/100" % p.genel, g)
@@ -339,16 +339,16 @@ class PanelTests(Taban):
         self.assertIn("Çözüldü", g)
         t = tdepo.baglan(self.tdb)
         self.assertTrue(any("rapor goruntulendi #%d (karsilastirma #%d)" % (rid, rid - 1) == o for (o,) in t.execute("SELECT olay FROM denetim")))
-        self.assertNotIn("Önceki taramayla karşılaştırma", self.istek("GET", "/yonetim/taramalar/1")[1])   # kimliksiz eski rapor
+        self.assertNotIn("Önceki taramayla karşılaştırma", self.istek("GET", "/yonetim/taramalar/1")[1])   # an old report without identity
 
     def test_yonetim_raporu_iki_gorunum_sunar(self):
         g = self.istek("GET", "/yonetim/taramalar/1")[1]
-        self.assertIn("Denetim sonuçları", g)                      # varsayilan: teknik
+        self.assertIn("Denetim sonuçları", g)                      # default: technical
         self.assertIn('href="?gorunum=yonetici"', g)
         o = self.istek("GET", "/yonetim/taramalar/1?gorunum=yonetici")[1]
         self.assertIn("Genel durum", o)
         self.assertNotIn("Denetim sonuçları", o)
-        self.assertNotIn("/sil\"><button class=\"btn btn-ghost\" type=\"submit\">Raporu şimdi sil", o)   # musteri silme formu yok
+        self.assertNotIn("/sil\"><button class=\"btn btn-ghost\" type=\"submit\">Raporu şimdi sil", o)   # no customer deletion form
         self.assertEqual(self.istek("GET", "/yonetim/taramalar/1?gorunum=x")[1], g)
 
     def portal_talepleri_ekle(self):
@@ -370,9 +370,9 @@ class PanelTests(Taban):
         self.assertIn("Portal talepleri", g[1])
         self.assertIn("Denetim talebi", g[1])
         self.assertIn("Hesap ve veri silme talebi", g[1])
-        self.assertIn("Yillik &lt;b&gt;denetim&lt;/b&gt;", g[1])            # kacirilir
+        self.assertIn("Yillik &lt;b&gt;denetim&lt;/b&gt;", g[1])            # escaped
         self.assertNotIn("<b>denetim</b>", g[1])
-        self.assertIn('href="/yonetim/firmalar/%d"' % fid, g[1])             # silme firma sayfasindan
+        self.assertIn('href="/yonetim/firmalar/%d"' % fid, g[1])             # deletion is from the company page
         r, _ = self.istek("POST", "/yonetim/portal-talepleri/%d/durum" % denetim, {"durum": "inceleniyor", "csrf": self.csrf()})
         self.assertEqual((r.status, r.getheader("Location")), (303, "/yonetim/portal-talepleri"))
         t = tdepo.baglan(self.tdb)
@@ -388,10 +388,10 @@ class PanelTests(Taban):
         self.assertEqual(self.istek("POST", yol, {"durum": "tamamlandi"})[0].status, 403)                         # CSRF
         self.assertEqual(self.istek("POST", yol, {"durum": "silindi", "csrf": self.csrf()})[0].status, 422)
         self.assertEqual(self.istek("POST", "/yonetim/portal-talepleri/99999/durum", {"durum": "yeni", "csrf": self.csrf()})[0].status, 404)
-        self.assertEqual(self.istek("POST", yol, {"durum": "tamamlandi"}, cerez=False)[0].status, 303)            # oturumsuz
+        self.assertEqual(self.istek("POST", yol, {"durum": "tamamlandi"}, cerez=False)[0].status, 303)            # no session
         t = tdepo.baglan(self.tdb)
         self.assertEqual(t.execute("SELECT durum FROM portal_talep WHERE id=?", (denetim,)).fetchone()[0], "yeni")
-        # kapanmis silme talebi, ayni firmada baska acik silme talebi varken yeniden acilamaz
+        # a closed deletion request cannot be reopened while another open deletion request exists for the same company
         self.istek("POST", "/yonetim/portal-talepleri/%d/durum" % silme, {"durum": "tamamlandi", "csrf": self.csrf()})
         t.execute("INSERT INTO portal_talep(firma_id, kullanici_id, tur, olusturma_utc, guncelleme_utc) SELECT firma_id, 1, 'silme', olusturma_utc, olusturma_utc FROM portal_talep WHERE id=?", (silme,))
         t.commit()
@@ -443,13 +443,13 @@ class PanelTests(Taban):
         self.assertNotIn("<b>gorusuluyor</b>", self.istek("GET", "/yonetim/firmalar/%d" % fid)[1])
         self.istek("POST", "/yonetim/firmalar/%d/sinir" % fid, {"csrf": self.csrf()})
         self.assertIn("2 / 2", self.istek("GET", "/yonetim/firmalar/%d" % fid)[1])
-        self.assertEqual(self.istek("POST", "/yonetim/firmalar/%d/sil" % fid, {"csrf": self.csrf()})[0].status, 422)  # onay kutusu yok
+        self.assertEqual(self.istek("POST", "/yonetim/firmalar/%d/sil" % fid, {"csrf": self.csrf()})[0].status, 422)  # no confirmation checkbox
         self.assertIsNotNone(tdepo.firma_getir(t, fid))
         r, _ = self.istek("POST", "/yonetim/firmalar/%d/sil" % fid, {"emin": "evet", "csrf": self.csrf()})
         self.assertEqual((r.status, r.getheader("Location")), (303, "/yonetim/firmalar"))
         self.assertIsNone(tdepo.firma_getir(t, fid))
         self.assertEqual(tdepo.rapor_listele(t), [])
-        self.assertEqual(sqlite3.connect(self.fdb).execute("SELECT count(*) FROM contact").fetchone()[0], 1)  # talepler silinmez
+        self.assertEqual(sqlite3.connect(self.fdb).execute("SELECT count(*) FROM contact").fetchone()[0], 1)  # requests are not deleted
 
     def test_taramalar_firma_adini_gosterir(self):
         self.assertIn("/yonetim/firmalar/%d" % self.firma["id"], self.istek("GET", "/yonetim/taramalar")[1])
@@ -475,7 +475,7 @@ class PanelTests(Taban):
         r, g = self.istek("GET", "/yonetim/taramalar/1")
         self.assertEqual(r.status, 200)
         self.assertIn("TLS kapalı", g)
-        self.assertNotIn("/rapor/", g)  # musteri silme formu ve baglantisi yok
+        self.assertNotIn("/rapor/", g)  # no customer deletion form or link
         t = tdepo.baglan(self.tdb)
         self.assertTrue(any(a == "yonetici:ali" and "goruntulendi #1" in o for a, o in t.execute("SELECT aktor, olay FROM denetim")))
         self.assertTrue(any("goruntulendi #1" in o[0] for o in sqlite3.connect(self.ydb).execute("SELECT olay FROM denetim")))
@@ -499,12 +499,12 @@ class PanelTests(Taban):
         for parca in ("default-src 'none'", "script-src 'none'", "style-src 'self'", "form-action 'self'", "frame-ancestors 'none'"):
             self.assertIn(parca, csp)
         self.assertNotIn("<script", g)
-        self.assertNotIn(" style=", g)   # satir ici stil yok: CSP'yi gevsetmeye gerek kalmaz
+        self.assertNotIn(" style=", g)   # no inline style: no need to loosen the CSP
 
     def test_statik_dosya_yalniz_assets_ve_bilinen_tur(self):
-        self.assertIn(self.istek("GET", "/assets/yonetim.css", cerez=False)[0].status, (200, 404))  # paket disinda 404 olabilir
+        self.assertIn(self.istek("GET", "/assets/yonetim.css", cerez=False)[0].status, (200, 404))  # may be 404 outside the package
         for yol in ("/assets/../../yonetim/depo.py", "/assets/%2e%2e/%2e%2e/form/server.py", "/assets/alig-toplayici.py", "/assets/../VERSION",
-                    "/assets/../themes/c/style.css", "/assets/../../site/themes/b/style.css"):  # izinli uzanti ama assets disi
+                    "/assets/../themes/c/style.css", "/assets/../../site/themes/b/style.css"):  # allowed extension but outside assets
             self.assertEqual(self.istek("GET", yol, cerez=False)[0].status, 404, yol)
 
     def test_buyuk_govde_ve_tur(self):
@@ -522,7 +522,7 @@ class YeniIpTests(unittest.TestCase):
         return con, depo.kullanici_ekle(con, "ali", PAROLA)
 
     def gir(self, con, gizli, ip, adim, parola=PAROLA):
-        t = time.time() + 30 * adim * 3  # her giris ayri TOTP penceresi (kod tek kullanimlik)
+        t = time.time() + 30 * adim * 3  # each login has its own TOTP window (the code is single use)
         return depo.giris(con, "ali", parola, guvenlik.totp_kod(gizli, int(t // 30)), ip, simdi=t)
 
     def son(self, con):
@@ -532,7 +532,7 @@ class YeniIpTests(unittest.TestCase):
         con, g = self.kur()
         self.assertIsNotNone(self.gir(con, g, "198.51.100.1", 1)[0])
         olay, al = self.son(con)
-        self.assertEqual(olay, "giris yapildi")  # ilk giris uyari degil
+        self.assertEqual(olay, "giris yapildi")  # the first login is not a warning
         self.assertEqual(json.loads(al)["yeni_ip"], 0)
         self.assertIsNotNone(self.gir(con, g, "198.51.100.1", 2)[0])
         self.assertEqual(self.son(con)[0], "giris yapildi")
@@ -541,10 +541,10 @@ class YeniIpTests(unittest.TestCase):
         self.assertEqual(olay, "yeni IP'den giris yapildi")
         a = json.loads(al)
         self.assertEqual((a["yeni_ip"], a["sonuc"], a["kullanici"]), (1, "basarili", "ali"))
-        self.assertNotIn("203.0.113.9", al + olay)  # duz adres denetime yazilmaz
+        self.assertNotIn("203.0.113.9", al + olay)  # a plain address is not written to the audit
         self.assertNotIn("203.0.113.9", json.dumps(con.execute("SELECT * FROM giris_ip").fetchall()))
         self.assertIsNotNone(self.gir(con, g, "203.0.113.9", 4)[0])
-        self.assertEqual(self.son(con)[0], "giris yapildi")  # artik bilinen IP
+        self.assertEqual(self.son(con)[0], "giris yapildi")  # now a known IP
         self.assertIsNone(depo.denetim_dogrula(con))
 
     def test_basarisiz_giris_yapisal_kayit_ve_kullanici_silinince_ip_silinir(self):
@@ -560,7 +560,7 @@ class YeniIpTests(unittest.TestCase):
 
 
 class IslemTests(Taban):
-    """Is eylemi ve denetim kaydi birlikte: denetim yazilamazsa eylem de geri alinir."""
+    """Business action and audit record together: if the audit record cannot be written, the action is rolled back too."""
 
     def setUp(self):
         super().setUp()
@@ -576,7 +576,7 @@ class IslemTests(Taban):
         with self.bozuk_denetim(tdepo):
             try:
                 self.istek("POST", "/yonetim/firmalar/%d/sil" % fid, {"emin": "evet", "csrf": csrf})
-            except Exception:  # noqa: BLE001 - sunucu istegi yarida keser
+            except Exception:  # noqa: BLE001 - the server cuts the request short
                 pass
         self.assertIsNotNone(tdepo.firma_getir(tdepo.baglan(self.tdb), fid))
 
@@ -597,11 +597,11 @@ class IslemTests(Taban):
     def test_ayni_dogrulama_kodu_es_zamanli_iki_giriste_bir_kez_gecer(self):
         import threading as th
         from unittest import mock
-        kod = self.kod(1)   # setUp girisi su anki kodu kullandi; bir sonraki pencerenin kodu
+        kod = self.kod(1)   # the setUp login used the current code; the code of the next window
         b, sonuc = th.Barrier(2), []
         gercek = guvenlik.totp_dogrula
 
-        def yavas(*a, **k):   # sayaci okuma ile yazma arasindaki pencereyi genislet: yaris kilitsiz kodda kesin gorunur
+        def yavas(*a, **k):   # widen the window between reading and writing the counter: the race is clearly visible in lock-free code
             time.sleep(0.3)
             return gercek(*a, **k)
 
@@ -627,7 +627,7 @@ class IslemTests(Taban):
         gercek = tdepo.firma_kaydet
         with mock.patch.object(server.tdepo, "firma_kaydet", side_effect=gercek) as say:
             self.istek("GET", "/yonetim/firmalar")
-            self.assertLessEqual(say.call_count, 1)   # yalniz son saniyedeki talep yeniden bakilir
+            self.assertLessEqual(say.call_count, 1)   # only requests in the last second are looked at again
         f = sqlite3.connect(self.fdb)
         f.execute("INSERT INTO contact VALUES(97,'2999-01-01T00:00:00Z','Yeni','Yeni AS','x@yeni.com','pg','m','h')")
         f.commit()
@@ -659,7 +659,7 @@ class IslemTests(Taban):
 
 
 class KipBPanelTests(Taban):
-    """Kip B istek listesi: salt okuma, sayfali, firma ve durum suzgecli; parola, kanit ve belirtec gorunmez."""
+    """Mode B request list: read-only, paginated, with company and status filters; password, proof and token are not visible."""
 
     def setUp(self):
         super().setUp()
@@ -669,7 +669,7 @@ class KipBPanelTests(Taban):
             fid = self.firma["id"] if i < 27 else self.diger["id"]
             tdepo.istek_ekle(t, "tk-%02d" % i, fid, "kanit-gizli-%02d" % i, "db%02d.ornek.com" % i, "93.184.216.%d" % (i + 1), 5432, "veri%02d" % i, "alig_hc", i % 2 == 0, "tr")
         t.execute("UPDATE baglanti_istegi SET durum='tamam' WHERE id IN (1,2,28)")
-        t.execute("UPDATE baglanti_istegi SET bitis_utc='2000-01-01T00:00:00Z' WHERE id=3")   # suresi dolmus bekleyen
+        t.execute("UPDATE baglanti_istegi SET bitis_utc='2000-01-01T00:00:00Z' WHERE id=3")   # expired pending
         t.commit()
         t.close()
         self.giris()
@@ -677,17 +677,17 @@ class KipBPanelTests(Taban):
     def test_liste_alanlari_gosterir_gizlileri_gostermez(self):
         r, g = self.istek("GET", "/yonetim/kip-b")
         self.assertEqual(r.status, 200)
-        self.assertIn("db29.ornek.com:5432", g)   # en yeni once
+        self.assertIn("db29.ornek.com:5432", g)   # newest first
         self.assertIn("veri29", g)
         self.assertIn("Diger AS", g)
         for gizli in ("kanit-gizli", "tk-", "93.184.216", "host=", "sslmode", "password", "parola", "alig-kanit"):
             self.assertNotIn(gizli, g.replace("Parola yok", ""), gizli)
-        self.assertNotIn("<form", g.split("</nav>")[-1].replace('action="/yonetim/cikis"', ""))   # salt okuma: islem formu yok
+        self.assertNotIn("<form", g.split("</nav>")[-1].replace('action="/yonetim/cikis"', ""))   # read-only: no action form
 
     def test_sayfalama(self):
         r, g1 = self.istek("GET", "/yonetim/kip-b")
         self.assertIn("db29.ornek.com", g1)
-        self.assertNotIn("db00.ornek.com", g1)   # ilk sayfada en cok 25 kayit
+        self.assertNotIn("db00.ornek.com", g1)   # at most 25 records on the first page
         self.assertIn("sayfa=2", g1)
         r, g2 = self.istek("GET", "/yonetim/kip-b?sayfa=2")
         self.assertIn("db00.ornek.com", g2)
@@ -705,7 +705,7 @@ class KipBPanelTests(Taban):
         _, g = self.istek("GET", "/yonetim/kip-b?durum=tamam&firma=%d" % self.diger["id"])
         self.assertIn("db27.ornek.com", g)   # id 28
         self.assertNotIn("db00.ornek.com", g)
-        # gecersiz suzgec yok sayilir, SQL'e girmez
+        # an invalid filter is ignored, it does not reach SQL
         r, g = self.istek("GET", "/yonetim/kip-b?durum=x'%20OR%201=1--&firma=abc")
         self.assertEqual(r.status, 200)
         self.assertIn("db29.ornek.com", g)
@@ -744,7 +744,7 @@ class KipBPanelTests(Taban):
 
 
 class SurecDepoTests(unittest.TestCase):
-    """Ticari surec durum makinesi (tarama/depo.py): aday -> gorusuluyor -> teklif -> musteri, her durumdan -> kapandi."""
+    """Commercial process state machine (tarama/depo.py): aday -> gorusuluyor -> teklif -> musteri, from every state -> kapandi."""
 
     def setUp(self):
         self.con = tdepo.baglan(str(Path(tempfile.mkdtemp()) / "t.sqlite"))
@@ -897,7 +897,7 @@ class SurecPanelTests(Taban):
         g = self.istek("GET", "/yonetim/firmalar?surec=aday")[1]
         self.assertIn("x@diger.com.tr", g)
         self.assertNotIn("ayse@firma.com.tr", g)
-        g = self.istek("GET", "/yonetim/firmalar?surec=gecersiz")[1]   # gecersiz suzgec yok sayilir
+        g = self.istek("GET", "/yonetim/firmalar?surec=gecersiz")[1]   # an invalid filter is ignored
         self.assertIn("x@diger.com.tr", g)
         self.assertIn("ayse@firma.com.tr", g)
 
@@ -938,7 +938,7 @@ class GostergeTests(Taban):
         g = depo.gosterge(y, self.tdb, self.fdb)
         self.assertEqual((g["tarama_7"], g["tarama_30"]), (1, 2))
         self.assertEqual((g["firma_aktif"], g["firma_pasif"]), (1, 1))
-        self.assertEqual(g["iletisim_acik"], 1)     # gorusuluyor hala acik
+        self.assertEqual(g["iletisim_acik"], 1)     # gorusuluyor is still open
         self.assertEqual(g["portal_acik"], 2)
         self.assertEqual(g["kipb_bekleyen"], 1)
         self.assertEqual(g["posta_bekleyen"], 1)
@@ -954,7 +954,7 @@ class GostergeTests(Taban):
         for k in ("tarama_7", "tarama_30", "firma_aktif", "firma_pasif", "iletisim_acik", "portal_acik", "kipb_bekleyen", "posta_bekleyen", "zincir_tarama"):
             self.assertIsNone(g[k], k)
         self.assertIsNotNone(g["zincir_yonetim"])
-        self.assertFalse(Path(yok).exists())   # salt okuma: dosya olusturulmaz
+        self.assertFalse(Path(yok).exists())   # read-only: no file is created
 
     def test_bozuk_tablo_none_doner(self):
         c = sqlite3.connect(self.fdb)

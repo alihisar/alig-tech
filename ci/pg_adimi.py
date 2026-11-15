@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""ALIG-CI-001: "postgresql testleri" CI adimi. PostgreSQL testlerini (tests/ altinda PG_TESTI etiketli siniflar)
-birim testlerinden ayri kosar; ozette PASS/FAIL/SKIP sayisini ve PostgreSQL surumunu yazar.
+"""ALIG-CI-001: the "postgresql tests" CI step. Runs the PostgreSQL tests (classes tagged PG_TESTI under tests/)
+separately from the unit tests; the summary reports the PASS/FAIL/SKIP counts and the PostgreSQL version.
 
-SKIP basari sayilmaz: PostgreSQL yoksa ya da bir kisim test atlandiysa ozet satiri "atlandı" der ve "tamam" demez.
-CI normalde dusmez; --release kipinde (uretim etiketi) atlanan PostgreSQL testi hatadir (v5: "calistirilmayan test PASS sayilmaz").
+SKIP does not count as success: if PostgreSQL is missing or some tests were skipped, the summary line says "skipped" and not "ok".
+CI normally does not fail; in --release mode (production tag) a skipped PostgreSQL test is an error (v5: "a test that did not run is not a PASS").
 
-  python3 ci/pg_adimi.py            # JSON sonuc satiri yazar (run_all.py bunu okur)
+  python3 ci/pg_adimi.py            # prints a JSON result line (run_all.py reads it)
 """
 import io
 import json
@@ -40,7 +40,7 @@ def _duzlestir(suite):
 
 
 def calistir_sayilari(root=ROOT, dahil=None):
-    """PG_TESTI etiketli testleri kosar: ({'PASS':n,'FAIL':n,'SKIP':n}, ayrintilar). dahil: yalniz bu test modulleri."""
+    """Runs the tests tagged PG_TESTI: ({'PASS':n,'FAIL':n,'SKIP':n}, details). dahil: only these test modules."""
     root = Path(root)
     yukleyici = unittest.TestLoader()
     if dahil:
@@ -57,38 +57,38 @@ def calistir_sayilari(root=ROOT, dahil=None):
 
 
 def pg_surumu():
-    """(pg_var, surum): dis sunucu ya da sistem PostgreSQL ikilisi."""
+    """(pg_var, version): external server or the system PostgreSQL binary."""
     d = pg_yardimci.dis_hedef()
     if d:
         try:
             r = subprocess.run(["psql", "-X", "-A", "-t", "-h", d.host, "-p", d.port, "-U", d.kullanici, "-d", "postgres",
                                 "-c", "SHOW server_version"], capture_output=True, text=True, timeout=20)
-            return True, (r.stdout.strip().split()[0] if r.returncode == 0 and r.stdout.strip() else "bilinmiyor")
+            return True, (r.stdout.strip().split()[0] if r.returncode == 0 and r.stdout.strip() else "unknown")
         except (OSError, subprocess.SubprocessError):
-            return True, "bilinmiyor"
+            return True, "unknown"
     b = pg_yardimci.pg_bul()
-    return b.var, (b.surum or "bilinmiyor") if b.var else None
+    return b.var, (b.surum or "unknown") if b.var else None
 
 
 def ozet(sayilar, surum, release, pg_var):
-    """(durum, ozet satiri, CI gecti mi). durum: 'tamam' | 'atlandi' | 'HATA'.
-    'tamam' yalnizca FAIL 0, SKIP 0 ve en az bir PASS varsa; SKIP hicbir zaman basari sayilmaz."""
+    """(status, summary line, did CI pass). status: 'ok' | 'skipped' | 'ERROR'.
+    'ok' only if FAIL is 0, SKIP is 0 and there is at least one PASS; SKIP never counts as success."""
     p, f, s = sayilar["PASS"], sayilar["FAIL"], sayilar["SKIP"]
     say = "PASS %d / FAIL %d / SKIP %d" % (p, f, s)
     if surum:
         say += " (PostgreSQL %s)" % surum
     if f:
-        return "HATA", "%s: %s" % ("postgresql testleri", say), False
+        return "ERROR", "%s: %s" % ("postgresql tests", say), False
     if not pg_var:
-        satir = "postgresql testleri: atlandı (PostgreSQL yok); %s" % say
-        return ("HATA", satir + "; --release kipinde atlanan PostgreSQL testi hatadır", False) if release \
-            else ("atlandi", satir, True)
+        satir = "postgresql tests: skipped (no PostgreSQL); %s" % say
+        return ("ERROR", satir + "; in --release mode a skipped PostgreSQL test is an error", False) if release \
+            else ("skipped", satir, True)
     if s or not p:
-        neden = "kısmen atlandı" if p else "çalışan PostgreSQL testi yok, atlandı"
-        satir = "postgresql testleri: %s; %s" % (neden, say)
-        return ("HATA", satir + "; --release kipinde atlanan PostgreSQL testi hatadır", False) if release \
-            else ("atlandi", satir, True)
-    return "tamam", "postgresql testleri: %s" % say, True
+        neden = "partly skipped" if p else "no PostgreSQL test ran, skipped"
+        satir = "postgresql tests: %s; %s" % (neden, say)
+        return ("ERROR", satir + "; in --release mode a skipped PostgreSQL test is an error", False) if release \
+            else ("skipped", satir, True)
+    return "ok", "postgresql tests: %s" % say, True
 
 
 def main(argv=None):

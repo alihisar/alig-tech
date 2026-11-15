@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""README'nin koddan turetilen bolumlerini gunceller (yalnizca standart kutuphane).
+"""Updates the parts of the README that are derived from code (standard library only).
 
-  python3 ci/uret_readme.py            # README.md icindeki otomatik bolumleri yazar
-  python3 ci/uret_readme.py --kontrol  # guncel degilse 1 doner (CI bunu kullanir)
+  python3 ci/uret_readme.py            # writes the automatic sections in README.md
+  python3 ci/uret_readme.py --kontrol  # returns 1 if out of date (CI uses this)
 
-Otomatik bolumler `<!-- oto:basla ad -->` ... `<!-- oto:bitis ad -->` isaretleri
-arasindadir; isaretlerin disindaki metin elle yazilir ve bu betik dokunmaz.
-Bir yol, sunucu kaynaginda bulunmazsa betik hata verir: rota silinince README da
-uyari verir.
+Automatic sections lie between the markers `<!-- oto:basla name -->` ... `<!-- oto:bitis name -->`
+(oto = auto, basla = start, bitis = end); text outside the markers is written by hand and this script
+does not touch it. If a path is not found in the server source the script reports an error: when a
+route is removed, the README warns too.
 """
 import argparse
 import re
@@ -21,44 +21,44 @@ sys.path.insert(0, str(ROOT / "build"))
 
 import build as site_build  # noqa: E402
 
-# Dizin aciklamalari: dizin yoksa betik hata verir.
+# Directory descriptions: the script reports an error if the directory does not exist.
 DIZINLER = [
-    ("site/", "Kaynak: `i18n/` (TR, EN metinler), `partials/`, `pages/`, `themes/`, `assets/`"),
-    ("build/", "`build.py`, tekrarlanabilir derleme ve SHA-256 manifest"),
-    ("ci/", "Denetim betikleri, `run_all.py`, bu README'nin uretici betigi"),
-    ("tests/", "Birim testleri"),
-    ("docs/", "Tasarim notlari, plan, runbook, DNS, doldurulacak alanlar"),
-    ("form/", "İletişim formu uç noktası (stdlib, SQLite)"),
-    ("tarama/", "Sağlık taraması: toplayıcı şablonları, katalog, kurallar, sunucu, depo; `onsurum/` SQL Server ön sürümü"),
-    ("yonetim/", "Yönetim paneli (TOTP girişli, denetim zincirli)"),
-    ("deploy/", "Paketleme, bakım, duman testi, Ansible"),
+    ("site/", "Source: `i18n/` (TR, EN texts), `partials/`, `pages/`, `themes/`, `assets/`"),
+    ("build/", "`build.py`, reproducible build and SHA-256 manifest"),
+    ("ci/", "Check scripts, `run_all.py`, the generator script for this README"),
+    ("tests/", "Unit tests"),
+    ("docs/", "Design notes, plan, runbook, DNS, fields to be filled in"),
+    ("form/", "Contact form endpoint (stdlib, SQLite)"),
+    ("tarama/", "Health scan (tarama): collector templates, catalog, rules, server, store; `onsurum/` SQL Server preview"),
+    ("yonetim/", "Admin panel (yonetim; TOTP login, audit chain)"),
+    ("deploy/", "Packaging, maintenance, smoke test, Ansible"),
 ]
 
-# (yol, kaynak dosya, aciklama). Yol kaynak dosyada gecmeli.
+# (path, source file, description). The path must occur in the source file.
 ROTALAR = [
-    ("/", "site", "Statik site (TR), `/en/` İngilizce"),
-    ("/demo/", "site", "Portal demosu (istemci tarafı, sunucu yok)"),
-    ("/saglik-taramasi/", "site", "Tarama yükleme sayfası"),
-    ("/tarama-hazirlik/", "site", "Müşteri hazırlık kılavuzu (tarama hesabı, adımlar)"),
-    ("/api/iletisim", "form/server.py", "İletişim formu (POST)"),
-    ("/healthz", "form/server.py", "Form sağlık denetimi"),
-    ("/api/tarama/yukle", "tarama/server.py", "Tarama dosyası yükleme (POST)"),
-    ("/rapor/<token>/", "tarama/server.py", "Rapor sayfası (rastgele bağlantı)"),
-    ("/rapor/<token>/sil", "tarama/server.py", "Raporu hemen silme (POST)"),
-    ("/rapor/<token>/dogrula", "tarama/server.py", "E-posta doğrulaması: raporu açar, hakkı harcar (POST, varsayılan kapalı)"),
-    ("/api/tarama/saglik", "tarama/server.py", "Tarama sunucu sağlık denetimi"),
-    ("/api/tarama/baglan", "tarama/server.py", "Doğrudan bağlantı formu ve isteği (varsayılan kapalı)"),
-    ("/api/tarama/baglan/<token>", "tarama/server.py", "Parolayı alıp taramayı çalıştırma (POST, varsayılan kapalı)"),
-    ("/yonetim/giris", "yonetim/server.py", "Yönetici girişi (parola + TOTP)"),
-    ("/yonetim/", "yonetim/server.py", "Özet"),
-    ("/yonetim/firmalar", "yonetim/server.py", "Firmalar: liste, aktif/pasif"),
-    ("/yonetim/firmalar/<id>", "yonetim/server.py", "Firma ayrıntısı, not, tarama hakkı, silme"),
-    ("/yonetim/talepler", "yonetim/server.py", "İletişim talepleri"),
-    ("/yonetim/firmalar.csv", "yonetim/server.py", "Firma listesi CSV dışa aktarımı"),
-    ("/yonetim/talepler.csv", "yonetim/server.py", "Talep listesi CSV dışa aktarımı"),
-    ("/yonetim/taramalar", "yonetim/server.py", "Tarama raporları"),
-    ("/yonetim/denetim", "yonetim/server.py", "Denetim kaydı ve zincir doğrulaması"),
-    ("/yonetim/sistem", "yonetim/server.py", "Sistem durumu"),
+    ("/", "site", "Static site (TR), `/en/` English"),
+    ("/demo/", "site", "Portal demo (client side, no server)"),
+    ("/saglik-taramasi/", "site", "Health scan upload page"),
+    ("/tarama-hazirlik/", "site", "Customer preparation guide (scan account, steps)"),
+    ("/api/iletisim", "form/server.py", "Contact form (POST)"),
+    ("/healthz", "form/server.py", "Form health check"),
+    ("/api/tarama/yukle", "tarama/server.py", "Scan file upload (POST)"),
+    ("/rapor/<token>/", "tarama/server.py", "Report page (random link)"),
+    ("/rapor/<token>/sil", "tarama/server.py", "Delete the report immediately (POST)"),
+    ("/rapor/<token>/dogrula", "tarama/server.py", "Email verification: opens the report, spends the allowance (POST, off by default)"),
+    ("/api/tarama/saglik", "tarama/server.py", "Scan server health check"),
+    ("/api/tarama/baglan", "tarama/server.py", "Direct connection form and request (off by default)"),
+    ("/api/tarama/baglan/<token>", "tarama/server.py", "Take the password and run the scan (POST, off by default)"),
+    ("/yonetim/giris", "yonetim/server.py", "Admin login (password + TOTP)"),
+    ("/yonetim/", "yonetim/server.py", "Summary"),
+    ("/yonetim/firmalar", "yonetim/server.py", "Companies: list, active/inactive"),
+    ("/yonetim/firmalar/<id>", "yonetim/server.py", "Company detail, note, scan allowance, deletion"),
+    ("/yonetim/talepler", "yonetim/server.py", "Contact requests"),
+    ("/yonetim/firmalar.csv", "yonetim/server.py", "Company list CSV export"),
+    ("/yonetim/talepler.csv", "yonetim/server.py", "Request list CSV export"),
+    ("/yonetim/taramalar", "yonetim/server.py", "Scan reports"),
+    ("/yonetim/denetim", "yonetim/server.py", "Audit log and chain verification"),
+    ("/yonetim/sistem", "yonetim/server.py", "System status"),
 ]
 
 def denetim_adimlari():
@@ -75,39 +75,39 @@ def bolumleri_uret(hatalar):
     bolum = {}
 
     tema_metni = ", ".join(f"`{t}`" for t in site_build.THEMES)
-    bolum["temalar"] = f"Tasarım temaları: {tema_metni}. Varsayılan tema `c` (`--theme c`)."
+    bolum["temalar"] = f"Design themes: {tema_metni}. Default theme: `c` (`--theme c`)."
 
     adimlar = denetim_adimlari()
     satirlar = [f"{i}. {ad}" for i, ad in enumerate(adimlar, 1)]
     bolum["denetimler"] = (
-        f"`run_all.py` şu {len(adimlar)} denetimi sırayla çalıştırır:\n\n"
+        f"`run_all.py` runs these {len(adimlar)} checks in order:\n\n"
         + "\n".join(satirlar)
     )
-    bolum["testler"] = f"Birim testleri: {test_sayisi()} test (PostgreSQL testleri ayrı `postgresql testleri` adımında sayılır: `ALIG_TEST_PG_HOST` varsa dış sunucu, yoksa sistem PostgreSQL 16 ile geçici küme; ikisi de yoksa SKIP, `--release` kipinde hata)."
+    bolum["testler"] = f"Unit tests: {test_sayisi()} tests (PostgreSQL tests are counted in the separate `postgresql tests` step: an external server if `ALIG_TEST_PG_HOST` is set, otherwise a temporary cluster with the system PostgreSQL 16; if neither exists they are SKIP, and an error in `--release` mode)."
 
-    dizin_satirlari = ["| Dizin | İçerik |", "| --- | --- |"]
+    dizin_satirlari = ["| Directory | Contents |", "| --- | --- |"]
     for dizin, aciklama in DIZINLER:
         if not (ROOT / dizin).is_dir():
-            hatalar.append(f"dizin yok: {dizin}")
+            hatalar.append(f"directory missing: {dizin}")
         dizin_satirlari.append(f"| `{dizin}` | {aciklama} |")
     bolum["dizinler"] = "\n".join(dizin_satirlari)
 
-    rota_satirlari = ["| Yol | Kaynak | Açıklama |", "| --- | --- | --- |"]
+    rota_satirlari = ["| Path | Source | Description |", "| --- | --- | --- |"]
     for yol, kaynak, aciklama in ROTALAR:
         if kaynak != "site":
             dosya = ROOT / kaynak
             if not dosya.is_file():
-                hatalar.append(f"kaynak dosya yok: {kaynak}")
+                hatalar.append(f"source file missing: {kaynak}")
                 continue
             metin = dosya.read_text(encoding="utf-8")
             ana_yol = yol.split("<")[0].rstrip("/") or "/"
             if ana_yol not in metin:
-                hatalar.append(f"rota kaynakta bulunamadı: {yol} ({kaynak})")
+                hatalar.append(f"route not found in source: {yol} ({kaynak})")
         rota_satirlari.append(f"| `{yol}` | `{kaynak}` | {aciklama} |")
     bolum["rotalar"] = "\n".join(rota_satirlari)
 
     roller = sorted(p.name for p in (ROOT / "deploy" / "ansible" / "roles").iterdir() if p.is_dir())
-    bolum["ansible"] = "Ansible rolleri: " + ", ".join(f"`{r}`" for r in roller) + "."
+    bolum["ansible"] = "Ansible roles: " + ", ".join(f"`{r}`" for r in roller) + "."
     return bolum
 
 
@@ -116,14 +116,14 @@ def isaretli_yaz(metin, bolum):
         desen = re.compile(
             rf"(<!-- oto:basla {ad} -->)(.*?)(<!-- oto:bitis {ad} -->)", re.S)
         if not desen.search(metin):
-            raise SystemExit(f"README'de isaret yok: {ad}")
+            raise SystemExit(f"marker missing in README: {ad}")
         metin = desen.sub(lambda m: m.group(1) + "\n" + icerik + "\n" + m.group(3), metin, count=1)
     return metin
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--kontrol", action="store_true", help="guncel degilse 1 don")
+    ap.add_argument("--kontrol", action="store_true", help="return 1 if out of date")
     args = ap.parse_args(argv)
 
     hatalar = []
@@ -137,14 +137,14 @@ def main(argv=None):
     yeni = isaretli_yaz(mevcut, bolum)
     if args.kontrol:
         if yeni != mevcut:
-            print("  - README otomatik bölümleri güncel değil: python3 ci/uret_readme.py")
+            print("  - README auto-generated sections are out of date: python3 ci/uret_readme.py")
             return 1
         return 0
     if yeni != mevcut:
         README.write_text(yeni, encoding="utf-8")
-        print("README güncellendi.")
+        print("README updated.")
     else:
-        print("README zaten güncel.")
+        print("README already up to date.")
     return 0
 
 

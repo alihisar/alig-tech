@@ -59,9 +59,9 @@ class HtmlTests(unittest.TestCase):
     def test_inline_script_and_style_flagged(self):
         page = GOOD.replace("<h1", '<script>1</script><p style="x:y" onclick="a()">p</p><h1')
         problems = check_html.check(tree({"index.html": page}))
-        self.assertTrue(any("betik" in p for p in problems))
+        self.assertTrue(any("script" in p for p in problems))
         self.assertTrue(any("style" in p for p in problems))
-        self.assertTrue(any("olay" in p for p in problems))
+        self.assertTrue(any("event" in p for p in problems))
 
     def test_ldjson_allowed_and_svg_title_ignored(self):
         page = GOOD.replace("</head>", '<script type="application/ld+json">{}</script></head>').replace(
@@ -70,12 +70,12 @@ class HtmlTests(unittest.TestCase):
 
     def test_unlabelled_input_flagged(self):
         page = GOOD.replace("<h1", '<input id="q" type="text"><h1')
-        self.assertTrue(any("etiketsiz" in p for p in check_html.check(tree({"index.html": page}))))
+        self.assertTrue(any("unlabelled" in p for p in check_html.check(tree({"index.html": page}))))
 
     def test_duplicate_id_and_unbalanced(self):
         page = GOOD.replace("<h1", '<div id="top"><h1')
         problems = check_html.check(tree({"index.html": page}))
-        self.assertTrue(any("yinelenen" in p for p in problems))
+        self.assertTrue(any("duplicate" in p for p in problems))
 
 
 class LinksTests(unittest.TestCase):
@@ -104,7 +104,7 @@ class SecretsTests(unittest.TestCase):
 
 
     def test_sql_dosyalari_taranir(self):
-        """ALIG-CI-001: db/sema/*.sql sir taramasina girer; sizan parola .sql icinde de yakalanir."""
+        """ALIG-CI-001: db/sema/*.sql is covered by the secret scan; a leaked password is caught inside .sql too."""
         base = tree({"db/sema/0009_x.sql": "ALTER ROLE a PASSWORD_TOKEN_X;\nALTER ROLE a SET secret_key = 'abcdefghijklmnop1234';\n"})
         problems = check_secrets.scan_tree(base, set())
         self.assertEqual(len(problems), 1, problems)
@@ -120,10 +120,10 @@ class SecretsTests(unittest.TestCase):
 class RunAllOzetTests(unittest.TestCase):
     def test_run_all_pg_adimini_ayri_adim_olarak_calistirir(self):
         kaynak = (ROOT / "ci" / "run_all.py").read_text(encoding="utf-8")
-        self.assertIn('step("postgresql testleri"', kaynak)
-        self.assertLess(kaynak.index('step("birim testleri"'), kaynak.index('step("postgresql testleri"'))
-        # ozet: "atlandi" durumu basari ("tamam") sayilmaz ve CI'yi dusurmez, HATA dusurur
-        self.assertIn('durum == "HATA"', kaynak)
+        self.assertIn('step("postgresql tests"', kaynak)
+        self.assertLess(kaynak.index('step("unit tests"'), kaynak.index('step("postgresql tests"'))
+        # summary: the "skipped" status does not count as success ("ok") and does not fail CI; ERROR does
+        self.assertIn('durum == "ERROR"', kaynak)
 
 
 class WorkflowTests(unittest.TestCase):
@@ -171,8 +171,8 @@ class BannedAndI18nTests(unittest.TestCase):
         root = self.root({"a": "x", "b": "y"}, {"a": "x"})
         dist = tree({"index.html": GOOD, "kvkk/index.html": GOOD})
         problems = check_i18n.check(dist, root)
-        self.assertTrue(any("en.json'da yok: b" in p for p in problems))
-        self.assertTrue(any("karsilik dil sayfasi yok" in p for p in problems))
+        self.assertTrue(any("missing in en.json: b" in p for p in problems))
+        self.assertTrue(any("counterpart language page missing" in p for p in problems))
 
 
 if __name__ == "__main__":

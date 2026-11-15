@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dis kaynak taramasi: derlenmis ciktidan alig.tech disina giden betik, stil, yazi tipi, gorsel istegi varsa kirilir."""
+"""External resource scan: fails if the built output requests a script, style, font or image from outside alig.tech."""
 import re
 import sys
 from html.parser import HTMLParser
@@ -69,11 +69,11 @@ def check(dist):
     for path in iter_files(dist, {".js"}, skip_dirs=set()):
         for u in URL_IN_TEXT.findall(read_text(path)):
             if is_external(u):
-                problems.append(f"{rel(path, dist)}: js icinde dis adres -> {u}")
+                problems.append(f"{rel(path, dist)}: external address in js -> {u}")
     return problems
 
 
 if __name__ == "__main__":
     out = check(sys.argv[1])
-    print("\n".join(out) or "dis kaynak: tamam")
+    print("\n".join(out) or "external resources: ok")
     sys.exit(1 if out else 0)
