@@ -82,6 +82,46 @@ Anahtar ve veritabanı aynı sunucuda durduğu sürece, sunucuya tam erişen bir
 
 Yedek, sunucuyla aynı diskte durur: sunucu kaybına karşı koruma sağlamaz. Yedek dizinini düzenli olarak başka bir yere kopyalayın `[doldurulacak: uzak yedek hedefi]`.
 
+## PostgreSQL yedek ve geri yükleme (geçiş sonrası)
+
+Bu bölüm PostgreSQL'e geçildikten sonra içindir; bugün çalışma zamanı SQLite'tır ve yukarıdaki `bakim.py` yedeği geçerlidir. Araç `db/yedek.py`, uygulamadan bağımsızdır. **Durum:** PG16 geçici kümesinde tatbikat geçti (`tests/test_pg_yedek.py`); canlı sunucuda denenmedi, `BACKUP_RESTORE_VERIFIED = false`. RPO/RTO hedefi yoktur (karar DB-K5); süre yalnız tatbikatla ölçülür. `pg_dump` PITR sağlamaz; zamana dönüş yalnız temel yedek + WAL arşiviyle yapılır.
+
+Varsayılanlar (şifreleme kararı DB-K6 gelene kadar):
+- Yedek ve WAL arşivi dizinleri **şifreli hacimde**, sahibi sunucu kullanıcısı, izin **0700**. Şifreli hacim yoksa yedek şifreli sayılmaz; araç şifrelemez.
+- Yedek, veritabanıyla aynı diskte durmaz ve başka bir yere kopyalanır `[doldurulacak: uzak yedek hedefi]`.
+- `alig_backup` rolünün parolası `PGPASSFILE` ile (0600); komut satırına parola konmaz. `pg_hba.conf`'a `replication` satırı gerekir (DB-K2).
+
+WAL arşivi (sunucu yöneticisi `postgresql.conf`'a koyar; araç sunucuya dokunmaz). Metni üretmek için:
+
+```sh
+python3 db/yedek.py arsiv-onerisi --wal-arsivi /var/backups/alig-pg/wal
+# archive_mode = on ; archive_command = 'test ! -f .../%f && cp %p .../%f.gecici && mv .../%f.gecici .../%f'
+```
+
+Günlük yedek, doğrulama ve saklama (operatör ya da zamanlayıcı, sunucu kullanıcısıyla):
+
+```sh
+export PGHOST=/var/run/postgresql PGPASSFILE=/etc/alig/pgpass
+python3 db/yedek.py al --kok /var/backups/alig-pg/temel            # pg_basebackup + pg_verifybackup, bozuksa yedek silinir
+python3 db/yedek.py dogrula --yedek /var/backups/alig-pg/temel/pg-<UTC zaman>
+python3 db/yedek.py eskileri-sil --kok /var/backups/alig-pg/temel --sakla 7          # once listeler
+python3 db/yedek.py eskileri-sil --kok /var/backups/alig-pg/temel --sakla 7 --evet
+```
+
+`eskileri-sil` WAL arşivini silmez; arşivi en eski saklanan yedeğin başlangıç WAL'ına göre `pg_archivecleanup` ile elle temizleyin, yoksa disk dolar.
+
+Geri yükleme (her zaman **yeni, boş dizine**; mevcut kümenin üzerine yazılmaz, araç dolu dizinde durur):
+
+```sh
+# 1) kuru calistirma: plan yazilir, hicbir sey degismez
+python3 db/yedek.py geri-yukle --yedek .../pg-<zaman> --hedef /var/lib/postgresql/geri --wal-arsivi .../wal --hedef-zaman "2026-11-15 10:00:00+03"
+# 2) ayni komut --evet ile
+```
+
+Sonra: dizinin sahibi sunucu kullanıcısı olmalı; kopya kaynak kümenin yapılandırmasını taşır, bu yüzden **başlatmadan önce port ve soket yolunu** kaynaktan farklı yapın (aynı makinede iken). `archive_mode = off` yazılır; geri yüklenen küme kaynağın arşivine yazmaz. Kümeyi başlatın, `pg_is_in_recovery()` `f` olana kadar bekleyin; hedef zamandan sonraki değişiklikler gelmez. Zamanı saat dilimiyle yazın. Hedef zamandan sonrasını kapsayan WAL arşivde yoksa kurtarma hata verir (kaçırılan arşiv segmenti `pg_switch_wal()` ile tamamlanır). Denetim zincirlerini doğrulayın (`alig.denetim`, `alig.yonetim_denetim`). Geri yüklenen kümeye uygulamayı bağlamak ayrı ve elle bir karardır.
+
+Tatbikat: aynı adımlar PG16 geçici kümesinde otomatik koşar (`python3 -m unittest tests.test_pg_yedek -v`; süre test çıktısının sonunda). Canlı sunucuda düzenli tatbikat ve ölçülen sürenin kaydı gerekir (sıklık Ali'nin kararıdır); ölçülmeyen RTO "karşılanıyor" diye yazılmaz.
+
 ## İzleme
 
 `alig-izleme.timer` 5 dakikada bir duman testini çalıştırır (`http://127.0.0.1:8081`). Başarısızlıkta `alig-uyari.service` sistem günlüğüne kritik kayıt yazar. Bildirim yolu (e-posta ya da mesaj) `[doldurulacak: bildirim yöntemi]`; `/etc/systemd/system/alig-uyari.service` içindeki `ExecStart` değiştirilerek bağlanır.
