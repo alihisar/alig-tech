@@ -1,6 +1,6 @@
 # PostgreSQL'e geçiş (ALIG-DB-001)
 
-Kaynak: `docs/master-prompt-v5.md` (v4.1'i içerir). Bu belge mimari ve göç planıdır; kod henüz yazılmadı.
+Kaynak: `docs/master-prompt-v5.md` (v4.1'i içerir). Bu belge mimari ve göç planıdır; uygulamaya bağlı kod henüz yazılmadı (yalnız sürücü değerlendirme prototipi `ortak/pg.py` var, bölüm 2).
 Durum sütunlarındaki PASS yalnız gerçek PostgreSQL üzerinde çalıştırılmış testler için yazılır.
 
 Hedef: uygulamanın tüm kalıcı verisi tek bir PostgreSQL 18 veritabanında (`aligtech`). SQLite'a geri düşme (fallback) yok:
@@ -30,13 +30,53 @@ veritabanından ayrı güvenlik alanıdır; tarama toplayıcısı (`alig-toplayi
 | Parametreli sorgu | yok (`psql -v` kaçışı, sunucu tarafı bağlama değil) | `PQexecParams`: sunucu tarafı bağlama | var |
 | İşlem (BEGIN/COMMIT) birden çok sorguda | yok, her çağrı ayrı süreç | var | var |
 | Zaman aşımı, iptal | süreç öldürme | `connect_timeout`, `statement_timeout`, `PQcancel` | var |
-| Bellek sızıntısı riski | düşük | `PQclear`/`PQfinish` disiplini; testle denetlenir | düşük |
-| Bakım maliyeti | düşük ama yetersiz | orta (dar bir sarmalayıcı, ~300 satır) | düşük |
-| Windows geliştirme | var | `libpq.dll` gerekir | var |
+| Bellek sızıntısı riski | düşük | `PQclear`/`PQfinish` disiplini; PG16'da ölçüldü: 20 000 sorguda RSS artışı 0 KB | düşük |
+| Bakım maliyeti | düşük ama yetersiz | orta (dar sarmalayıcı: prototip `ortak/pg.py` 468 satır, yorum ve belge dizgisi dahil) | düşük |
+| Windows geliştirme | var | `libpq.dll` gerekir (aşağıdaki not) | var |
 
-Öneri **B**: tek ortak bağlantı katmanı `ortak/pg.py` (bağlantı, parametre bağlama, işlem, geri alma, zaman aşımı,
-hata sınıflandırma, sır maskeleme). Yeniden deneme yalnız bağlantı kurulurken yapılır; işlem kör tekrarlanmaz.
-Sıfırdan protokol sürücüsü yazılmaz. `libpq5` ve sürümü `deploy/` içinde açıkça kurulur ve belgelenir.
+Ölçüm (ALIG-DB-002, PG16 geçici küme, Unix soketi, scram-sha-256, süper kullanıcı olmayan rol, libpq 16.15; yerel soket
+olduğu için ağ ve TLS maliyeti içermez; tek makine, tek çalıştırma, kaba değerlerdir):
+
+| Ölçüm | Sonuç (PG16) |
+| --- | --- |
+| Bağlantı kurma (SCRAM + 4 oturum ayarı) | ~10 ms (medyan, 30 deneme) |
+| Parametreli `SELECT $1::int, $2::text`, kalıcı bağlantı | ~19 µs medyan, ~61 µs p99 (2000 sorgu) |
+| `psql -c` alt süreci, tek `SELECT 1` | ~13 ms medyan (20 deneme); bağlantı kurma dahil, karşılaştırma yalnız büyüklük sırası içindir |
+| 5000 `INSERT` tek işlemde | 0,2 sn |
+| 5000 satır okuma ve Python'a çevirme | ~29 ms |
+| RSS artışı, 20 000 sorgu (2000 karakterlik parametre) | 0 KB |
+| Test kümesi kurulum + 25 test | ~7 sn |
+
+Prototipin PG16'da PASS veren davranışları (`tests/test_pg_prototip.py`, 25 test): bağlantı ve süper kullanıcı olmayan rol;
+`PQexecParams` ile parametre bağlama (enjeksiyon denemesi değer olarak kalır); NULL ve Türkçe karakter gidiş-dönüşü
+(boş dizgi NULL'a dönmez); `timestamptz` gidiş-dönüşü (saat dilimsiz `datetime` reddedilir); işlem, istisnada ve SQL
+hatasında geri alma; SQLSTATE ile hata sınıfı (`23505` -> `BenzersizlikHatasi`); `statement_timeout` ve başka
+iş parçacığından `PQcancel` ile iptal (`57014`); yanlış parolada hata metninde parola yok; sunucu durunca ve işlem
+ortasında kesintide `BaglantiHatasi` (tekrar denenmez, işlem başarılı sayılmaz); 1000 sorgu döngüsünde sınırlı RSS; iki iş
+parçacığının ayrı bağlantılarla paralel çalışması; aynı bağlantının iş parçacıkları arasında paylaşımının reddi.
+
+Ölçümde görülen ve prototipe işlenen ayrıntılar (C ile karşılaştırmada B'nin gerçek maliyeti):
+- Sunucu kapanınca ilk hata sonucu SQLSTATE'siz geldi ve `PQstatus` hemen bozuk görünmedi; yalnız `PQstatus`'a bakmak kesintiyi
+  sunucu hatası sanıyordu. Kural: SQLSTATE'siz hata, `08xxx` ve `57P01-03` bağlantı kaybı sayılır.
+- Hata metnine `PQresultErrorMessage` (DETAIL satır değerleri içerebilir) yerine yalnız birincil ileti ve SQLSTATE yazılır.
+- `PQcancel` nesnesi bağlantı kurulurken alınır; iptal başka iş parçacığından güvenli çağrılır.
+- Parametre tipi çıkarılamazsa sunucu hata verir (`SELECT $1`); sorguda `$1::text` gibi tür dönüşümü gerekir.
+- Sonuçlar metin biçimindedir; yalnız bool, tamsayı, float, numeric ve `timestamptz` Python tipine çevrilir (diğerleri `str`).
+
+Sınanmayanlar: PostgreSQL 18 (BLOCKED, ortamda yok), TCP ve TLS bağlantısı, gerçek ağ kesintisi, 1000'den uzun süreli
+sızıntı koşusu, bağlantı havuzu, çok sütunlu büyük sonuçlarda bellek, Windows `libpq.dll`.
+
+Öneri **B** (DB-K1 için kanıtla desteklenir): tek ortak bağlantı katmanı `ortak/pg.py` (bağlantı, parametre bağlama, işlem,
+geri alma, zaman aşımı, hata sınıflandırma, sır maskeleme). Gerekçe: dış paket kuralını bozmaz (C elenir); A'da birden çok
+sorgulu işlem ve sunucu tarafı parametre bağlama yoktur, bu yüzden kota ve denetim zinciri işlemleri (bölüm 4) A ile
+yazılamaz; B bunları ~19 µs sorgu maliyetiyle ve sınırlı bellekle sağlar. Risk: ctypes imza hatası süreci çökertebilir; bu
+yüzden sarmalayıcı dar tutulur, imzalar tek yerde tanımlıdır ve testler her sürümde çalışır. Yeniden deneme yalnız bağlantı
+kurulurken yapılır; işlem kör tekrarlanmaz. Sıfırdan protokol sürücüsü yazılmaz. `libpq5` ve sürümü `deploy/` içinde açıkça
+kurulur ve belgelenir. Karar DB-K1 sahibine aittir; bu bölüm öneridir.
+
+Windows notu: `libpq.dll` (PostgreSQL istemci dağıtımından) ve bağımlılıkları (`libssl`, `libcrypto`, `libintl` vb.) `PATH`
+üzerinde olmalı ya da `ALIG_LIBPQ` ortam değişkeniyle tam yol verilmeli. Prototip Windows'ta çalıştırılmadı; yalnız yükleme
+adayları (`libpq.dll`) kodda var. Üretim Ubuntu'dadır, Windows yalnız geliştirme içindir.
 
 ## 3. Veri modeli
 
@@ -90,19 +130,19 @@ tatbikatı; RTO yalnız tatbikatla ölçülür. `BACKUP_RESTORE_VERIFIED` tatbik
 | Test | Beklenen | Durum |
 | --- | --- | --- |
 | SQLite çalışma zamanı bağımlılığı | NONE | FAIL (bugün SQLite kullanılıyor; ALIG-CI-001 cutover sonrası denetim ekler) |
-| PostgreSQL bağlantısı | PASS | NOT_RUN |
-| Parametreli SQL | PASS | NOT_RUN |
-| Yabancı anahtar, benzersizlik, CHECK | PASS | NOT_RUN |
-| İşlem geri alma | PASS | NOT_RUN |
+| PostgreSQL bağlantısı | PASS | PG16'da PASS (prototip) |
+| Parametreli SQL | PASS | PG16'da PASS (prototip) |
+| Yabancı anahtar, benzersizlik, CHECK | PASS | NOT_RUN (prototipte yalnız benzersizlik hata sınıfı PG16'da geçti; şema yok) |
+| İşlem geri alma | PASS | PG16'da PASS (prototip) |
 | Paralel kota tüketimi | ATOMIC | NOT_RUN |
 | Idempotency | PASS | NOT_RUN |
 | Firma izolasyonu | PASS | NOT_RUN (SQLite'ta testli: `tests/test_portal.py`) |
 | RLS aşma denemesi | DENY | NOT_APPLICABLE (DB-K3: portal kapalı, RLS sonra) |
 | Salt okuma rolüyle DML, uygulama rolüyle DDL | DENY | NOT_RUN |
-| PostgreSQL bağlantı kesintisi | SAFE FAILURE | NOT_RUN |
+| PostgreSQL bağlantı kesintisi | SAFE FAILURE | PG16'da PASS (prototip) |
 | Göç satır sayısı ve özet | MATCH | NOT_RUN |
 | Geri yükleme | VERIFIED | NOT_RUN |
-| Sır maskeleme | PASS | NOT_RUN |
+| Sır maskeleme | PASS | PG16'da PASS (prototip; parola hata metninde ve repr'de yok) |
 
 Ortam notu: bu geliştirme ortamında yalnız sistem PostgreSQL 16 var. PostgreSQL 18 ikilisi indirilmesine izin
 verilmedi; PG18 üzerinde testler **BLOCKED**. PG16'da geçen test "PG16'da PASS" olarak yazılır, PG18 için PASS sayılmaz.
