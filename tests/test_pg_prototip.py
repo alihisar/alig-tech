@@ -1,13 +1,9 @@
 """ALIG-DB-002: ctypes + libpq surucu prototipi (degerlendirme). Uygulamaya baglanmaz.
 
-PG16 gecici kumesi setUpClass'ta kurulur, tearDownClass'ta silinir. PG ya da libpq yoksa testler atlanir.
+Gecici PG16 kumesi tests/pg_yardimci.py ile setUpClass'ta kurulur ve sinif temizliginde silinir. PG ya da libpq yoksa testler SKIP olur.
 """
 import os
-import shutil
-import socket
-import subprocess
 import sys
-import tempfile
 import threading
 import time
 import unittest
@@ -16,82 +12,34 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-
+sys.path.insert(0, str(ROOT / "tests"))
 from ortak import pg  # noqa: E402
+import pg_yardimci  # noqa: E402
 
-PG_BIN = Path("/usr/lib/postgresql/16/bin")
-PG_VAR = (PG_BIN / "initdb").exists() and (PG_BIN / "pg_ctl").exists()
+BULGU = pg_yardimci.pg_bul()
+PG_VAR = BULGU.var
 try:
     LIBPQ_VAR = pg.kutuphane_yukle() is not None
 except pg.KutuphaneHatasi:
     LIBPQ_VAR = False
+PG_NEDEN = BULGU.neden or "libpq yok"
 
 PAROLA = "Uygulama-Parola-Ornek-1"
 YANLIS = "YanlisParola-12345"
 
 
-def _komut(args):
-    """Root ise postgres kullanicisiyla calistirir (initdb root'ta calismaz)."""
-    if os.geteuid() == 0:
-        args = ["runuser", "-u", "postgres", "--"] + list(args)
-    return subprocess.run(args, check=True, capture_output=True, text=True, timeout=40)
-
-
-def _bos_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
-
-
 class KumeKarisimi:
-    """Test sinifi icin gecici PG16 kumesi: uygulama rolu superuser degil, scram-sha-256 ile baglanir."""
+    """Test sinifi icin gecici PG16 kumesi (tests/pg_yardimci.py): uygulama rolu superuser degil, scram-sha-256 ile baglanir."""
 
     @classmethod
     def setUpClass(cls):
-        if not (PG_VAR and LIBPQ_VAR):
-            raise unittest.SkipTest("PostgreSQL 16 ya da libpq yok")
-        # postgres kullanicisinin gecebilecegi kisa bir dizin (Unix soketi yolu icin de kisa olmali)
-        cls.dizin = tempfile.mkdtemp(prefix="alig-pg-")
-        cls.sunucu_calisiyor = False
-        try:
-            os.chmod(cls.dizin, 0o755)
-            cls.veri = os.path.join(cls.dizin, "veri")
-            if os.geteuid() == 0:
-                import pwd
-                pw = pwd.getpwnam("postgres")
-                os.chown(cls.dizin, pw.pw_uid, pw.pw_gid)
-            cls.port = _bos_port()
-            _komut([str(PG_BIN / "initdb"), "-D", cls.veri, "-A", "trust", "-U", "postgres", "--no-locale", "-E", "UTF8"])
-            secenek = f"-c listen_addresses='' -c unix_socket_directories={cls.dizin} -p {cls.port} -c fsync=off"
-            _komut([str(PG_BIN / "pg_ctl"), "-D", cls.veri, "-o", secenek, "-w", "-t", "30",
-                    "-l", os.path.join(cls.dizin, "pg.log"), "start"])
-            cls.sunucu_calisiyor = True
-            psql = [str(PG_BIN / "psql"), "-h", cls.dizin, "-p", str(cls.port), "-U", "postgres", "-d", "postgres",
-                    "-v", "ON_ERROR_STOP=1", "-q", "-c"]
-            _komut(psql + [f"CREATE ROLE alig_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '{PAROLA}'"])
-            _komut(psql + ["CREATE DATABASE aligtest OWNER alig_app"])
-            hba = Path(cls.veri) / "pg_hba.conf"
-            hba.write_text("local all all scram-sha-256\n", encoding="utf-8")
-            _komut([str(PG_BIN / "pg_ctl"), "-D", cls.veri, "reload"])
-        except Exception:
-            cls._temizle()
-            raise
-
-    @classmethod
-    def _temizle(cls):
-        if getattr(cls, "sunucu_calisiyor", False):
-            try:
-                _komut([str(PG_BIN / "pg_ctl"), "-D", cls.veri, "-m", "immediate", "-w", "stop"])
-            except Exception:
-                pass
-            cls.sunucu_calisiyor = False
-        shutil.rmtree(cls.dizin, ignore_errors=True)
-
-    @classmethod
-    def tearDownClass(cls):
-        cls._temizle()
+        cls.kume = pg_yardimci.GeciciKume()
+        cls.kume.baslat()
+        cls.addClassCleanup(cls.kume.durdur)
+        cls.dizin, cls.veri, cls.port = cls.kume.soket, cls.kume.veri, cls.kume.port
+        cls.kume.rol_olustur("alig_app", parola=PAROLA)
+        cls.kume.veritabani_olustur("aligtest", sahip="alig_app")
+        cls.kume.kimlik_dogrulama("scram-sha-256")
 
     def baglan(self, **kw):
         ayar = dict(host=self.dizin, port=self.port, dbname="aligtest", user="alig_app", password=PAROLA)
@@ -144,7 +92,7 @@ class SaltUnitTests(unittest.TestCase):
         self.assertNotIn(YANLIS, str(c.exception))
 
 
-@unittest.skipUnless(PG_VAR and LIBPQ_VAR, "PostgreSQL 16 ya da libpq yok")
+@pg_yardimci.pg_testi(PG_VAR and LIBPQ_VAR, PG_NEDEN)
 class PgPrototipTests(KumeKarisimi, unittest.TestCase):
 
     def setUp(self):
@@ -356,12 +304,11 @@ class PgPrototipTests(KumeKarisimi, unittest.TestCase):
         self.assertNotIn("hata", sonuc)
 
 
-@unittest.skipUnless(PG_VAR and LIBPQ_VAR, "PostgreSQL 16 ya da libpq yok")
+@pg_yardimci.pg_testi(PG_VAR and LIBPQ_VAR, PG_NEDEN)
 class BaglantiKesintisiTests(KumeKarisimi, unittest.TestCase):
 
     def _sunucuyu_durdur(self):
-        _komut([str(PG_BIN / "pg_ctl"), "-D", self.veri, "-m", "immediate", "-w", "stop"])
-        type(self).sunucu_calisiyor = False
+        self.kume.sunucuyu_durdur()
 
     def test_sunucu_durdurulunca_guvenli_hata(self):
         b = self.baglan()
