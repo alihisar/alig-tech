@@ -1,208 +1,207 @@
-# PostgreSQL'e geçiş (ALIG-DB-001)
+# Migration to PostgreSQL (ALIG-DB-001)
 
-Kaynak: `docs/master-prompt-v5.md` (v4.1'i içerir). Bu belge mimari ve göç planıdır; uygulamaya bağlı kod henüz yazılmadı (yalnız sürücü değerlendirme prototipi `ortak/pg.py` var, bölüm 2).
-Kaynak: `docs/master-prompt-v5.md` (v4.1'i içerir). Bu belge mimari ve göç planıdır. Şema ve roller (ALIG-DB-003a) `db/` altında yazıldı ve PostgreSQL 16'da sınandı; uygulama kodu hâlâ SQLite kullanır.
-Durum sütunlarındaki PASS yalnız gerçek PostgreSQL üzerinde çalıştırılmış testler için yazılır.
+Source: `docs/master-prompt-v5.md` (includes v4.1). This document is the architecture and migration plan; no code tied to the application has been written yet (only the driver evaluation prototype `ortak/pg.py` exists, section 2).
+Source: `docs/master-prompt-v5.md` (includes v4.1). This document is the architecture and migration plan. The schema and roles (ALIG-DB-003a) were written under `db/` and tested on PostgreSQL 16; the application code still uses SQLite.
+PASS in the status columns is written only for tests that were run on a real PostgreSQL.
 
-Hedef: uygulamanın tüm kalıcı verisi tek bir PostgreSQL 18 veritabanında (`aligtech`). SQLite'a geri düşme (fallback) yok:
-PostgreSQL erişilemezse yazma işlemleri kontrollü hatayla durur. Müşterilerin taranan PostgreSQL sunucuları bu
-veritabanından ayrı güvenlik alanıdır; tarama toplayıcısı (`alig-toplayici.py`, `psql` ile) bu geçişten etkilenmez.
+Goal: all persistent data of the application in a single PostgreSQL 18 database (`aligtech`). There is no fallback to SQLite:
+if PostgreSQL is unreachable, write operations stop with a controlled error. The customers' scanned PostgreSQL servers are a
+security domain separate from this database; the scan collector (`alig-toplayici.py`, via `psql`) is not affected by this migration.
 
-## 1. Mevcut durum (envanter, 2026-11-15, commit 1569edd)
+## 1. Current state (inventory, 2026-11-15, commit 1569edd)
 
-| Kaynak | Dosya | Tablolar | Kod |
+| Source | File | Tables | Code |
 | --- | --- | --- | --- |
-| Tarama veritabanı | `tarama.sqlite` | rapor, denetim (SHA-256/HMAC zinciri), kullanim (kota), firma, firma_silinen, baglanti_istegi, posta (giden kutusu), esitleme, portal_kullanici, portal_kod, portal_oturum, portal_deneme, portal_talep | `tarama/depo.py` (688 satır), `tarama/portal_depo.py` |
-| Yönetim veritabanı | `yonetim.sqlite` | kullanici (scrypt parola, TOTP sırrı, TOTP sayacı), oturum (kodun SHA-256 özeti), giris_denemesi, giris_ip, talep_durum, denetim (zincir) | `yonetim/depo.py`, `yonetim/server.py` |
-| İletişim formu | `form.sqlite` | contact | `form/server.py` |
-| Yedek ve bakım | — | SQLite backup API, bütünlük denetimi, geri yükleme | `deploy/bakim.py` |
-| Hız sınırı | bellek içi | — | `form/server.py` `RateLimiter` |
+| Scan database | `tarama.sqlite` | rapor, denetim (SHA-256/HMAC chain), kullanim (quota), firma, firma_silinen, baglanti_istegi, posta (outbox), esitleme, portal_kullanici, portal_kod, portal_oturum, portal_deneme, portal_talep | `tarama/depo.py` (688 lines), `tarama/portal_depo.py` |
+| Admin database | `yonetim.sqlite` | kullanici (scrypt password, TOTP secret, TOTP counter), oturum (SHA-256 digest of the code), giris_denemesi, giris_ip, talep_durum, denetim (chain) | `yonetim/depo.py`, `yonetim/server.py` |
+| Contact form | `form.sqlite` | contact | `form/server.py` |
+| Backup and maintenance | - | SQLite backup API, integrity check, restore | `deploy/bakim.py` |
+| Rate limit | in memory | - | `form/server.py` `RateLimiter` |
 
-`firma_yeni` ve `rapor_yeni` yalnız eski göçlerin ara tablolarıdır. Kayıt sayıları canlı veriden ölçülecek
-(ALIG-DB-004 Faz A); canlı sunucuya erişim olmadığı için şu an **NOT_RUN**.
+`firma_yeni` and `rapor_yeni` are only intermediate tables of old migrations. Record counts will be measured from live data
+(ALIG-DB-004 Phase A); since there is no access to the live server this is **NOT_RUN** for now.
 
-## 2. Sürücü kararı (DB-K1)
+## 2. Driver decision (DB-K1)
 
-| Ölçüt | A: `psql` alt süreci | B: `ctypes` + `libpq.so.5` | C: `psycopg` |
+| Criterion | A: `psql` subprocess | B: `ctypes` + `libpq.so.5` | C: `psycopg` |
 | --- | --- | --- | --- |
-| Dış Python paketi | yok | yok | var (kuralı bozar) |
-| İşletim sistemi bağımlılığı | `postgresql-client` | `libpq5` (Ubuntu paketi) | `libpq5` ya da ikili tekerlek |
-| TLS, SCRAM | var | var (libpq) | var |
-| Parametreli sorgu | yok (`psql -v` kaçışı, sunucu tarafı bağlama değil) | `PQexecParams`: sunucu tarafı bağlama | var |
-| İşlem (BEGIN/COMMIT) birden çok sorguda | yok, her çağrı ayrı süreç | var | var |
-| Zaman aşımı, iptal | süreç öldürme | `connect_timeout`, `statement_timeout`, `PQcancel` | var |
-| Bellek sızıntısı riski | düşük | `PQclear`/`PQfinish` disiplini; PG16'da ölçüldü: 20 000 sorguda RSS artışı 0 KB | düşük |
-| Bakım maliyeti | düşük ama yetersiz | orta (dar sarmalayıcı: prototip `ortak/pg.py` 468 satır, yorum ve belge dizgisi dahil) | düşük |
-| Windows geliştirme | var | `libpq.dll` gerekir (aşağıdaki not) | var |
+| External Python package | none | none | yes (breaks the rule) |
+| Operating system dependency | `postgresql-client` | `libpq5` (Ubuntu package) | `libpq5` or a binary wheel |
+| TLS, SCRAM | yes | yes (libpq) | yes |
+| Parameterized query | no (`psql -v` escaping, not server-side binding) | `PQexecParams`: server-side binding | yes |
+| Transaction (BEGIN/COMMIT) across multiple queries | no, every call is a separate process | yes | yes |
+| Timeout, cancel | killing the process | `connect_timeout`, `statement_timeout`, `PQcancel` | yes |
+| Memory leak risk | low | `PQclear`/`PQfinish` discipline; measured on PG16: 0 KB RSS growth over 20,000 queries | low |
+| Maintenance cost | low but insufficient | medium (a narrow wrapper: the prototype `ortak/pg.py` is 468 lines, comments and docstrings included) | low |
+| Windows development | yes | needs `libpq.dll` (note below) | yes |
 
-Ölçüm (ALIG-DB-002, PG16 geçici küme, Unix soketi, scram-sha-256, süper kullanıcı olmayan rol, libpq 16.15; yerel soket
-olduğu için ağ ve TLS maliyeti içermez; tek makine, tek çalıştırma, kaba değerlerdir):
+Measurement (ALIG-DB-002, PG16 temporary cluster, Unix socket, scram-sha-256, a non-superuser role, libpq 16.15; since it is a local socket
+it contains no network or TLS cost; single machine, single run, rough values):
 
-| Ölçüm | Sonuç (PG16) |
+| Measurement | Result (PG16) |
 | --- | --- |
-| Bağlantı kurma (SCRAM + 4 oturum ayarı) | ~10 ms (medyan, 30 deneme) |
-| Parametreli `SELECT $1::int, $2::text`, kalıcı bağlantı | ~19 µs medyan, ~61 µs p99 (2000 sorgu) |
-| `psql -c` alt süreci, tek `SELECT 1` | ~13 ms medyan (20 deneme); bağlantı kurma dahil, karşılaştırma yalnız büyüklük sırası içindir |
-| 5000 `INSERT` tek işlemde | 0,2 sn |
-| 5000 satır okuma ve Python'a çevirme | ~29 ms |
-| RSS artışı, 20 000 sorgu (2000 karakterlik parametre) | 0 KB |
-| Test kümesi kurulum + 25 test | ~7 sn |
+| Connection setup (SCRAM + 4 session settings) | ~10 ms (median, 30 tries) |
+| Parameterized `SELECT $1::int, $2::text`, persistent connection | ~19 µs median, ~61 µs p99 (2000 queries) |
+| `psql -c` subprocess, a single `SELECT 1` | ~13 ms median (20 tries); includes connection setup, the comparison is only for order of magnitude |
+| 5000 `INSERT`s in a single transaction | 0.2 s |
+| Reading 5000 rows and converting to Python | ~29 ms |
+| RSS growth, 20,000 queries (2000-character parameter) | 0 KB |
+| Test cluster setup + 25 tests | ~7 s |
 
-Prototipin PG16'da PASS veren davranışları (`tests/test_pg_prototip.py`, 25 test): bağlantı ve süper kullanıcı olmayan rol;
-`PQexecParams` ile parametre bağlama (enjeksiyon denemesi değer olarak kalır); NULL ve Türkçe karakter gidiş-dönüşü
-(boş dizgi NULL'a dönmez); `timestamptz` gidiş-dönüşü (saat dilimsiz `datetime` reddedilir); işlem, istisnada ve SQL
-hatasında geri alma; SQLSTATE ile hata sınıfı (`23505` -> `BenzersizlikHatasi`); `statement_timeout` ve başka
-iş parçacığından `PQcancel` ile iptal (`57014`); yanlış parolada hata metninde parola yok; sunucu durunca ve işlem
-ortasında kesintide `BaglantiHatasi` (tekrar denenmez, işlem başarılı sayılmaz); 1000 sorgu döngüsünde sınırlı RSS; iki iş
-parçacığının ayrı bağlantılarla paralel çalışması; aynı bağlantının iş parçacıkları arasında paylaşımının reddi.
+Behaviors of the prototype that gave PASS on PG16 (`tests/test_pg_prototip.py`, 25 tests): connection and a non-superuser role;
+parameter binding with `PQexecParams` (an injection attempt stays a value); NULL and Turkish character round trip
+(an empty string does not turn into NULL); `timestamptz` round trip (a `datetime` without a time zone is rejected); transaction, rollback on an exception and on an SQL
+error; error class by SQLSTATE (`23505` -> `BenzersizlikHatasi`); cancel with `statement_timeout` and `PQcancel` from another
+thread (`57014`); no password in the error text on a wrong password; `BaglantiHatasi` when the server stops and on an interruption in the
+middle of a transaction (not retried, the transaction is not counted as successful); bounded RSS in a 1000-query loop; two
+threads running in parallel with separate connections; sharing the same connection between threads is rejected.
 
-Ölçümde görülen ve prototipe işlenen ayrıntılar (C ile karşılaştırmada B'nin gerçek maliyeti):
-- Sunucu kapanınca ilk hata sonucu SQLSTATE'siz geldi ve `PQstatus` hemen bozuk görünmedi; yalnız `PQstatus`'a bakmak kesintiyi
-  sunucu hatası sanıyordu. Kural: SQLSTATE'siz hata, `08xxx` ve `57P01-03` bağlantı kaybı sayılır.
-- Hata metnine `PQresultErrorMessage` (DETAIL satır değerleri içerebilir) yerine yalnız birincil ileti ve SQLSTATE yazılır.
-- `PQcancel` nesnesi bağlantı kurulurken alınır; iptal başka iş parçacığından güvenli çağrılır.
-- Parametre tipi çıkarılamazsa sunucu hata verir (`SELECT $1`); sorguda `$1::text` gibi tür dönüşümü gerekir.
-- Sonuçlar metin biçimindedir; yalnız bool, tamsayı, float, numeric ve `timestamptz` Python tipine çevrilir (diğerleri `str`).
+Details seen in the measurement and built into the prototype (the real cost of B compared with C):
+- When the server shut down the first error result came without an SQLSTATE and `PQstatus` did not immediately look broken; looking only at `PQstatus` mistook the interruption for
+  a server error. Rule: an error without an SQLSTATE, `08xxx` and `57P01-03` count as connection loss.
+- The error text is written only from the primary message and the SQLSTATE, instead of `PQresultErrorMessage` (DETAIL can contain row values).
+- The `PQcancel` object is obtained when the connection is made; cancel is called safely from another thread.
+- If the parameter type cannot be inferred the server gives an error (`SELECT $1`); a type cast like `$1::text` is needed in the query.
+- Results are in text form; only bool, integer, float, numeric and `timestamptz` are converted to a Python type (the rest are `str`).
 
-Sınanmayanlar: PostgreSQL 18 (BLOCKED, ortamda yok), TCP ve TLS bağlantısı, gerçek ağ kesintisi, 1000'den uzun süreli
-sızıntı koşusu, bağlantı havuzu, çok sütunlu büyük sonuçlarda bellek, Windows `libpq.dll`.
+Not tested: PostgreSQL 18 (BLOCKED, not in the environment), TCP and TLS connections, a real network interruption, a leak run longer than 1000,
+a connection pool, memory with large multi-column results, Windows `libpq.dll`.
 
-Öneri **B** (DB-K1 için kanıtla desteklenir): tek ortak bağlantı katmanı `ortak/pg.py` (bağlantı, parametre bağlama, işlem,
-geri alma, zaman aşımı, hata sınıflandırma, sır maskeleme). Gerekçe: dış paket kuralını bozmaz (C elenir); A'da birden çok
-sorgulu işlem ve sunucu tarafı parametre bağlama yoktur, bu yüzden kota ve denetim zinciri işlemleri (bölüm 4) A ile
-yazılamaz; B bunları ~19 µs sorgu maliyetiyle ve sınırlı bellekle sağlar. Risk: ctypes imza hatası süreci çökertebilir; bu
-yüzden sarmalayıcı dar tutulur, imzalar tek yerde tanımlıdır ve testler her sürümde çalışır. Yeniden deneme yalnız bağlantı
-kurulurken yapılır; işlem kör tekrarlanmaz (v5.1: yeniden deneme yalnız salt okuma işlemlerinde ya da idempotency anahtarlı yazmalarda). Sıfırdan protokol sürücüsü yazılmaz. `libpq5` ve sürümü `deploy/` içinde açıkça
-kurulur ve belgelenir. Karar DB-K1 sahibine aittir; bu bölüm öneridir.
+Recommendation **B** (supported with evidence for DB-K1): a single shared connection layer `ortak/pg.py` (connection, parameter binding, transaction,
+rollback, timeout, error classification, secret masking). Rationale: it does not break the external package rule (C is eliminated); A has no
+multi-query transactions or server-side parameter binding, so the quota and audit chain transactions (section 4) cannot be
+written with A; B provides these at ~19 µs query cost and bounded memory. Risk: a ctypes signature error can crash the process; for this
+reason the wrapper is kept narrow, signatures are defined in one place and the tests run on every version. Retry is done only when a connection
+is being made; a transaction is not blindly repeated (v5.1: retry only in read-only transactions or in writes with an idempotency key). A protocol driver is not written from scratch. `libpq5` and its version are
+explicitly installed and documented in `deploy/`. The decision DB-K1 belongs to its owner; this section is a recommendation.
 
-Windows notu: `libpq.dll` (PostgreSQL istemci dağıtımından) ve bağımlılıkları (`libssl`, `libcrypto`, `libintl` vb.) `PATH`
-üzerinde olmalı ya da `ALIG_LIBPQ` ortam değişkeniyle tam yol verilmeli. Prototip Windows'ta çalıştırılmadı; yalnız yükleme
-adayları (`libpq.dll`) kodda var. Üretim Ubuntu'dadır, Windows yalnız geliştirme içindir.
+Windows note: `libpq.dll` (from the PostgreSQL client distribution) and its dependencies (`libssl`, `libcrypto`, `libintl`, etc.) must be on `PATH`
+or the full path must be given with the `ALIG_LIBPQ` environment variable. The prototype was not run on Windows; only the loading
+candidates (`libpq.dll`) are in the code. Production is on Ubuntu, Windows is only for development.
 
-## 3. Veri modeli
+## 3. Data model
 
-Mevcut tablo adları korunur (v5 bölüm 7'deki İngilizce adlar mantıksal karşılıktır, yeni tablo talimatı değildir):
+The existing table names are kept (the English names in v5 section 7 are a logical counterpart, not an instruction for new tables):
 
-| v5 mantıksal tablo | Mevcut karşılık | Not |
+| v5 logical table | Existing counterpart | Note |
 | --- | --- | --- |
-| companies | firma | `durum` CHECK, benzersiz anahtar |
-| admin_users, admin_sessions | kullanici, oturum | oturum kodu yalnız özetiyle; TOTP sırrı ayrı ele alınır (ALIG-SEC-001) |
-| scan_results | rapor | belirteç benzersiz, `firma_id` yabancı anahtar |
-| scan_quotas, quota_transactions | kullanim | kota bir sayaç değil, kayan pencere: son 30 günde en çok 2 kullanım kaydı (`SINIR_GUN`, `SINIR_ADET`) |
-| scan_jobs | baglanti_istegi (Kip B) | iş kuyruğu: madde 21, `FOR UPDATE SKIP LOCKED` |
-| audit_events | denetim (iki zincir) | uygulama rolünde UPDATE/DELETE yok; zincir ucu kilitle sıralanır; kanonik biçim değişmez |
+| companies | firma | `durum` CHECK, unique key |
+| admin_users, admin_sessions | kullanici, oturum | the session code only as its digest; the TOTP secret is handled separately (ALIG-SEC-001) |
+| scan_results | rapor | token unique, `firma_id` foreign key |
+| scan_quotas, quota_transactions | kullanim | the quota is not a counter but a sliding window: at most 2 usage records in the last 30 days (`SINIR_GUN`, `SINIR_ADET`) |
+| scan_jobs | baglanti_istegi (Mode B) | job queue: item 21, `FOR UPDATE SKIP LOCKED` |
+| audit_events | denetim (two chains) | no UPDATE/DELETE in the application role; the chain tail is ordered with a lock; the canonical format does not change |
 | contact_requests | contact | |
-| verification_requests | portal_kod ve firma doğrulama kodu | tek kullanımlık |
-| outbox_events | posta | gönderim niyeti iş verisiyle aynı işlemde |
-| idempotency_keys | yeni | yükleme ve tarama başlatmada; aynı anahtar farklı içerikle reddedilir |
-| schema_migrations | `PRAGMA user_version` yerine | |
+| verification_requests | portal_kod and the company verification code | single use |
+| outbox_events | posta | the intent to send in the same transaction as the business data |
+| idempotency_keys | new | in upload and scan start; the same key with different content is rejected |
+| schema_migrations | instead of `PRAGMA user_version` | |
 
-Şema SQL dosyaları ve kararlar: `db/sema/*.sql`, `db/README.md` (ALIG-DB-003a, PG16'da PASS). Yönetim zinciri tek şemada
-çakışmasın diye `yonetim_denetim` adını aldı; `rapor.belge_json` metin kaldı (gerekçe `db/README.md`).
+Schema SQL files and decisions: `db/sema/*.sql`, `db/README.md` (ALIG-DB-003a, PASS on PG16). So that the admin chain does not clash in a single schema
+it took the name `yonetim_denetim`; `rapor.belge_json` stayed text (rationale in `db/README.md`).
 
-Tüm zamanlar `timestamptz` (UTC). Şema: `alig`. Roller: `alig_owner` (NOLOGIN, nesne sahibi), `alig_app` (DML,
-BYPASSRLS/CREATEDB/CREATEROLE/REPLICATION yok), `alig_migrator` (DDL, yalnız göç sırasında), `alig_readonly`,
-`alig_backup`. `public` şemasında CREATE kaldırılır, `search_path` sabitlenir.
+All times are `timestamptz` (UTC). Schema: `alig`. Roles: `alig_owner` (NOLOGIN, object owner), `alig_app` (DML,
+no BYPASSRLS/CREATEDB/CREATEROLE/REPLICATION), `alig_migrator` (DDL, only during migration), `alig_readonly`,
+`alig_backup`. CREATE on the `public` schema is removed, `search_path` is pinned.
 
-## 4. İşlem kuralları
+## 4. Transaction rules
 
-Firma oluşturma/güncelleme/pasifleştirme/silme, oturum iptali, kota düşme ve sıfırlama, tarama başlatma/bitirme/iptal,
-e-posta doğrulama, rapor silme ve denetim kaydı yazma tek işlemde yapılır. Bugün SQLite'ta da büyük kısmı tek işlemdedir
-(`depo.islem`, madde 28); geçişte aynı sınırlar korunur ve PostgreSQL üzerinde testle kanıtlanır.
+Company create/update/deactivate/delete, session revocation, quota decrement and reset, scan start/finish/cancel,
+email verification, report deletion and audit record writing are done in a single transaction. Today in SQLite most of it is also in a single transaction
+(`depo.islem`, item 28); in the migration the same boundaries are kept and proven by a test on PostgreSQL.
 
-Kota: bugünkü model kayan pencere olduğu için v5'teki `UPDATE ... SET remaining = remaining - 1 WHERE remaining > 0`
-kalıbı doğrudan uymaz. PostgreSQL'de eşdeğeri: aynı işlemde kota anahtarına `pg_advisory_xact_lock` (ya da firma satırına
-`SELECT ... FOR UPDATE`), penceredeki kayıtları say, sınırın altındaysa kullanım kaydını ekle. Idempotency kaydı, rapor
-kaydı ve denetim kaydı aynı işlemdedir; paralel iki yükleme sınırı aşamaz (test: iki eşzamanlı istemci). Bağlantı işlem ortasında koparsa başarı ilan edilmez, idempotency kaydıyla
-uzlaştırılır.
+Quota: since today's model is a sliding window, the v5 pattern `UPDATE ... SET remaining = remaining - 1 WHERE remaining > 0`
+does not fit directly. The equivalent on PostgreSQL: in the same transaction `pg_advisory_xact_lock` on the quota key (or
+`SELECT ... FOR UPDATE` on the company row), count the records in the window, and if below the limit insert the usage record. The idempotency record, the report
+record and the audit record are in the same transaction; two parallel uploads cannot exceed the limit (test: two concurrent clients). If the connection drops in the middle of a transaction, success is not declared, it is
+reconciled with the idempotency record.
 
-## 5. Göç aşamaları (ALIG-DB-004)
+## 5. Migration phases (ALIG-DB-004)
 
-A envanter (satır sayısı, zincir doğrulama) → B şema ve göç rolü → C kopya üzerinde prova (satır sayısı, kanonik
-özet karşılaştırması, NULL/boş dizgi, boolean, timestamptz, Türkçe karakter, belirteç benzersizliği, yabancı anahtar,
-denetim zinciri, kota tutarlılığı) → D cutover (yalnız DB-K4 onayıyla). SQLite dosyaları başarı doğrulanmadan silinmez.
-`sqlite3` yalnız yalıtılmış göç aracında okunur; bu araç çalışma zamanına paketlenmez ve cutover sonrası kaldırılır.
-Cutover sonrası SQLite'a dönüş, cutover'dan sonra yazılan veriyi kaybettirir; bu sınır cutover raporunda yazılır.
+A inventory (row count, chain verification) -> B schema and migration role -> C rehearsal on a copy (row count, canonical
+digest comparison, NULL/empty string, boolean, timestamptz, Turkish characters, token uniqueness, foreign key,
+audit chain, quota consistency) -> D cutover (only with DB-K4 approval). SQLite files are not deleted until success is verified.
+`sqlite3` is read only in the isolated migration tool; this tool is not packaged into the runtime and is removed after cutover.
+Going back to SQLite after cutover loses data written after cutover; this limit is written in the cutover report.
 
-Faz C'ye v5.1 ile eklenenler: içe aktarmadan sonra her sequence `setval` ile en büyük kimliğe çekilir; kayıt ve olay
-kimlikleri korunur (denetim zinciri kimlikle bağlıdır, yeniden üretilirse zincir kırılır ve `MIGRATION_GATE = FAIL`); zincir
-doğrulaması kaynakta ve hedefte ayrı çalıştırılır; SQLite `NOCASE` ve Türkçe İ/ı farkından doğan benzersizlik çakışmaları
-(e-posta) raporlanır; `foreign_keys` kapalıyken oluşmuş yetim kayıtlar karantina tablosuna alınır, sessizce silinmez, insan
-karar verir; saat dilimsiz zaman değerlerinin UTC olduğu koddan doğrulanır; üç SQLite deposu (form, yönetim, tarama) tek
-veritabanında birleşir ve firma silme + iletişim talepleri + KVKK silme talebi tek işlem olur (atomiklik testi). Göç aracı
-danışma kilidiyle tek kopya çalışır, yalnız ileri gider, uygulanan dosyanın özetini saklar (`db/uygula.py` bunu zaten yapar).
-Şema değişiklikleri genişlet/daralt (expand/contract) düzenindedir: eski kod yeni şemayla çalışabilir, yıkıcı değişiklik ayrı
-sürümdedir. Faz D'de yazma dondurması bakım moduyla (OPS-K1, ALIG-OPS-002) yapılır ve kaynak özetinin değişmediğiyle doğrulanır.
+Added to Phase C with v5.1: after import every sequence is pulled to the largest ID with `setval`; record and event
+IDs are kept (the audit chain is tied by ID, if regenerated the chain breaks and `MIGRATION_GATE = FAIL`); chain
+verification is run separately on the source and the target; uniqueness clashes (email) arising from the SQLite `NOCASE` and Turkish I/i difference
+are reported; orphan records that arose while `foreign_keys` was off are moved to a quarantine table, not silently deleted, a human
+decides; that time values without a time zone are UTC is verified from code; the three SQLite stores (form, admin, scan) are merged into a single
+database and company deletion + contact requests + KVKK deletion request become a single transaction (atomicity test). The migration tool
+runs as a single copy with an advisory lock, only goes forward, and stores the digest of the applied file (`db/uygula.py` already does this).
+Schema changes follow the expand/contract pattern: the old code can work with the new schema, a destructive change is in a separate
+release. In Phase D the write freeze is done with maintenance mode (OPS-K1, ALIG-OPS-002) and verified by the source digest not changing.
 
-## 6. Yedek ve geri yükleme (ALIG-DB-005)
+## 6. Backup and restore (ALIG-DB-005)
 
-`pg_basebackup` + WAL arşivi (PITR için); yalnız `pg_dump` ile PITR iddia edilmez. Saklama, restore tatbikatı; RTO yalnız
-tatbikatla ölçülür. `BACKUP_RESTORE_VERIFIED` tatbikat yapılmadan `false`.
+`pg_basebackup` + WAL archive (for PITR); PITR is not claimed with `pg_dump` alone. Retention, restore drill; RTO is measured only by a
+drill. `BACKUP_RESTORE_VERIFIED` is `false` until a drill is done.
 
-Araç: `db/yedek.py` (stdlib; PostgreSQL CLI araçlarını alt süreçle çağırır; uygulamaya ve `deploy/bakim.py`ye bağlı değil).
-- `al`: `pg_basebackup -X stream` ile `alig_backup` rolüyle (yalnız REPLICATION; parola komut satırında değil, `PGPASSFILE`
-  ya da soket), düz ya da tar biçim, SHA-256 manifest; ardından `pg_verifybackup`. Doğrulama geçmeden yedek son adını almaz
-  (`pg-<UTC>.devam` yarım yedektir ve hata halinde silinir). Tar biçimi PG18'den önce `pg_verifybackup` ile doğrudan
-  doğrulanamaz; araç geçici dizine açıp doğrular.
-- `dogrula`: `pg_verifybackup`. `geri-yukle`: yalnız boş (ya da olmayan) hedef dizine açar; dolu dizine, çalışan kümenin
-  veri dizinine ve yedeğin içine/üstüne yazmaz; `--evet` olmadan yalnız plan yazar ve hiçbir şey yazmaz. WAL arşivi verilirse
-  `recovery.signal` + `restore_command` (+ isteğe bağlı `recovery_target_time`, saat dilimi zorunlu, `promote`) eklenir;
-  geri yüklenen kümede `archive_mode = off` yazılır ki kaynağın arşivini bozmasın. Küme başlatılmaz. `eskileri-sil`: en yeni
-  N yedeği saklar (`--evet` olmadan listeler). `arsiv-onerisi`: `archive_command` metnini yazar, sunucuya dokunmaz.
-- WAL arşiv komutu: `test ! -f ARSIV/%f && cp %p ARSIV/%f.gecici && mv ARSIV/%f.gecici ARSIV/%f` (var olanın üstüne yazmaz,
-  atomik). Yalnız belge ve test kümesinde kullanıldı; canlı sunucuya uygulanmadı. WAL arşivinin eskilerinin silinmesi
-  (`pg_archivecleanup`, en eski saklanan yedeğin başlangıç WAL'ına göre) elle yapılır; araç WAL silmez.
-- Şifreleme: kod yazılmadı (DB-K6). Varsayılan: yedek dizini şifreli hacimde, 0700.
-- RPO/RTO hedefi yazılmaz (DB-K5). Tatbikatta ölçülen süre yerel PG16 ve küçük veri içindir; hedef ya da canlı RTO değildir.
-- pgBackRest'e geçiş seçeneği DB-K5 notundadır; kurulmadı.
+Tool: `db/yedek.py` (stdlib; calls the PostgreSQL CLI tools as subprocesses; not tied to the application or `deploy/bakim.py`).
+- `al`: with `pg_basebackup -X stream` as the `alig_backup` role (REPLICATION only; the password is not on the command line, `PGPASSFILE`
+  or a socket), plain or tar format, SHA-256 manifest; then `pg_verifybackup`. The backup does not get its final name until verification passes
+  (`pg-<UTC>.devam` is a partial backup and is deleted on error). The tar format cannot be verified directly with `pg_verifybackup` before PG18;
+  the tool unpacks it to a temporary directory and verifies.
+- `dogrula`: `pg_verifybackup`. `geri-yukle`: unpacks only to an empty (or nonexistent) target directory; it does not write to a full directory,
+  the data directory of a running cluster, or into/over the backup; without `--evet` it only writes a plan and writes nothing. If a WAL archive is given,
+  `recovery.signal` + `restore_command` (+ optional `recovery_target_time`, time zone required, `promote`) are added;
+  `archive_mode = off` is written in the restored cluster so it does not corrupt the source's archive. The cluster is not started. `eskileri-sil`: keeps the newest
+  N backups (without `--evet` it lists). `arsiv-onerisi`: writes the `archive_command` text, does not touch the server.
+- WAL archive command: `test ! -f ARCHIVE/%f && cp %p ARCHIVE/%f.gecici && mv ARCHIVE/%f.gecici ARCHIVE/%f` (does not overwrite an existing one,
+  atomic). It was used only in the documents and the test cluster; not applied to a live server. Deleting old WAL archive files
+  (`pg_archivecleanup`, based on the starting WAL of the oldest retained backup) is done by hand; the tool does not delete WAL.
+- Encryption: no code written (DB-K6). Default: the backup directory on an encrypted volume, 0700.
+- No RPO/RTO target is written (DB-K5). The time measured in the drill is for local PG16 and small data; it is neither a target nor a live RTO.
+- The option to move to pgBackRest is in the DB-K5 note; it was not installed.
 
-## 7. Test matrisi ve durum
+## 7. Test matrix and status
 
-| Test | Beklenen | Durum |
+| Test | Expected | Status |
 | --- | --- | --- |
-| SQLite çalışma zamanı bağımlılığı | NONE | FAIL (bugün SQLite kullanılıyor; ALIG-CI-001 cutover sonrası denetim ekler) |
-| PostgreSQL bağlantısı | PASS | PG16'da PASS (prototip) |
-| Parametreli SQL | PASS | PG16'da PASS (prototip) |
-| İşlem geri alma | PASS | PG16'da PASS (prototip) |
-| Yabancı anahtar, benzersizlik, CHECK | PASS | PG16'da PASS (`tests/test_pg_sema.py`; firma silme kaskadı dahil) |
-| Paralel kota tüketimi | ATOMIC | NOT_RUN |
-| Idempotency | PASS | NOT_RUN (yalnız tablo kısıtı PG16'da PASS: aynı anahtar ikinci kez eklenemez; farklı içerik reddi uygulama kodudur, ALIG-DB-003c) |
-| Firma izolasyonu | PASS | NOT_RUN (SQLite'ta testli: `tests/test_portal.py`) |
-| RLS aşma denemesi | DENY | NOT_APPLICABLE (DB-K3: portal kapalı, RLS sonra) |
-| PostgreSQL bağlantı kesintisi | SAFE FAILURE | PG16'da PASS (prototip) |
-| Salt okuma rolüyle DML, uygulama rolüyle DDL | DENY | PG16'da PASS (42501; denetim tablolarında UPDATE/DELETE/TRUNCATE de DENY) |
-| Şema göçü: tüm dosyalar, tekrar çalıştırma, değişmiş eski dosya | PASS | PG16'da PASS (`db/uygula.py`) |
-| Göç satır sayısı ve özet | MATCH | NOT_RUN |
-| Geri yükleme | VERIFIED | PG16'da tatbikat geçti (`tests/test_pg_yedek.py`: tam yedek, `pg_verifybackup`, PITR ile zaman damgasına geri yükleme, denetim zinciri sağlam, bozuk yedek reddi, dolu hedef reddi, kuru çalıştırma); canlı sunucuda VERIFIED değil |
-| Sır maskeleme | PASS | PG16'da PASS (prototip; parola hata metninde ve repr'de yok) |
+| SQLite runtime dependency | NONE | FAIL (SQLite is used today; ALIG-CI-001 adds a check after cutover) |
+| PostgreSQL connection | PASS | PASS on PG16 (prototype) |
+| Parameterized SQL | PASS | PASS on PG16 (prototype) |
+| Transaction rollback | PASS | PASS on PG16 (prototype) |
+| Foreign key, uniqueness, CHECK | PASS | PASS on PG16 (`tests/test_pg_sema.py`; including company deletion cascade) |
+| Parallel quota consumption | ATOMIC | NOT_RUN |
+| Idempotency | PASS | NOT_RUN (only the table constraint PASS on PG16: the same key cannot be inserted a second time; rejecting different content is application code, ALIG-DB-003c) |
+| Company isolation | PASS | NOT_RUN (tested on SQLite: `tests/test_portal.py`) |
+| RLS bypass attempt | DENY | NOT_APPLICABLE (DB-K3: portal off, RLS later) |
+| PostgreSQL connection interruption | SAFE FAILURE | PASS on PG16 (prototype) |
+| DML with the read-only role, DDL with the application role | DENY | PASS on PG16 (42501; UPDATE/DELETE/TRUNCATE on the audit tables are also DENY) |
+| Schema migration: all files, re-run, a changed old file | PASS | PASS on PG16 (`db/uygula.py`) |
+| Migration row count and digest | MATCH | NOT_RUN |
+| Restore | VERIFIED | The drill passed on PG16 (`tests/test_pg_yedek.py`: full backup, `pg_verifybackup`, PITR restore to a timestamp, audit chain intact, corrupt backup rejected, full target rejected, dry run); not VERIFIED on a live server |
+| Secret masking | PASS | PASS on PG16 (prototype; the password is not in the error text or repr) |
 
-Test düzeni (ALIG-CI-001): PostgreSQL testleri `tests/pg_yardimci.py` ortak geçici kümesini kullanır (initdb, boş port,
-Unix soketi, `trust` ya da `scram-sha-256`, rol ve veritabanı, durdurma ve silme; süreç SIGKILL ile ölse de bekçi süreç
-sunucuyu durdurup dizini siler). Sistem PostgreSQL 16 yoksa testler SKIP olur. `ALIG_TEST_PG_HOST` isteyen 6 test
-(`GercekPgTests`, `GercekPgOturumTests`) artık değişken verilmezse geçici kümeyle koşar (PG16'da PASS); değişken
-verilirse dış sunucu kullanılır. `ci/run_all.py` bunları "postgresql testleri" adımında PASS/FAIL/SKIP ve sürümle
-ayrı raporlar; PostgreSQL yoksa adım "atlandı" der (başarı sayılmaz), `--release`te hata verir.
+Test layout (ALIG-CI-001): PostgreSQL tests use the shared temporary cluster `tests/pg_yardimci.py` (initdb, free port,
+Unix socket, `trust` or `scram-sha-256`, role and database, stop and delete; even if the process dies with SIGKILL a watchdog process
+stops the server and deletes the directory). If there is no system PostgreSQL 16 the tests SKIP. The 6 tests that require `ALIG_TEST_PG_HOST`
+(`GercekPgTests`, `GercekPgOturumTests`) now run with a temporary cluster if the variable is not given (PASS on PG16); if the variable
+is given, the external server is used. `ci/run_all.py` reports these separately in the "postgresql testleri" step with PASS/FAIL/SKIP and the version;
+if PostgreSQL is missing the step says "skipped" (not counted as success) and gives an error with `--release`.
 
-Ortam notu: bu geliştirme ortamında yalnız sistem PostgreSQL 16 var. PostgreSQL 18 ikilisi indirilmesine izin
-verilmedi; PG18 üzerinde testler **BLOCKED**. PG16'da geçen test "PG16'da PASS" olarak yazılır, PG18 için PASS sayılmaz.
+Environment note: in this development environment only the system PostgreSQL 16 exists. Downloading a PostgreSQL 18 binary was not
+permitted; tests on PG18 are **BLOCKED**. A test that passes on PG16 is written as "PASS on PG16", it does not count as PASS for PG18.
 
-Kanıt kaydı (v5.1 §23): her PASS için kanıt kimliği, UTC zaman, commit, tam komut, çalışma dizini, ortam (işletim
-sistemi, Python, PostgreSQL ve libpq sürümleri), çıkış kodu ve çıktı yolu yazılır. CI'daki PostgreSQL adımı (`ci/pg_adimi.py`)
-sürümü ve PASS/FAIL/SKIP sayılarını özetler; sürüm kapısında (`--release`) atlanan PostgreSQL testi hatadır.
+Evidence record (v5.1 §23): for every PASS the evidence ID, UTC time, commit, full command, working directory, environment (operating
+system, Python, PostgreSQL and libpq versions), exit code and output path are written. The PostgreSQL step in CI (`ci/pg_adimi.py`)
+summarizes the version and the PASS/FAIL/SKIP counts; at the release gate (`--release`) a skipped PostgreSQL test is an error.
 
-## 8. Kapılar
+## 8. Gates
 
-`POSTGRESQL_GATE = FAIL` (SQLite çalışma zamanında), `MIGRATION_GATE = NOT_RUN`, `BACKUP_RESTORE = PG16 tatbikatı geçti, canlı sunucuda NOT_RUN` (`BACKUP_RESTORE_VERIFIED = false`: canlı sunucu tatbikatı, şifreleme kararı DB-K6 ve RPO/RTO kararı DB-K5 bekliyor),
-dolayısıyla `PRODUCTION_READY = false`.
+`POSTGRESQL_GATE = FAIL` (SQLite in the runtime), `MIGRATION_GATE = NOT_RUN`, `BACKUP_RESTORE = the PG16 drill passed, NOT_RUN on a live server` (`BACKUP_RESTORE_VERIFIED = false`: the live server drill, the encryption decision DB-K6 and the RPO/RTO decision DB-K5 are pending),
+therefore `PRODUCTION_READY = false`.
 
-## 9. PostgreSQL erişilemezken (OPS-K1 varsayılanı)
+## 9. While PostgreSQL is unreachable (the OPS-K1 default)
 
-| Bileşen | Davranış |
+| Component | Behavior |
 | --- | --- |
-| Statik site | nginx sunmaya devam eder |
-| `/healthz` | canlılık: süreç yaşıyorsa geçer |
-| Hazır olma, `/api/tarama/saglik` | 503 |
-| Form, yükleme, portal, yönetim, rapor | 503 + Retry-After, güvenli hata sayfası, veri kaybı yok |
+| Static site | nginx keeps serving |
+| `/healthz` | liveness: passes if the process is alive |
+| Readiness, `/api/tarama/saglik` | 503 |
+| Form, upload, portal, admin, report | 503 + Retry-After, a safe error page, no data loss |
 
-Hiçbir uçta SQLite'a dönüş yoktur. Bakım modu (`ALIG_BAKIM`, ALIG-OPS-002) aynı sayfayı kullanır.
-
+There is no fallback to SQLite at any endpoint. Maintenance mode (`ALIG_BAKIM`, ALIG-OPS-002) uses the same page.

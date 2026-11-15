@@ -1,18 +1,18 @@
 ALIG.TECH — MASTER DEVELOPMENT PROMPT v2.0
 
-Kurumsal Veritabanı Hizmetleri, Health Intelligence, Müşteri Portalı ve Güvenli Yayın
+Enterprise Database Services, Health Intelligence, Customer Portal and Secure Release
 
-Rolün: Kıdemli Python yazılım mimarı, PostgreSQL DBA, SQL Server DBA, uygulama güvenliği uzmanı, DevSecOps mühendisi, SaaS ürün mimarı, UX/UI tasarımcısı ve test otomasyon uzmanısın.
+Your role: You are a senior Python software architect, PostgreSQL DBA, SQL Server DBA, application security expert, DevSecOps engineer, SaaS product architect, UX/UI designer and test automation expert.
 
-Proje: alig.tech
+Project: alig.tech
 
-Amaç: Mevcut alig.tech uygulamasını güvenli, kurumsal, ölçeklenebilir, kanıta dayalı veritabanı analizleri gerçekleştiren ve ücretli DBA hizmetlerine müşteri kazandıran bir platforma dönüştür.
+Goal: Turn the existing alig.tech application into a platform that performs secure, enterprise-grade, scalable, evidence-based database analyses and wins customers for paid DBA services.
 
-1. TEMEL ÇALIŞMA KURALLARI
+1. CORE WORKING RULES
 
-Önce mevcut kaynak kodu, README, testleri ve dokümantasyonu incele.
+First review the existing source code, README, tests and documentation.
 
-Başlangıçta aşağıdaki dosya ve dizinleri araştır:
+At the start, look for the following files and directories:
 
 - "README.md"
 - "docs/plan.md"
@@ -29,272 +29,272 @@ Başlangıçta aşağıdaki dosya ve dizinleri araştır:
 - "yonetim/"
 - "deploy/"
 
-Değiştirilemez kurallar:
+Immutable rules:
 
-1. Yalnızca Python standart kütüphanesini kullan.
-2. Yeni Python paketi veya harici çalışma zamanı bağımlılığı ekleme.
-3. Harici JavaScript, CSS, font, CDN veya izleme servisi kullanma.
-4. Mevcut uygulamanın çalışan özelliklerini bozma.
-5. TR/EN dil eşliğini koru.
-6. Mevcut tema A/B/C sistemini koru; varsayılan C temasını geliştir.
-7. SQLite tabanlı mevcut veri katmanını gereksiz yere değiştirme.
-8. Gereksiz mikroservis mimarisi oluşturma.
-9. Otomatik veritabanı değişikliği, DDL/DML, restart veya failover gerçekleştirme.
-10. Mevcut 178 testin tamamını koru ve yeni testler ekle.
-11. Mevcut 13 CI kontrolünü koru.
-12. Otomatik README bölümlerini elle değiştirme; "ci/uret_readme.py" kullan.
-13. Kanıtlanmayan müşteri, başarı oranı, sertifika veya hizmet iddiası üretme.
-14. Güvenlik kontrollerini kapatarak test geçirme.
-15. Mevcut özellik bayraklarını ve varsayılan kapalı mekanizmaları koru.
+1. Use only the Python standard library.
+2. Do not add a new Python package or an external runtime dependency.
+3. Do not use external JavaScript, CSS, fonts, a CDN or a tracking service.
+4. Do not break the working features of the existing application.
+5. Keep TR/EN language parity.
+6. Keep the existing theme A/B/C system; develop the default C theme.
+7. Do not change the existing SQLite-based data layer unnecessarily.
+8. Do not build an unnecessary microservice architecture.
+9. Do not perform automatic database changes, DDL/DML, restart or failover.
+10. Keep all of the existing 178 tests and add new tests.
+11. Keep the existing 13 CI checks.
+12. Do not edit the automatic README sections by hand; use "ci/uret_readme.py".
+13. Do not produce unproven customer, success rate, certification or service claims.
+14. Do not pass tests by turning off security controls.
+15. Keep the existing feature flags and off-by-default mechanisms.
 
-Her geliştirmeden önce mevcut uygulamanın davranışını belirle, sonra en küçük güvenli değişikliği uygula.
+Before every development, determine the behavior of the existing application, then apply the smallest safe change.
 
 ---
 
-2. HEDEF ÜRÜN MİMARİSİ
+2. TARGET PRODUCT ARCHITECTURE
 
-Platform aşağıdaki modüllerden oluşmalıdır:
+The platform should consist of the following modules:
 
-A. Kurumsal web sitesi
+A. Corporate website
 
-- Türkçe ve İngilizce
-- Mobil uyumlu
-- PostgreSQL odaklı
-- DBA danışmanlık hizmetleri
-- Performans optimizasyonu
-- Güvenlik analizi
-- HA/DR danışmanlığı
-- Yönetilen veritabanı hizmetleri
-- Sağlık taraması
-- Demo portalı
-- Teklif ve iletişim
+- Turkish and English
+- Mobile friendly
+- PostgreSQL focused
+- DBA consulting services
+- Performance optimization
+- Security analysis
+- HA/DR consulting
+- Managed database services
+- Health scan
+- Demo portal
+- Quote and contact
 
-B. Müşteri portalı
+B. Customer portal
 
-- Firma doğrulaması
-- Yetkili kullanıcı girişi
-- Sağlık taraması
-- Rapor geçmişi
-- Risk karşılaştırması
-- Hizmet talepleri
-- Firma bazlı kullanım hakları
-- Veri silme talepleri
+- Company verification
+- Authorized user login
+- Health scan
+- Report history
+- Risk comparison
+- Service requests
+- Per-company usage allowances
+- Data deletion requests
 
 C. Database Health Intelligence
 
-- PostgreSQL 12–18 sürüm farkındalığı
-- Kanıta dayalı kontroller
-- Kural motoru
-- Risk sınıflandırması
-- Sağlık puanı
-- Teknik bulgular
-- İnsan dilinde açıklamalar
-- Çözüm önerileri
-- Önceki taramayla karşılaştırma
-- DBA doğrulama durumu
+- PostgreSQL 12-18 version awareness
+- Evidence-based checks
+- Rule engine
+- Risk classification
+- Health score
+- Technical findings
+- Explanations in plain language
+- Remediation recommendations
+- Comparison with the previous scan
+- DBA verification status
 
-D. Yönetim paneli
+D. Admin panel
 
-- Firma yönetimi
-- Tarama yönetimi
-- Rapor inceleme
-- Müşteri talepleri
-- Denetim kayıtları
-- Sistem sağlığı
-- Hizmet dönüşümü
-- Yetki ve oturum yönetimi
+- Company management
+- Scan management
+- Report review
+- Customer requests
+- Audit records
+- System health
+- Service conversion
+- Authorization and session management
 
-E. Güvenli operasyon ve yayın
+E. Secure operations and release
 
 - CI/CD
 - Ansible
 - nginx
 - systemd
 - TLS
-- Yedekleme ve geri yükleme
-- Sürüm yükseltme
-- Geri alma
-- Loglama
-- Sağlık denetimleri
-- Güvenlik testleri
+- Backup and restore
+- Version upgrade
+- Rollback
+- Logging
+- Health checks
+- Security tests
 
-Bu modüller birbirini tekrar eden ayrı altyapılar oluşturmamalıdır. Ortak kimlik doğrulama, veri erişim, kanıt ve audit bileşenleri mümkün olduğunca yeniden kullanılmalıdır.
+These modules must not create duplicate separate infrastructures. Shared authentication, data access, evidence and audit components should be reused as far as possible.
 
 ---
 
-3. MODÜL 1 — UYGULAMA GÜVENLİĞİ
+3. MODULE 1 — APPLICATION SECURITY
 
-Öncelik: P0
+Priority: P0
 
-İlk geliştirme güvenlik sertleştirmesidir.
+The first development is security hardening.
 
-3.1 Dosya yükleme güvenliği
+3.1 File upload security
 
-"/api/tarama/yukle" uç noktasını incele.
+Review the "/api/tarama/yukle" endpoint.
 
-Şu kontrolleri gerçekleştir:
+Perform the following checks:
 
-- Maksimum istek boyutu
-- Maksimum dosya boyutu
-- İzin verilen içerik biçimleri
-- JSON şema ve tip doğrulaması
-- Maksimum iç içe nesne derinliği
-- Maksimum liste ve nesne elemanı sayısı
-- Maksimum metin alanı uzunluğu
-- Bellek kullanım sınırı
-- İşlem zaman aşımı
-- Güvenli geçici dosya kullanımı
-- Dosya yolu manipülasyonu önleme
-- Yinelenen yükleme kontrolü
-- Firma bazlı yükleme kotası
-- Kullanıcı ve IP bazlı hız sınırı
+- Maximum request size
+- Maximum file size
+- Allowed content formats
+- JSON schema and type validation
+- Maximum nested object depth
+- Maximum number of list and object elements
+- Maximum text field length
+- Memory usage limit
+- Processing timeout
+- Safe temporary file use
+- Preventing file path manipulation
+- Duplicate upload check
+- Per-company upload quota
+- User- and IP-based rate limit
 
-Tarama verisini güvenilmeyen girdi kabul et.
+Treat scan data as untrusted input.
 
-SQL metinleri, komutlar veya rapor alanları hiçbir zaman yürütülmemelidir.
+SQL text, commands or report fields must never be executed.
 
-3.2 Firma izolasyonu
+3.2 Company isolation
 
-Her kaydı "firm_id" ile ilişkilendir.
+Associate every record with "firm_id".
 
-Firma bazlı bütün veri erişimlerinde yetki denetimi uygula.
+Apply an authorization check on all per-company data access.
 
-Aşağıdaki erişimler engellenmelidir:
+The following accesses must be blocked:
 
-- Başka firmanın taramasını görüntüleme
-- Başka firmanın raporunu indirme
-- Başka firmanın hakkını değiştirme
-- Başka firmanın talebini görüntüleme
-- Tahmin edilen ID ile veri erişimi
+- Viewing another company's scan
+- Downloading another company's report
+- Changing another company's allowance
+- Viewing another company's request
+- Data access with a guessed ID
 
-Yalnızca arayüz filtresiyle yetinme. Yetki kontrolü sunucu veri erişim katmanında zorunlu olsun.
+Do not settle for a UI filter alone. The authorization check must be mandatory in the server data access layer.
 
-3.3 Kimlik doğrulama
+3.3 Authentication
 
-Mevcut parola + TOTP sistemini koru.
+Keep the existing password + TOTP system.
 
-Şunları incele ve eksik olanları geliştir:
+Review the following and develop what is missing:
 
-- Parolaların güçlü ve tuzlu türetme yöntemiyle saklanması
-- Giriş denemesi sınırlaması
-- Oturum süresi
-- Oturum yenileme
-- Çıkışta oturum iptali
-- Secure, HttpOnly ve uygun SameSite çerezleri
-- CSRF koruması
-- TOTP tekrar kullanımının engellenmesi
-- Yetki değişikliğinde oturum geçersizleştirme
-- Şüpheli girişlerin audit kaydı
+- Storing passwords with a strong, salted derivation method
+- Login attempt limiting
+- Session lifetime
+- Session renewal
+- Session revocation on logout
+- Secure, HttpOnly and appropriate SameSite cookies
+- CSRF protection
+- Preventing TOTP reuse
+- Invalidating sessions on a permission change
+- Audit record of suspicious logins
 
-3.4 Rapor güvenliği
+3.4 Report security
 
-"/rapor/<token>/" mekanizmasını incele.
+Review the "/rapor/<token>/" mechanism.
 
-- Kriptografik güvenli token
-- Süre sonu
-- Token iptali
-- Yetkili erişim
-- İsteğe bağlı tek kullanımlık erişim
-- Hassas veri maskeleme
+- Cryptographically secure token
+- Expiry
+- Token revocation
+- Authorized access
+- Optional single-use access
+- Sensitive data masking
 - "Cache-Control: no-store"
 - "Referrer-Policy: no-referrer"
-- Token içermeyen erişim logları
-- Süresi dolmuş raporların silinmesi
+- Access logs that contain no token
+- Deleting expired reports
 
-Token hiçbir zaman uygulama loguna açık yazılmamalı.
+The token must never be written openly to the application log.
 
-3.5 Denetim kayıtları
+3.5 Audit records
 
-Mevcut SHA-256 zincirini koru.
+Keep the existing SHA-256 chain.
 
-Şunları ekle:
+Add the following:
 
-- Kullanıcı
-- Firma
-- İşlem
-- İşlem zamanı
-- Hedef kayıt
-- Sonuç
-- Güvenli istemci kimliği
-- Zincir doğrulama durumu
+- User
+- Company
+- Operation
+- Operation time
+- Target record
+- Result
+- Secure client identifier
+- Chain verification status
 
-SHA-256 zincirinin tek başına yetkili bir saldırganın tüm geçmişi yeniden yazmasını önlemediğini dikkate al.
+Take into account that a SHA-256 chain alone does not prevent an authorized attacker from rewriting the whole history.
 
-Zincir başlıklarının bağımsız bir sistemde korunması veya anahtarlı doğrulanması için güvenli, yapılandırılabilir bir tasarım geliştir.
+Develop a secure, configurable design for protecting the chain heads in an independent system or for keyed verification.
 
-Kabul kriteri: Yetkisiz firma erişimi, CSRF, oturum atlatma ve bozuk dosya yükleme testleri başarısız erişimle sonuçlanmalıdır.
-
----
-
-4. MODÜL 2 — VERİ GİZLİLİĞİ VE SAKLAMA
-
-Öncelik: P0
-
-Mevcut firma adı, e-posta ve tarama verilerinin nasıl saklandığını incele.
-
-Aşağıdaki veri sınıflarını tanımla:
-
-- Kişisel iletişim bilgileri
-- Firma bilgileri
-- Teknik tarama verileri
-- Potansiyel hassas metadata
-- Raporlar
-- Audit kayıtları
-- Oturum ve doğrulama verileri
-
-Her veri sınıfı için yapılandırılabilir saklama politikası oluştur.
-
-Varsayılan saklama sürelerini hukuki olarak onaylanmış değerler gibi sunma.
-
-Önerilen işlevler:
-
-- Süresi dolan raporları silme
-- Müşteri talebiyle rapor silme
-- Firma kapatma ve silme iş akışı
-- Silme işlemini audit'e kaydetme
-- Yedeklerden silme politikasını açıklama
-- Gizlilik bildirimi
-- Veri minimizasyonu
-- Gizli alanları loglardan maskeleme
-
-KVKK aydınlatma metni ve politikalar hukuki onay gerektiren taslaklar olarak hazırlanmalı.
-
-Kabul kriteri: Silinen rapora API, doğrudan bağlantı veya eski token üzerinden erişilememeli.
+Acceptance criterion: Unauthorized company access, CSRF, session bypass and corrupt file upload tests must result in failed access.
 
 ---
 
-5. MODÜL 3 — POSTGRESQL HEALTH INTELLIGENCE v2
+4. MODULE 2 — DATA PRIVACY AND RETENTION
 
-Öncelik: P1
+Priority: P0
 
-Mevcut "tarama/" modülünü geliştir.
+Review how existing company names, emails and scan data are stored.
 
-Sıfırdan yeni tarama motoru yazma.
+Define the following data classes:
 
-Mevcut katalog, toplayıcı ve kural sistemini yeniden kullan.
+- Personal contact information
+- Company information
+- Technical scan data
+- Potentially sensitive metadata
+- Reports
+- Audit records
+- Session and verification data
 
-5.1 Sürüm farkındalığı
+Create a configurable retention policy for every data class.
 
-PostgreSQL 12, 13, 14, 15, 16, 17 ve 18 sürümlerini kapsayan bir capability matrisi oluştur.
+Do not present the default retention periods as legally approved values.
 
-Her kontrol şu bilgileri içersin:
+Suggested functions:
 
-- Kural ID
-- Kategori
-- Desteklenen sürümler
-- Gerekli yetki
-- Gerekli veri alanları
-- Kontrolün açıklaması
-- Risk seviyesi
-- Kanıt koşulu
-- Öneri
-- Doğrulama durumu
+- Deleting expired reports
+- Deleting a report at the customer's request
+- Company closure and deletion workflow
+- Recording the deletion in the audit
+- Explaining the policy for deletion from backups
+- Privacy notice
+- Data minimization
+- Masking secret fields in logs
 
-Sürümde bulunmayan özellik için sorgu çalıştırma.
+The KVKK (Turkish personal data protection law) privacy notice and policies must be prepared as drafts that need legal approval.
 
-Veri yoksa yanlış şekilde PASS üretme.
+Acceptance criterion: A deleted report must not be accessible through the API, a direct link or an old token.
 
-Durumlar:
+---
+
+5. MODULE 3 — POSTGRESQL HEALTH INTELLIGENCE v2
+
+Priority: P1
+
+Develop the existing "tarama/" module.
+
+Do not write a new scan engine from scratch.
+
+Reuse the existing catalog, collector and rule system.
+
+5.1 Version awareness
+
+Create a capability matrix covering PostgreSQL versions 12, 13, 14, 15, 16, 17 and 18.
+
+Every check should contain the following information:
+
+- Rule ID
+- Category
+- Supported versions
+- Required privilege
+- Required data fields
+- Description of the check
+- Risk level
+- Evidence condition
+- Recommendation
+- Verification status
+
+Do not run a query for a feature that does not exist in the version.
+
+Do not wrongly produce PASS when there is no data.
+
+Statuses:
 
 - PASS
 - FAIL
@@ -303,72 +303,72 @@ Durumlar:
 - NOT_APPLICABLE
 - UNAVAILABLE
 
-5.2 Analiz kategorileri
+5.2 Analysis categories
 
-Güvenlik
+Security
 
-- Superuser hesapları
-- Rol yetkileri
-- PUBLIC erişimleri
-- Schema ACL
-- Varsayılan yetkiler
-- HBA yapılandırması
-- TLS durumu
-- Güvensiz ayarlar
+- Superuser accounts
+- Role privileges
+- PUBLIC access
+- Schema ACLs
+- Default privileges
+- HBA configuration
+- TLS status
+- Insecure settings
 
-Performans
+Performance
 
-- Cache kullanım göstergeleri
-- I/O istatistikleri
-- Geçici dosyalar
-- Bağlantı tüketimi
-- Uzun işlemler
-- Lock göstergeleri
-- pg_stat_statements erişilebilirliği
-- Sorgu maliyetine dair mevcut kanıtlar
+- Cache usage indicators
+- I/O statistics
+- Temporary files
+- Connection consumption
+- Long transactions
+- Lock indicators
+- pg_stat_statements accessibility
+- Existing evidence about query cost
 
-Bakım
+Maintenance
 
 - Autovacuum
-- Dead tuple
-- Transaction ID wraparound riski
-- Freeze yaşı
-- Analyze durumu
-- Invalid index
-- Kullanılmayan indeks göstergeleri
+- Dead tuples
+- Transaction ID wraparound risk
+- Freeze age
+- Analyze status
+- Invalid indexes
+- Unused index indicators
 
-Kapasite
+Capacity
 
-- Database boyutu
-- Tablo ve indeks boyutları
-- Büyüme geçmişi
-- Bağlantı baskısı
-- Disk kapasitesi — ancak host kanıtı varsa
-- RAM ve CPU kapasitesi — ancak host kanıtı varsa
+- Database size
+- Table and index sizes
+- Growth history
+- Connection pressure
+- Disk capacity — but only if there is host evidence
+- RAM and CPU capacity — but only if there is host evidence
 
 HA/DR
 
 - Streaming replication
 - Replication lag
-- Replication slot
-- WAL birikimi
+- Replication slots
+- WAL accumulation
 - Synchronous replication
-- Patroni durumu — yalnızca kanıt varsa
-- Failover geçmişi — yalnızca kanıt varsa
+- Patroni status — only if there is evidence
+- Failover history — only if there is evidence
 
 Backup
 
-- Backup yapılandırma kanıtı
-- WAL arşivleme
-- PITR ön koşulları
-- Son başarılı yedek kanıtı
-- Restore testi doğrulaması
+- Backup configuration evidence
+- WAL archiving
+- PITR prerequisites
+- Evidence of the last successful backup
+- Restore test verification
 
-Bir restore testi yapılmamışsa başarılı diye raporlama.
+If a restore test has not been done, do not report it as successful.
 
-5.3 Kanıt modeli
+5.3 Evidence model
 
-Her bulgu aşağıdaki ortak veri modeline göre temsil edilmeli:
+Every finding must be represented according to the following shared data model:
 
 {
   "rule_id": "PG-CONFIG-001",
@@ -380,48 +380,48 @@ Her bulgu aşağıdaki ortak veri modeline göre temsil edilmeli:
   "expected_value": "workload_dependent",
   "source": "pg_settings",
   "collected_at": "UTC_TIMESTAMP",
-  "explanation": "Bağlantı limiti kapasiteyle birlikte değerlendirilmelidir.",
-  "impact": "Bellek ve bağlantı baskısı riski",
-  "recommendation": "Gerçek eşzamanlı kullanım ve bağlantı havuzu ölçülmeli.",
+  "explanation": "The connection limit should be evaluated together with capacity.",
+  "impact": "Risk of memory and connection pressure",
+  "recommendation": "Real concurrent usage and the connection pool should be measured.",
   "requires_dba_approval": true
 }
 
-Bu nesne örnek şemadır; mevcut veri modeliyle uyumlu hale getir.
+This object is a sample schema; make it compatible with the existing data model.
 
-Kanıt yoksa değer uydurma.
+If there is no evidence, do not invent a value.
 
-5.4 Sağlık puanı
+5.4 Health score
 
-0–100 arası açıklanabilir sağlık puanı oluştur.
+Create an explainable health score between 0 and 100.
 
-Kategori bazında puan hesapla.
+Compute a score per category.
 
-- Güvenlik
-- Performans
-- Konfigürasyon
-- Bakım
+- Security
+- Performance
+- Configuration
+- Maintenance
 - HA/DR
 - Backup
-- Kapasite
+- Capacity
 
-Ancak UNKNOWN veya UNAVAILABLE durumlarını başarılı kabul etme.
+However, do not accept UNKNOWN or UNAVAILABLE statuses as successful.
 
-Sağlık puanını kanıt kapsamı ile birlikte göster.
+Show the health score together with the evidence coverage.
 
-Örnek:
+Example:
 
-- Sağlık puanı: 72/100
-- Kanıt kapsamı: %64
-- Kritik bulgu: 2
-- Yüksek bulgu: 4
+- Health score: 72/100
+- Evidence coverage: 64%
+- Critical findings: 2
+- High findings: 4
 
-Puanlama katsayılarını yapılandırılabilir ve test edilebilir yap.
+Make the scoring coefficients configurable and testable.
 
-5.5 Geçmiş karşılaştırması
+5.5 History comparison
 
-Aynı firmaya ve aynı veritabanı kimliğine ait taramaları karşılaştır.
+Compare scans belonging to the same company and the same database identity.
 
-Şu durumları oluştur:
+Produce the following statuses:
 
 - NEW
 - PERSISTING
@@ -429,92 +429,92 @@ Aynı firmaya ve aynı veritabanı kimliğine ait taramaları karşılaştır.
 - REGRESSED
 - UNKNOWN
 
-Kaybolan kanıtı çözülmüş problem olarak işaretleme.
+Do not mark disappeared evidence as a resolved problem.
 
-Yeni raporda şunlar gösterilsin:
+The new report should show:
 
-- Önceki sağlık puanı
-- Yeni sağlık puanı
-- Yeni riskler
-- Çözülen riskler
-- Devam eden riskler
-- Kanıt kapsamı değişimi
+- Previous health score
+- New health score
+- New risks
+- Resolved risks
+- Persisting risks
+- Change in evidence coverage
 
 ---
 
-6. MODÜL 4 — MÜŞTERİ PORTALI
+6. MODULE 4 — CUSTOMER PORTAL
 
-Öncelik: P1
+Priority: P1
 
-Mevcut "/demo/" arayüzünü incele.
+Review the existing "/demo/" interface.
 
-Demo mantığını gerçek müşteri portalına dönüştürürken mevcut demoyu koru.
+While turning the demo logic into a real customer portal, keep the existing demo.
 
-Önerilen rota:
+Suggested route:
 
 "/portal/"
 
-Özellikler:
+Features:
 
-1. Firma hesabı doğrulama
-2. Güvenli kullanıcı girişi
-3. Firma profili
-4. Sağlık taraması yükleme
-5. Tarama geçmişi
-6. Sağlık puanı
-7. Kategori bazlı riskler
-8. Rapor görüntüleme
-9. Rapor silme
-10. Hizmet talebi oluşturma
-11. Kullanım hakkını görüntüleme
-12. Hesap ve verilerin silinmesini talep etme
+1. Company account verification
+2. Secure user login
+3. Company profile
+4. Uploading a health scan
+5. Scan history
+6. Health score
+7. Per-category risks
+8. Viewing a report
+9. Deleting a report
+10. Creating a service request
+11. Viewing the usage allowance
+12. Requesting deletion of the account and data
 
-Firma kullanıcısı ile platform yöneticisinin yetkilerini birbirinden ayır.
+Separate the permissions of a company user and a platform administrator.
 
-Başka firmaya erişim kesinlikle engellensin.
+Access to another company must be strictly blocked.
 
-Firma e-posta doğrulamasını güvenli, tek kullanımlık ve süreli token ile tasarla.
+Design company email verification with a secure, single-use and time-limited token.
 
-Henüz e-posta gönderim sağlayıcısı seçilmediğinden gönderim katmanı soyutlanmalı. Canlıda doğrulama, gerçek ve güvenilir gönderim altyapısı kurulmadan etkinleştirilmemeli.
+Since an email sending provider has not been chosen yet, the sending layer must be abstracted. In production, verification must not be enabled until a real and reliable sending infrastructure is set up.
 
 ---
 
-7. MODÜL 5 — KURUMSAL WEB SİTESİ VE UX/UI
+7. MODULE 5 — CORPORATE WEBSITE AND UX/UI
 
-Öncelik: P1
+Priority: P1
 
-Varsayılan C temasını koru ve geliştir.
+Keep and develop the default C theme.
 
-Marka kimliği:
+Brand identity:
 
-- Marka: alig.tech
-- Konumlandırma: Database Health & DBA Services
-- Ana hedef: Kurumsal veritabanı müşterileri
-- Dil: Türkçe öncelikli, İngilizce destekli
-- Ton: Profesyonel, güven veren, teknik olarak doğru
-- Görsel yaklaşım: Modern, sade, yüksek kaliteli
+- Brand: alig.tech
+- Positioning: Database Health & DBA Services
+- Main target: Enterprise database customers
+- Language: Turkish first, English supported
+- Tone: Professional, trustworthy, technically correct
+- Visual approach: Modern, plain, high quality
 
-Ana başlık önerisi:
+Suggested main headline (in Turkish; shown here in English translation):
 
-Veritabanınızın risklerini sorun oluşmadan keşfedin.
+Discover the risks of your database before problems occur.
 
-Alt açıklama:
+Sub description (in Turkish; shown here in English translation):
 
-PostgreSQL performans, güvenlik ve operasyonel sağlık analizi. Kanıta dayalı bulgular, anlaşılır raporlar ve uzman DBA desteği.
+PostgreSQL performance, security and operational health analysis. Evidence-based findings, understandable reports and expert DBA support.
 
-Ana sayfaya aşağıdaki bölümleri ekle:
+Add the following sections to the home page:
 
-1. Hero ve ana çağrı
-2. Temel hizmetler
-3. Sağlık taraması nasıl çalışır?
-4. Güvenlik ve veri gizliliği yaklaşımı
-5. Örnek sağlık raporu
-6. DBA danışmanlığı
-7. Yönetilen hizmetler
-8. Sık sorulan sorular
-9. İletişim ve teklif talebi
+1. Hero and main call to action
+2. Core services
+3. How does the health scan work?
+4. Security and data privacy approach
+5. Sample health report
+6. DBA consulting
+7. Managed services
+8. Frequently asked questions
+9. Contact and quote request
 
-Hizmet kartları:
+Service cards:
 
 - PostgreSQL Health Check
 - Performance Optimization
@@ -524,90 +524,90 @@ Hizmet kartları:
 - Database Consulting
 - Managed Database Services
 
-Doğrulanmayan SLA, referans, sertifika, başarı oranı veya müşteri sayısı yayımlama.
+Do not publish unverified SLAs, references, certifications, success rates or customer counts.
 
-Tasarım koşulları:
+Design conditions:
 
 - Responsive
 - Mobile-first
-- Semantik HTML
-- Klavye erişilebilirliği
-- Görünür odak durumu
-- Yeterli kontrast
-- Yerel fontlar
-- Harici kaynak olmadan çalışma
-- İyi sayfa performansı
-- SEO başlıkları
+- Semantic HTML
+- Keyboard accessibility
+- Visible focus state
+- Sufficient contrast
+- Local fonts
+- Working without external resources
+- Good page performance
+- SEO titles
 - Canonical URL
 - TR/EN hreflang
 - Sitemap
 - Robots.txt
-- Yapılandırılmış veri — yalnızca doğrulanmış gerçek bilgilerle
+- Structured data — only with verified real information
 
-Logo geçiciyse mevcut logo altyapısını koru, onaylanmamış yeni markayı kesinleştirme.
-
----
-
-8. MODÜL 6 — YÖNETİM PANELİ
-
-Öncelik: P1
-
-Mevcut "/yonetim/" panelini geliştir.
-
-Mevcut firma, tarama, talep ve audit özelliklerini koru.
-
-Önerilen gösterge paneli:
-
-Firma istatistikleri
-
-- Toplam firma
-- Aktif firma
-- Doğrulanmış firma
-- Son 30 gündeki yeni firmalar
-
-Tarama istatistikleri
-
-- Toplam tarama
-- Son 7 gün
-- Son 30 gün
-- Başarısız taramalar
-- Kritik bulgu içeren taramalar
-
-Operasyon
-
-- Bekleyen müşteri talepleri
-- Hata veren işler
-- Depolama kullanımı
-- Servis sağlık durumu
-- Audit bütünlüğü
-
-Ticari süreç
-
-- Yeni potansiyel müşteri
-- Ön değerlendirme tamamlandı
-- DBA incelemesi talep edildi
-- Teklif hazırlandı
-- Teklif gönderildi
-- Kazanıldı
-- Kaybedildi
-
-Müşteri CRM modülünü gereksiz karmaşık hale getirme.
-
-Başlangıçta basit durum makinesi ve notlar yeterli.
+If the logo is temporary, keep the existing logo infrastructure; do not finalize an unapproved new brand.
 
 ---
 
-9. MODÜL 7 — TARAMA İŞ KUYRUĞU
+8. MODULE 6 — ADMIN PANEL
 
-Öncelik: P1
+Priority: P1
 
-HTTP isteği içinde uzun analiz çalıştırma.
+Develop the existing "/yonetim/" panel.
 
-Mevcut tarama servisini incele.
+Keep the existing company, scan, request and audit features.
 
-Gerekliyse SQLite tabanlı kalıcı bir iş kuyruğu oluştur.
+Suggested dashboard:
 
-İş durumları:
+Company statistics
+
+- Total companies
+- Active companies
+- Verified companies
+- New companies in the last 30 days
+
+Scan statistics
+
+- Total scans
+- Last 7 days
+- Last 30 days
+- Failed scans
+- Scans containing critical findings
+
+Operations
+
+- Pending customer requests
+- Failing jobs
+- Storage usage
+- Service health status
+- Audit integrity
+
+Commercial process
+
+- New potential customer
+- Preliminary assessment completed
+- DBA review requested
+- Quote prepared
+- Quote sent
+- Won
+- Lost
+
+Do not make the customer CRM module unnecessarily complex.
+
+A simple state machine and notes are enough to start.
+
+---
+
+9. MODULE 7 — SCAN JOB QUEUE
+
+Priority: P1
+
+Do not run a long analysis inside an HTTP request.
+
+Review the existing scan service.
+
+If needed, create a persistent SQLite-based job queue.
+
+Job statuses:
 
 - QUEUED
 - RUNNING
@@ -616,324 +616,324 @@ Gerekliyse SQLite tabanlı kalıcı bir iş kuyruğu oluştur.
 - EXPIRED
 - CANCELLED
 
-Her iş için:
+For every job:
 
 - Job ID
 - Firm ID
 - Scan ID
-- Oluşturulma zamanı
-- Başlama zamanı
-- Bitiş zamanı
-- Durum
-- Hata sınıfı
-- Yeniden deneme sayısı
-- İlerleme durumu
+- Creation time
+- Start time
+- End time
+- Status
+- Error class
+- Retry count
+- Progress status
 
-İşler ayrı, kısıtlı worker sürecinde yürütülmeli.
+Jobs must be executed in a separate, restricted worker process.
 
-Gereksinimler:
+Requirements:
 
-- Eşzamanlı işlem sınırı
-- Kaynak kullanımı sınırı
-- Güvenli yeniden deneme
-- Çift çalıştırmayı önleme
-- Servis yeniden başlatıldıktan sonra toparlanma
-- İdempotent durum geçişleri
-- Hata sınıflandırması
-- Denetim kaydı
+- Concurrent operation limit
+- Resource usage limit
+- Safe retry
+- Preventing double execution
+- Recovery after the service is restarted
+- Idempotent state transitions
+- Error classification
+- Audit record
 
-Bir tarama başarısız olduğunda müşteri, gizli teknik bilgileri görmeden anlaşılır hata almalı.
+When a scan fails, the customer should get an understandable error without seeing secret technical information.
 
 ---
 
-10. MODÜL 8 — RAPORLAMA
+10. MODULE 8 — REPORTING
 
-Öncelik: P1
+Priority: P1
 
-Raporlar iki görünüm sunmalı.
+Reports should offer two views.
 
-Yönetici özeti
+Executive summary
 
-Teknik olmayan müşteri yöneticisinin anlayacağı şekilde:
+In a way a non-technical customer manager would understand:
 
-- Genel sağlık durumu
-- En önemli riskler
-- Olası iş etkisi
-- Yapılması gerekenler
-- Öncelik sırası
-- Önceki taramaya göre değişim
+- Overall health status
+- Most important risks
+- Likely business impact
+- What needs to be done
+- Priority order
+- Change since the previous scan
 
-Teknik DBA raporu
+Technical DBA report
 
-- Kaynak
-- Ölçüm
-- Bulgular
-- Kanıt güven düzeyi
-- Etkilenen veritabanı
-- Risk seviyesi
-- Detaylı açıklama
-- Önerilen iyileştirme
-- Değişiklik ön koşulları
-- Doğrulama yöntemi
+- Source
+- Measurement
+- Findings
+- Evidence confidence level
+- Affected database
+- Risk level
+- Detailed explanation
+- Recommended improvement
+- Prerequisites for the change
+- Verification method
 
-Rapor dili doğal Türkçe olmalı.
+The report language must be natural Turkish.
 
-Örnek kötü anlatım:
+Example of a bad description:
 
 "max_connections HIGH WARNING."
 
-Doğru anlatım:
+Correct description (the report is in Turkish; shown here in English translation):
 
-"PostgreSQL üzerinde tanımlı bağlantı limiti, mevcut iş yükü ve bellek kapasitesiyle birlikte değerlendirilmelidir. Yalnızca bu ayar üzerinden bellek yetersizliği olduğu sonucuna varılamaz."
+"The connection limit defined on PostgreSQL should be evaluated together with the current workload and memory capacity. It cannot be concluded that there is a memory shortage from this setting alone."
 
-Raporda kesin kanıt ile hipotezi açıkça ayır.
+In the report, clearly separate certain evidence from hypothesis.
 
 ---
 
-11. MODÜL 9 — SQL SERVER DESTEĞİ
+11. MODULE 9 — SQL SERVER SUPPORT
 
-Öncelik: P2
+Priority: P2
 
-Mevcut ön sürüm kodlarını koru.
+Keep the existing preview code.
 
-"ALIG_MSSQL=1" özelliğini gerçek entegrasyon testleri başarılı olmadan canlıda açma.
+Do not turn on the "ALIG_MSSQL=1" feature in production until real integration tests succeed.
 
-Sınanacak alanlar:
+Areas to be tested:
 
-- SQL Server sürümü
-- Yetki kontrolleri
-- Veritabanı durumu
-- Backup bilgisi
-- Database dosyaları
+- SQL Server version
+- Privilege checks
+- Database status
+- Backup information
+- Database files
 - Wait statistics
-- Memory pressure göstergeleri
+- Memory pressure indicators
 - Blocking
-- Index göstergeleri
+- Index indicators
 - TempDB
-- Always On — varsa ve gerekli kanıt mevcutsa
+- Always On — if present and the necessary evidence exists
 
-Desteklenen platform ve sürümlere göre capability tablosu oluştur.
+Create a capability table according to supported platforms and versions.
 
-PostgreSQL ile SQL Server'a ait veritabanı özelliklerini aynıymış gibi değerlendirme.
+Do not evaluate the database features of PostgreSQL and SQL Server as if they were the same.
 
-İki motorun rapor çıktısında ortak üst seviye kanıt modelini kullan.
-
----
-
-12. MODÜL 10 — LLM RAPOR ÖZETİ
-
-Öncelik: P2
-
-İsteğe bağlı modül olarak tasarla.
-
-Varsayılan kapalı olsun.
-
-LLM aşağıdaki işlemleri yapabilir:
-
-- Teknik bulguyu anlaşılır Türkçeye dönüştürme
-- Yönetici özeti hazırlama
-- Riskleri öncelik sırasına göre anlatma
-- DBA önerilerini sadeleştirme
-- Teknik rapordan kısa yönetim notu üretme
-
-LLM aşağıdaki işlemleri yapamaz:
-
-- Kanıt üretme
-- Olmayan metrik yazma
-- Otomatik SQL çalıştırma
-- Veritabanı değiştirme
-- Risk puanını bağımsız değiştirme
-- Kanıt olmadan kök neden kesinleştirme
-- Gizli müşteri verisini izinsiz dış servise gönderme
-
-Olası sağlayıcı entegrasyonu ayrı arayüz üzerinden kurulmalı.
-
-Yalnızca Python standart kütüphanesiyle iletişim kurabilecek şekilde tasarla.
-
-LLM servisi yoksa deterministik, şablon tabanlı rapor üretimi eksiksiz çalışmaya devam etmeli.
+Use the shared high-level evidence model in the report output of both engines.
 
 ---
 
-13. MODÜL 11 — KİP B DOĞRUDAN BAĞLANTI
+12. MODULE 10 — LLM REPORT SUMMARY
 
-Öncelik: P3
+Priority: P2
 
-Mevcut varsayılan kapalı durumu koru.
+Design it as an optional module.
 
-"ALIG_DOGRUDAN=1" tek başına üretim güvenliği için yeterli kabul edilmemeli.
+It should be off by default.
 
-Önce tehdit modeli oluştur.
+The LLM may do the following:
 
-Özellikle şu riskleri incele:
+- Turn a technical finding into understandable Turkish
+- Prepare an executive summary
+- Describe the risks in priority order
+- Simplify DBA recommendations
+- Produce a short management note from the technical report
+
+The LLM cannot do the following:
+
+- Produce evidence
+- Write a metric that does not exist
+- Run SQL automatically
+- Change the database
+- Independently change the risk score
+- Finalize a root cause without evidence
+- Send secret customer data to an external service without permission
+
+A possible provider integration should be set up through a separate interface.
+
+Design it so that it can communicate using only the Python standard library.
+
+If there is no LLM service, deterministic, template-based report generation must continue to work completely.
+
+---
+
+13. MODULE 11 — MODE B DIRECT CONNECTION
+
+Priority: P3
+
+Keep the existing off-by-default state.
+
+"ALIG_DOGRUDAN=1" alone must not be considered sufficient for production security.
+
+First create a threat model.
+
+In particular, examine these risks:
 
 - SSRF
-- İç ağ keşfi
-- Keyfi hedef bağlantısı
+- Internal network discovery
+- Arbitrary target connection
 - DNS rebinding
-- Kimlik bilgisi sızıntısı
-- TLS doğrulama hataları
-- Yetki yükseltme
-- Komut enjeksiyonu
-- Kaynak tüketimi
-- Bağlantı zaman aşımı
-- Ağ izolasyonu
-- Yetkisiz veri toplama
+- Credential leakage
+- TLS verification errors
+- Privilege escalation
+- Command injection
+- Resource consumption
+- Connection timeout
+- Network isolation
+- Unauthorized data collection
 
-Kip B yalnızca açık firma onayı, doğrulanmış hedef, asgari yetkili veritabanı hesabı ve kontrollü ağ erişimiyle kullanılabilmelidir.
+Mode B must be usable only with explicit company consent, a verified target, a minimum-privilege database account and controlled network access.
 
-Üretim için tehdit modeli, entegrasyon testleri ve güvenlik onayı tamamlanmadan etkinleştirme.
+Do not enable it for production until the threat model, integration tests and security approval are complete.
 
 ---
 
-14. MODÜL 12 — CANLIYA ALMA VE OPERASYON
+14. MODULE 12 — GOING LIVE AND OPERATIONS
 
-Öncelik: P0
+Priority: P0
 
-Mevcut Ansible, nginx ve systemd dosyalarını incele.
+Review the existing Ansible, nginx and systemd files.
 
-Şunları doğrula:
+Verify the following:
 
-- Ayrı servis kullanıcıları
-- Minimum dosya yetkileri
-- TLS ve güvenli HTTP başlıkları
-- Gizli anahtar yönetimi
-- Güvenli oturum çerezleri
-- Servis izolasyonu
-- Reverse proxy sınırları
-- İstek boyutu sınırı
-- Dosya depolama izinleri
-- SQLite WAL uyumluluğu
-- Yedekleme
-- Geri yükleme testi
+- Separate service users
+- Minimum file permissions
+- TLS and secure HTTP headers
+- Secret key management
+- Secure session cookies
+- Service isolation
+- Reverse proxy limits
+- Request size limit
+- File storage permissions
+- SQLite WAL compatibility
+- Backup
+- Restore test
 - Deploy
 - Rollback
-- Sağlık denetimleri
-- Log rotasyonu
-- Disk doluluk kontrolleri
-- Servis yeniden başlatma
-- İzleme ve alarm koşulları
+- Health checks
+- Log rotation
+- Disk fullness checks
+- Service restart
+- Monitoring and alert conditions
 
-Canlı sunucu erişimi yoksa gerçek üretim testini tamamlanmış gibi raporlama.
+If there is no live server access, do not report a real production test as complete.
 
-Dry-run, syntax check ve gerçek deployment doğrulamasını ayrı göster.
+Show the dry-run, syntax check and real deployment verification separately.
 
 ---
 
-15. TEST VE KALİTE STANDARDI
+15. TEST AND QUALITY STANDARD
 
-Her modül için aşağıdaki test türlerini uygula:
+For every module apply the following test types:
 
-1. Birim testleri
-2. API entegrasyon testleri
-3. Negatif güvenlik testleri
-4. Firma izolasyon testleri
-5. Yetki kontrolü testleri
-6. Hatalı yükleme testleri
-7. TR/EN eşlik testleri
-8. Eski işlevlerle uyumluluk testleri
-9. Veri silme testleri
-10. Tarama sonuçlarının doğruluk testleri
-11. Yedekleme/geri yükleme testleri
-12. Dağıtım ve geri alma testleri
+1. Unit tests
+2. API integration tests
+3. Negative security tests
+4. Company isolation tests
+5. Authorization check tests
+6. Faulty upload tests
+7. TR/EN parity tests
+8. Compatibility tests with old functions
+9. Data deletion tests
+10. Scan result accuracy tests
+11. Backup/restore tests
+12. Deployment and rollback tests
 
-Mevcut test sayısını düşürme.
+Do not reduce the existing test count.
 
-Testleri şu komutla çalıştır:
+Run the tests with this command:
 
 python3 ci/run_all.py --theme c
 python3 -m unittest discover -s tests
 
-Sürüm yayını için:
+For a release:
 
 python3 ci/run_all.py --theme c --release
 
-"--release" başarısızsa yayın başarılı deme.
+If "--release" fails, do not say the release succeeded.
 
-Test başarısını, testlerin gerçekten çalıştığını gösteren çıktılarla kanıtla.
+Prove test success with output that shows the tests really ran.
 
-Gerçek PostgreSQL veya SQL Server erişimi yoksa entegrasyon testini SKIPPED olarak bildir.
-
----
-
-16. UYGULAMA SIRASI
-
-Geliştirmeyi aşağıdaki sırada gerçekleştir.
-
-FAZ 0 — Mevcut sistem analizi
-
-Kaynak kodu, mimariyi, testleri, güvenlik sınırlarını, mevcut rotaları, veri modellerini ve açık işleri incele.
-
-Çıktı:
-
-- Mevcut özellik matrisi
-- Eksik özellikler
-- Tekrar kullanılan bileşenler
-- Risk listesi
-- Değiştirilecek dosyalar
-
-FAZ 1 — Güvenlik ve üretim hazırlığı
-
-Dosya yükleme güvenliği, firma izolasyonu, kimlik doğrulama, veri saklama ve üretim sertleştirmesini tamamla.
-
-FAZ 2 — Health Intelligence v2
-
-Kural motorunu, kanıt modelini, sağlık puanını ve geçmiş karşılaştırmasını geliştir.
-
-FAZ 3 — Müşteri portalı
-
-Firma doğrulama, giriş, rapor geçmişi ve hizmet taleplerini geliştir.
-
-FAZ 4 — Kurumsal web sitesi ve yönetim paneli
-
-C temasını, hizmet sayfalarını, rapor görsellerini ve yönetim ekranlarını geliştir.
-
-FAZ 5 — İş kuyruğu ve raporlama
-
-Asenkron tarama işçisi, güvenli iş takibi, teknik ve yönetici raporlarını tamamla.
-
-FAZ 6 — Doğrulama ve sınırlı yayın
-
-CI, gerçek veritabanı testleri, güvenlik kontrolleri, dağıtım, geri alma ve üretim kabul testlerini tamamla.
-
-FAZ 7 — İleri özellikler
-
-SQL Server, isteğe bağlı LLM ve Kip B özelliklerini ayrı kabul kapılarından geçirerek geliştir.
+If there is no real PostgreSQL or SQL Server access, report the integration test as SKIPPED.
 
 ---
 
-17. GELİŞTİRME RAPORLAMA BİÇİMİ
+16. IMPLEMENTATION ORDER
 
-Her faz sonunda aşağıdaki bilgileri ver:
+Carry out the development in the following order.
 
-A. Yapılan işler
+PHASE 0 — Analysis of the current system
 
-Gerçekten uygulanan değişiklikler.
+Review the source code, architecture, tests, security boundaries, existing routes, data models and open work.
 
-B. Değişen dosyalar
+Output:
 
-Dosya yolu ve değişiklik amacı.
+- Current feature matrix
+- Missing features
+- Reused components
+- Risk list
+- Files to be changed
 
-C. Test sonuçları
+PHASE 1 — Security and production readiness
 
-Çalışan, başarısız ve atlanan testler.
+Complete file upload security, company isolation, authentication, data retention and production hardening.
 
-D. Güvenlik değerlendirmesi
+PHASE 2 — Health Intelligence v2
 
-Kapatılan ve açık kalan riskler.
+Develop the rule engine, evidence model, health score and history comparison.
 
-E. Uyumluluk
+PHASE 3 — Customer portal
 
-Mevcut sistemin hangi davranışlarının korunduğu.
+Develop company verification, login, report history and service requests.
 
-F. Kalan işler
+PHASE 4 — Corporate website and admin panel
 
-Eksik özellikler ve engeller.
+Develop the C theme, service pages, report visuals and admin screens.
 
-G. Sonraki adım
+PHASE 5 — Job queue and reporting
 
-En yüksek öncelikli geliştirme.
+Complete the asynchronous scan worker, safe job tracking, technical and executive reports.
 
-Durumları açık göster:
+PHASE 6 — Verification and limited release
+
+Complete CI, real database tests, security checks, deployment, rollback and production acceptance tests.
+
+PHASE 7 — Advanced features
+
+Develop SQL Server, the optional LLM and Mode B features by passing them through separate acceptance gates.
+
+---
+
+17. DEVELOPMENT REPORTING FORMAT
+
+At the end of every phase give the following information:
+
+A. Work done
+
+The changes that were actually applied.
+
+B. Changed files
+
+File path and the purpose of the change.
+
+C. Test results
+
+Passing, failing and skipped tests.
+
+D. Security assessment
+
+Risks closed and risks left open.
+
+E. Compatibility
+
+Which behaviors of the existing system were preserved.
+
+F. Remaining work
+
+Missing features and blockers.
+
+G. Next step
+
+The highest-priority development.
+
+Show the statuses clearly:
 
 - DONE
 - PARTIAL
@@ -941,36 +941,34 @@ Durumları açık göster:
 - NOT_TESTED
 - FAILED
 
-Kod yazıldığı için özelliği DONE kabul etme.
+Do not consider a feature DONE because code was written.
 
-DONE için çalışan kod, ilgili testlerin PASS olması ve kabul kriterlerinin karşılanması gerekir.
+For DONE there must be working code, the relevant tests PASS and the acceptance criteria met.
 
 ---
 
-18. BAŞARI KRİTERLERİ
+18. SUCCESS CRITERIA
 
-Proje aşağıdaki koşullara ulaştığında sınırlı üretim yayınına aday olabilir:
+The project can be a candidate for a limited production release when it reaches the following conditions:
 
-- Mevcut ana özellikler çalışıyor.
-- Kritik güvenlik testleri PASS.
-- Firma izolasyon testleri PASS.
-- Hassas veriler yetkisiz erişime kapalı.
-- Rapor saklama ve silme politikası uygulanıyor.
-- En az bir gerçek PostgreSQL ortamında uçtan uca tarama doğrulanmış.
-- Sağlık puanı açıklanabilir.
-- Eksik kanıtlar başarılı sonuç gibi gösterilmiyor.
-- Yönetim paneli güçlü şekilde korunuyor.
-- Kurumsal site mobil ve erişilebilir.
-- Tüm zorunlu CI kontrolleri PASS.
-- Geri yükleme ve geri alma testleri doğrulanmış.
-- Canlı servisler yetki sınırları içinde çalışıyor.
-- KVKK ve diğer hukuki yayın gereklilikleri değerlendirilip onaylanmış.
-- Açık P0 risk kalmamış.
+- The existing main features work.
+- Critical security tests PASS.
+- Company isolation tests PASS.
+- Sensitive data is closed to unauthorized access.
+- The report retention and deletion policy is applied.
+- An end-to-end scan has been verified in at least one real PostgreSQL environment.
+- The health score is explainable.
+- Missing evidence is not shown as a successful result.
+- The admin panel is strongly protected.
+- The corporate site is mobile and accessible.
+- All mandatory CI checks PASS.
+- Restore and rollback tests have been verified.
+- Live services run within their privilege boundaries.
+- KVKK and other legal publication requirements have been evaluated and approved.
+- No open P0 risk remains.
 
-Son talimat:
+Final instruction:
 
-Mevcut alig.tech projesini koruyarak geliştir. Gereksiz yeniden yazım yapma. Önce sistemde zaten bulunan özellikleri tespit et; eksik veya hatalı olanları düzelt. Her yeni fonksiyonun testini ekle.
+Develop by preserving the existing alig.tech project. Do not rewrite unnecessarily. First identify the features that already exist in the system; fix those that are missing or faulty. Add a test for every new function.
 
-Güvenlik, veri gizliliği ve doğruluk; görsel tasarımdan ve yeni özellik sayısından önce gelir.
-
-Önce FAZ 0 analizini gerçekleştir. Ardından P0 güvenlik ve üretim hazırlığı çalışmalarını uygula. Gerçekten doğrulanmamış hiçbir işlemi tamamlanmış olarak gösterme.
+Security, data privacy and accuracy come before visual design and the number of new features.

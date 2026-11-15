@@ -1,31 +1,36 @@
 # alig.tech
 
-Veritabanı yönetim şirketi alig.tech için kurumsal site, demo portalı, sağlık taraması,
-yönetim paneli ve yayın hattı. Yalnızca Python standart kütüphanesi, dış kaynak yok.
+Corporate site, demo portal, health scan, admin panel and release pipeline for alig.tech, a database management company.
+Python standard library only, no external resources.
 
-Bu dosyanın `<!-- oto:... -->` ile işaretli bölümleri `ci/uret_readme.py` tarafından koddan
-üretilir. Elle yazılan kısımlar ise açıklamadır; el ile güncellenmesi gerekir.
+The sections of this file marked with `<!-- oto:... -->` are generated from code by `ci/uret_readme.py`.
+The hand-written parts are explanations and must be updated by hand.
 
-## Durum
+Language note: the repository documentation is in English so outside readers can follow it. Customer-facing site text is
+bilingual by design (Turkish and English). Identifiers (file, module, function, table and column names, environment
+variables) are Turkish and are deliberately not renamed. KVKK (the Turkish personal data protection law) and BDDK
+(the Turkish banking regulator) are kept under their Turkish names.
 
-- Ana sayfa: yön C (ajan hizmetini öne çıkarır) varsayılan tema. Logo ve arka plan geçici.
-- Portal demosu (`/demo/`), iletişim formu, sağlık taraması (Kip A, PostgreSQL), yönetim paneli (`/yonetim/`) çalışır durumda.
-- Yönetim panelinde firma yönetimi var: ad ve e-posta düz metin saklanır, aktif/pasif, not, tarama hakkı sıfırlama, silme.
-- Yayın dosyaları (Ansible, nginx, systemd) yazıldı. `yayin.yml`, `geri-al.yml` söz dizimi ve 6 systemd birimi doğrulandı; `site.yml` söz dizimi Ansible koleksiyonu ister, bu ortamda denenemedi. Gerçek sunucuda çalıştırılmadı. Katman katman durum: `docs/canli-kontrol-listesi.md`.
-- SQL Server taraması ön sürüm olarak kodlandı, gerçek sunucuda sınanmadı ve varsayılan olarak kapalı.
-- E-posta doğrulaması kodlandı ve varsayılan olarak kapalı: açmak için SMTP sağlayıcısı ve gönderen adres gerekir (`docs/runbook.md`). Toplayıcı bağlanabildiği tüm veritabanlarını tarar.
-- Sağlık taramasında her kural kalıcı kimlikle tek durum üretir (PASS, FAIL, WARNING, UNKNOWN, UNAVAILABLE, NOT_APPLICABLE), veri yokken PASS çıkmaz. Kural listesi: `docs/kural-katalogu.md`.
-- Raporda sağlık puanı (0–100), kategori puanları ve kanıt kapsamı birlikte gösterilir; bilinmeyen durum puanı yükseltmez. Yöntem ve varsayılan katsayılar: `docs/kural-katalogu.md`, ayar: `ALIG_PUAN_AYARI` (`docs/runbook.md`).
-- Rapor, aynı firmanın aynı sunucudan yaptığı önceki taramayla (saklama süresi dolmadıysa) karşılaştırılır; kaybolan kanıt çözülmüş sayılmaz.
-- PostgreSQL taraması yedek (standby) sunucuda da çalışır; tablo istatistiğine ve arşivlemeye dayanan denetimler orada Uygulanmaz. Replikasyon gecikmesi, autovacuum, multixact yaşı, pg_stat_statements ve geçici dosya denetimleri gerçek PostgreSQL 16 birincil ve yedek sunucuda sınandı.
-- PostgreSQL 12–18 sürüm ve yetki matrisi: `docs/surum-matrisi.md`. Sorgular gerçek sunucuda yalnız PostgreSQL 16'da sınandı; diğer sürümlerde rapor kanıt güvenini en çok orta gösterir.
-- Açık işler: e-posta gönderim yönteminin seçilmesi, SQL Server taramasının gerçek sunucuda sınanması, Kip B'nin açılması (kodlandı, kapalı), isteğe bağlı dil modeli özeti. Sıra ve durum: `docs/yol-haritasi.md`. Kaynak belge: `docs/master-prompt-v2.md`. Mevcut durum dökümü: `docs/faz0-analiz.md`. Son kod incelemesi: `docs/kod-inceleme.md`.
+## Status
 
-## Yerelde çalıştırma
+- Home page: direction C (puts the agent service first) is the default theme. Logo and background are temporary.
+- The portal demo (`/demo/`), contact form, health scan (Mode A, PostgreSQL) and admin panel (`/yonetim/`) work.
+- The admin panel has company management: name and email are stored in plain text, active/inactive, note, scan allowance reset, deletion.
+- Release files (Ansible, nginx, systemd) are written. The syntax of `yayin.yml` and `geri-al.yml` and 6 systemd units were verified; the syntax of `site.yml` needs an Ansible collection and could not be tried in this environment. Nothing was run on a real server. Layer-by-layer status: `docs/canli-kontrol-listesi.md`.
+- The SQL Server scan is coded as a preview, has not been tested on a real server and is off by default.
+- Email verification is coded and off by default: turning it on needs an SMTP provider and a sender address (`docs/runbook.md`). The collector scans every database it can connect to.
+- In the health scan every rule produces a single status with a permanent ID (PASS, FAIL, WARNING, UNKNOWN, UNAVAILABLE, NOT_APPLICABLE); PASS is never produced when data is missing. Rule list: `docs/kural-katalogu.md`.
+- The report shows the health score (0-100), category scores and evidence coverage together; an unknown status does not raise the score. Method and default coefficients: `docs/kural-katalogu.md`, setting: `ALIG_PUAN_AYARI` (`docs/runbook.md`).
+- The report is compared with the same company's earlier scan of the same server (if the retention period has not expired); evidence that disappeared is not counted as resolved.
+- The PostgreSQL scan also runs on a standby server; checks that rely on table statistics and archiving are Not applicable there. The replication lag, autovacuum, multixact age, pg_stat_statements and temporary file checks were tested on a real PostgreSQL 16 primary and standby.
+- PostgreSQL 12-18 version and privilege matrix: `docs/surum-matrisi.md`. The queries were tested on a real server only on PostgreSQL 16; on other versions the report shows evidence confidence at most medium.
+- Open work: choosing the email sending method, testing the SQL Server scan on a real server, turning on Mode B (coded, off), the optional language model summary. Order and status: `docs/yol-haritasi.md`. Source document: `docs/master-prompt-v2.md`. Current-state analysis: `docs/faz0-analiz.md`. Latest code review: `docs/kod-inceleme.md`.
 
-En kolayı: `python3 yerel.py` (Windows'ta `python yerel.py`). Siteyi derler, `http://localhost:8080/` adresinde açar; form, tarama ve yönetim paneli de bu adreste çalışır.
+## Running locally
 
-Elle derleme:
+Easiest: `python3 yerel.py` (`python yerel.py` on Windows). It builds the site and opens it at `http://localhost:8080/`; the form, scan and admin panel also work at that address.
+
+Building by hand:
 
 ```sh
 python3 build/build.py --theme c --out dist/c
@@ -33,25 +38,25 @@ python3 -m http.server 8080 --directory dist/c
 ```
 
 <!-- oto:basla temalar -->
-Tasarım temaları: `a`, `b`, `c`. Varsayılan tema `c` (`--theme c`).
+Design themes: `a`, `b`, `c`. The default theme is `c` (`--theme c`).
 <!-- oto:bitis temalar -->
 
-Tarayıcıda `http://localhost:8080/` (Türkçe) ve `/en/` (İngilizce). Hash özetleri için
-`localhost` veya HTTPS gerekir (`crypto.subtle`).
+In the browser: `http://localhost:8080/` (Turkish) and `/en/` (English). Hash digests need
+`localhost` or HTTPS (`crypto.subtle`).
 
-## Denetimler
+## Checks
 
-Yerelde ve CI'da aynı komut:
+The same command locally and in CI:
 
 ```sh
-python3 ci/run_all.py --theme c             # birleştirme isteği
-python3 ci/run_all.py --theme c --release   # sürüm etiketi: doldurulacak alan kalmamalı
-python3 -m unittest discover -s tests       # yalnızca birim testleri
-python3 ci/uret_readme.py                   # README otomatik bölümlerini günceller (run_all de yapar)
+python3 ci/run_all.py --theme c             # merge request
+python3 ci/run_all.py --theme c --release   # release tag: no field to be filled in may remain
+python3 -m unittest discover -s tests       # unit tests only
+python3 ci/uret_readme.py                   # updates the README automatic sections (run_all does this too)
 ```
 
 <!-- oto:basla denetimler -->
-`run_all.py` şu 15 denetimi sırayla çalıştırır:
+`run_all.py` runs these 15 checks in order:
 
 1. derleme
 2. toplayici guncel
@@ -71,108 +76,107 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 824 test (PostgreSQL testleri ayrı `postgresql testleri` adımında sayılır: `ALIG_TEST_PG_HOST` varsa dış sunucu, yoksa sistem PostgreSQL 16 ile geçici küme; ikisi de yoksa SKIP, `--release` kipinde hata).
+Unit tests: 824 tests (PostgreSQL tests are counted separately in the `postgresql testleri` step: an external server if `ALIG_TEST_PG_HOST` is set, otherwise a temporary cluster with the system PostgreSQL 16; if neither exists, SKIP, and an error in `--release` mode).
 <!-- oto:bitis testler -->
 
-## Dizinler
+## Directories
 
 <!-- oto:basla dizinler -->
-| Dizin | İçerik |
+| Directory | Contents |
 | --- | --- |
-| `site/` | Kaynak: `i18n/` (TR, EN metinler), `partials/`, `pages/`, `themes/`, `assets/` |
-| `build/` | `build.py`, tekrarlanabilir derleme ve SHA-256 manifest |
-| `ci/` | Denetim betikleri, `run_all.py`, bu README'nin uretici betigi |
-| `tests/` | Birim testleri |
-| `docs/` | Tasarim notlari, plan, runbook, DNS, doldurulacak alanlar |
-| `form/` | İletişim formu uç noktası (stdlib, SQLite) |
-| `tarama/` | Sağlık taraması: toplayıcı şablonları, katalog, kurallar, sunucu, depo; `onsurum/` SQL Server ön sürümü |
-| `yonetim/` | Yönetim paneli (TOTP girişli, denetim zincirli) |
-| `deploy/` | Paketleme, bakım, duman testi, Ansible |
+| `site/` | Source: `i18n/` (TR and EN texts), `partials/`, `pages/`, `themes/`, `assets/` |
+| `build/` | `build.py`, reproducible build and SHA-256 manifest |
+| `ci/` | Check scripts, `run_all.py`, the generator script for this README |
+| `tests/` | Unit tests |
+| `docs/` | Design notes, plan, runbook, DNS, fields to be filled in |
+| `form/` | Contact form endpoint (stdlib, SQLite) |
+| `tarama/` | Health scan: collector templates, catalog, rules, server, store; `onsurum/` is the SQL Server preview |
+| `yonetim/` | Admin panel (TOTP login, audit chain) |
+| `deploy/` | Packaging, maintenance, smoke test, Ansible |
 <!-- oto:bitis dizinler -->
 
-## Rotalar
+## Routes
 
 <!-- oto:basla rotalar -->
-| Yol | Kaynak | Açıklama |
+| Path | Source | Description |
 | --- | --- | --- |
-| `/` | `site` | Statik site (TR), `/en/` İngilizce |
-| `/demo/` | `site` | Portal demosu (istemci tarafı, sunucu yok) |
-| `/saglik-taramasi/` | `site` | Tarama yükleme sayfası |
-| `/tarama-hazirlik/` | `site` | Müşteri hazırlık kılavuzu (tarama hesabı, adımlar) |
-| `/api/iletisim` | `form/server.py` | İletişim formu (POST) |
-| `/healthz` | `form/server.py` | Form sağlık denetimi |
-| `/api/tarama/yukle` | `tarama/server.py` | Tarama dosyası yükleme (POST) |
-| `/rapor/<token>/` | `tarama/server.py` | Rapor sayfası (rastgele bağlantı) |
-| `/rapor/<token>/sil` | `tarama/server.py` | Raporu hemen silme (POST) |
-| `/rapor/<token>/dogrula` | `tarama/server.py` | E-posta doğrulaması: raporu açar, hakkı harcar (POST, varsayılan kapalı) |
-| `/api/tarama/saglik` | `tarama/server.py` | Tarama sunucu sağlık denetimi |
-| `/api/tarama/baglan` | `tarama/server.py` | Doğrudan bağlantı formu ve isteği (varsayılan kapalı) |
-| `/api/tarama/baglan/<token>` | `tarama/server.py` | Parolayı alıp taramayı çalıştırma (POST, varsayılan kapalı) |
-| `/yonetim/giris` | `yonetim/server.py` | Yönetici girişi (parola + TOTP) |
-| `/yonetim/` | `yonetim/server.py` | Özet |
-| `/yonetim/firmalar` | `yonetim/server.py` | Firmalar: liste, aktif/pasif |
-| `/yonetim/firmalar/<id>` | `yonetim/server.py` | Firma ayrıntısı, not, tarama hakkı, silme |
-| `/yonetim/talepler` | `yonetim/server.py` | İletişim talepleri |
-| `/yonetim/firmalar.csv` | `yonetim/server.py` | Firma listesi CSV dışa aktarımı |
-| `/yonetim/talepler.csv` | `yonetim/server.py` | Talep listesi CSV dışa aktarımı |
-| `/yonetim/taramalar` | `yonetim/server.py` | Tarama raporları |
-| `/yonetim/denetim` | `yonetim/server.py` | Denetim kaydı ve zincir doğrulaması |
-| `/yonetim/sistem` | `yonetim/server.py` | Sistem durumu |
+| `/` | `site` | Static site (TR), `/en/` English |
+| `/demo/` | `site` | Portal demo (client side only, no server) |
+| `/saglik-taramasi/` | `site` | Scan upload page |
+| `/tarama-hazirlik/` | `site` | Customer preparation guide (scan account, steps) |
+| `/api/iletisim` | `form/server.py` | Contact form (POST) |
+| `/healthz` | `form/server.py` | Form health check |
+| `/api/tarama/yukle` | `tarama/server.py` | Scan file upload (POST) |
+| `/rapor/<token>/` | `tarama/server.py` | Report page (random link) |
+| `/rapor/<token>/sil` | `tarama/server.py` | Delete the report immediately (POST) |
+| `/rapor/<token>/dogrula` | `tarama/server.py` | Email verification: opens the report, spends the allowance (POST, off by default) |
+| `/api/tarama/saglik` | `tarama/server.py` | Scan server health check |
+| `/api/tarama/baglan` | `tarama/server.py` | Direct connection form and request (off by default) |
+| `/api/tarama/baglan/<token>` | `tarama/server.py` | Take the password and run the scan (POST, off by default) |
+| `/yonetim/giris` | `yonetim/server.py` | Admin login (password + TOTP) |
+| `/yonetim/` | `yonetim/server.py` | Overview |
+| `/yonetim/firmalar` | `yonetim/server.py` | Companies: list, active/inactive |
+| `/yonetim/firmalar/<id>` | `yonetim/server.py` | Company details, note, scan allowance, deletion |
+| `/yonetim/talepler` | `yonetim/server.py` | Contact requests |
+| `/yonetim/firmalar.csv` | `yonetim/server.py` | Company list CSV export |
+| `/yonetim/talepler.csv` | `yonetim/server.py` | Request list CSV export |
+| `/yonetim/taramalar` | `yonetim/server.py` | Scan reports |
+| `/yonetim/denetim` | `yonetim/server.py` | Audit log and chain verification |
+| `/yonetim/sistem` | `yonetim/server.py` | System status |
 <!-- oto:bitis rotalar -->
 
-## Yeni metin ekleme
+## Adding new text
 
-Metinler `site/i18n/tr.json` ve `en.json` içinde, aynı anahtarlarla. Şablonda `{{anahtar}}`
-kaçışlı, `{{anahtar_html}}` ham yazılır; olmayan anahtar derlemeyi durdurur. Kanıtlanamayan
-her iddia yerine `[doldurulacak: ...]` yazılır, güncel liste `docs/doldurulacak.md`.
+Texts live in `site/i18n/tr.json` and `en.json`, under the same keys. In a template `{{key}}` is written
+escaped and `{{key_html}}` raw; a missing key stops the build. In place of every claim that cannot be proven,
+`[doldurulacak: ...]` ("to be filled in") is written; the current list is in `docs/doldurulacak.md`.
 
-## Yazı tipleri
+## Fonts
 
-Schibsted Grotesk, Source Serif 4 ve Red Hat Mono, SIL OFL 1.1. Dosyalar `site/assets/fonts/`
-altında yerel, lisans metinleri yanlarında. Derleme, temanın kullanmadığı yazı tiplerini
-çıktıya koymaz.
+Schibsted Grotesk, Source Serif 4 and Red Hat Mono, SIL OFL 1.1. The files are local under `site/assets/fonts/`,
+with the license texts next to them. The build leaves fonts the theme does not use out of the output.
 
-## Form uç noktası
+## Form endpoint
 
 `form/server.py`: `ALIG_FORM_SALT=... python3 form/server.py --db /var/lib/alig/form.sqlite`.
-Ters vekil `/api/iletisim` ve `/healthz` yollarını 127.0.0.1:8090 adresine iletmeli, `X-Real-IP`
-başlığını koymalı. Kayıtlar SQLite WAL, zaman UTC, IP tuzlu özet.
+The reverse proxy must forward the `/api/iletisim` and `/healthz` paths to 127.0.0.1:8090 and set the `X-Real-IP`
+header. Records are SQLite WAL, times are UTC, the IP is a salted digest.
 
-## Sağlık taraması
+## Health scan
 
-`tarama/` (sunucu, kurallar, depo). Toplayıcı `site/assets/alig-toplayici.py` katalogdan
-üretilir: `python3 tarama/uret_toplayici.py` (CI `--kontrol` ile güncelliğini denetler).
-Firma adı ve e-posta düz metin saklanır; aydınlatma metni ve saklama süresi için
-`docs/doldurulacak.md`. Gerçek PostgreSQL ile sınama: sistem PostgreSQL 16 varsa testler kendi geçici kümesini kurar
-(`tests/pg_yardimci.py`); dış sunucu için
-`ALIG_TEST_PG_HOST=<soket dizini> ALIG_TEST_PG_PORT=<port> ALIG_TEST_PG_USER=<rol> python3 -m unittest tests.test_tarama`.
+`tarama/` (server, rules, store). The collector `site/assets/alig-toplayici.py` is generated from the catalog:
+`python3 tarama/uret_toplayici.py` (CI checks that it is up to date with `--kontrol`).
+Company name and email are stored in plain text; for the privacy notice and the retention period see
+`docs/doldurulacak.md`. Testing against a real PostgreSQL: if the system has PostgreSQL 16, the tests set up their own temporary cluster
+(`tests/pg_yardimci.py`); for an external server use
+`ALIG_TEST_PG_HOST=<socket directory> ALIG_TEST_PG_PORT=<port> ALIG_TEST_PG_USER=<role> python3 -m unittest tests.test_tarama`.
 
-### SQL Server (ön sürüm)
+### SQL Server (preview)
 
-Katalog, toplayıcı (`tarama/onsurum/alig-toplayici-mssql.py`), kurallar ve testler hazır; gerçek bir SQL Server üzerinde sınanmadı.
-Genel sayfada yayımlanmaz, sunucu bu dosyaları yalnızca `ALIG_MSSQL=1` ile kabul eder (`yerel.py` içinde açıktır).
-Sınama adımları: `docs/mssql-onsurum.md`.
+The catalog, collector (`tarama/onsurum/alig-toplayici-mssql.py`), rules and tests are ready; it has not been tested on a real SQL Server.
+It is not published on the public page; the server accepts these files only with `ALIG_MSSQL=1` (turned on in `yerel.py`).
+Test steps: `docs/mssql-onsurum.md`.
 
-### Doğrudan bağlantı (Kip B, kapalı)
+### Direct connection (Mode B, off)
 
-Müşteri bağlantı bilgisini verir, tarama ayrı bir çalıştırıcı süreçte (`tarama/calistirici.py`) çalışır: `/api/tarama/baglan`. Canlıda yalnızca `dogrudan_baglanti: true` (Ansible) ile açılır ve yalnızca
-yönetim panelinden "Doğrudan bağlantı izni" verilen firmalar kullanabilir. Parola saklanmaz. Canlıya almadan önce yapılması
-gerekenler: `docs/kip-b-tasarim.md`.
+The customer provides the connection details and the scan runs in a separate runner process (`tarama/calistirici.py`): `/api/tarama/baglan`. In production it is turned on only with `dogrudan_baglanti: true` (Ansible) and only companies
+granted "Direct connection permission" in the admin panel can use it. The password is not stored. What must be done
+before going live: `docs/kip-b-tasarim.md`.
 
-## Yönetim paneli
+## Admin panel
 
-`yonetim/` (stdlib). Yerelde: `python3 yerel.py`, sonra
-`python3 yonetim/kullanici.py --db yerel-yonetim.sqlite ekle ali` ve `http://localhost:8080/yonetim/`.
-Doğrulama uygulaması olmadan yerelde denemek için anlık kod:
+`yonetim/` (stdlib). Locally: `python3 yerel.py`, then
+`python3 yonetim/kullanici.py --db yerel-yonetim.sqlite ekle ali` and `http://localhost:8080/yonetim/`.
+To try it locally without an authenticator app, an instant code:
 `python3 yonetim/kullanici.py --db yerel-yonetim.sqlite kod ali`.
-Parola ve TOTP ile girilir; her işlem SHA-256 zincirli denetim kaydına yazılır.
-Canlı kullanım: `docs/runbook.md`.
+Login is with password and TOTP; every action is written to a SHA-256 chained audit log.
+Production use: `docs/runbook.md`.
 
-## Canlıya alma
+## Going live
 
-`deploy/paketle.py` (tekrarlanabilir paket), `deploy/ansible/` (kurulum, yayın, geri alma),
-`deploy/bakim.py` (yedek), `deploy/duman_testi.py`. Adımlar: `docs/runbook.md`, DNS: `docs/dns.md`.
+`deploy/paketle.py` (reproducible package), `deploy/ansible/` (setup, release, rollback),
+`deploy/bakim.py` (backup), `deploy/duman_testi.py` (smoke test). Steps: `docs/runbook.md`, DNS: `docs/dns.md`.
 
 <!-- oto:basla ansible -->
-Ansible rolleri: `servisler`, `temel`, `web`, `yayin`.
+Ansible roles: `servisler`, `temel`, `web`, `yayin`.
 <!-- oto:bitis ansible -->

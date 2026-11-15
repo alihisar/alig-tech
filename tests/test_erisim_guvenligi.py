@@ -780,9 +780,9 @@ class BelgeTests(unittest.TestCase):
     def test_karar_satiri_sec_k1(self):
         satir = [s for s in self.okut("kararlar.md").splitlines() if s.startswith("| SEC-K1 |")]
         self.assertEqual(len(satir), 1)
-        self.assertIn("Ali'yi bekliyor", satir[0])
+        self.assertIn("Waiting for Ali", satir[0])
         self.assertIn("0700", satir[0])
-        self.assertIn("disk şifreleme", satir[0])
+        self.assertIn("disk encryption", satir[0])
         self.assertEqual(len(satir[0].split("|")), len([s for s in self.okut("kararlar.md").splitlines() if s.startswith("| DB-K1 |")][0].split("|")))   # sutun sayisi tablo ile ayni
 
     def test_runbook_dogrulama_cihazi_kaybi_proseduru(self):
