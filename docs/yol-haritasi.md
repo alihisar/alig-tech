@@ -1,8 +1,29 @@
 # Yol haritası
 
-Çalışma kuralı: her adımda **tek madde** yapılır (önce test, sonra kod, sonra tüm denetimler), bitince bu dosyada işaretlenir.
-Onay bekleyen ama işi engellemeyen konularda varsayılan değerle ilerlenir; varsayılan "Varsayılanla ilerleyenler" tablosuna yazılır ve
-tek satırla değiştirilebilir olur. Engelleyen kararlar kodlanmaz. Gece görevi de bu sırayı izler.
+Çalışma kuralı: **günde iki madde** yapılır (gece görevi; önce test, sonra kod, sonra tüm denetimler), her madde bitince
+bu dosyada işaretlenir. Sıra aşağıdaki "Günlük plan" tablosundadır; engellenen madde atlanır, sıradaki engelsiz madde alınır.
+Onay bekleyen ama işi engellemeyen konularda varsayılan değerle ilerlenir; varsayılan "Varsayılanla ilerleyenler" tablosuna
+yazılır ve tek satırla değiştirilebilir olur. Engelleyen kararlar (`docs/kararlar.md`) kodlanmaz.
+
+## Günlük plan (gecede iki madde, 2026-11-16'dan)
+
+Kaynak: `docs/master-prompt-v5.md` (v4.1 dahil) ile mevcut maddeler birleştirildi. Önce güvenlik ve veri bütünlüğü.
+PostgreSQL maddelerinin kodu `pg-gecis` dalında geliştirilir (GEL-K1); cutover onayı olmadan `main`e birleştirilmez.
+
+| Gün | 1. madde | 2. madde | Engel |
+| --- | --- | --- | --- |
+| 1 (16 Kas) | ALIG-SEC-001 | ALIG-DB-002 | — |
+| 2 (17 Kas) | ALIG-SCAN-001 | 19 | — |
+| 3 (18 Kas) | ALIG-DB-003a | 20 | — |
+| 4 (19 Kas) | ALIG-CI-001 | ALIG-DB-003b | 003b: DB-K1 |
+| 5 (20 Kas) | ALIG-DB-003c | ALIG-DB-003d | DB-K1 |
+| 6 (21 Kas) | ALIG-DB-003e | 21 | DB-K1 |
+| 7 (22 Kas) | ALIG-DB-004 (A–C, prova) | ALIG-DB-005 | DB-K1; 005'te canlı kısım DB-K2 |
+| 8 (23 Kas) | ALIG-DB-006 | 24 | — |
+| 9 (24 Kas) | ALIG-CI-002 | 23 | CI-002: 003c–e bitmiş olmalı |
+| — | 22, ALIG-DB-004 Faz D (cutover), canlı PostgreSQL 18 kurulumu | | WEB-K6, DB-K4, DB-K2 |
+
+DB-K1 verilmezse 4–7. günlerin engelli maddeleri atlanır ve plan bir gün kayar.
 
 ## Sıradaki maddeler
 
@@ -30,7 +51,7 @@ Sıra `docs/master-prompt-v2.md` belgesindeki önceliklere göredir (P0 önce). 
 | 18 | P1 | Ana sayfa: hizmet kartları, "nasıl çalışır", güvenlik yaklaşımı, SSS | Kanıtsız iddia yok, boyut bütçesi içinde | **tamam** (7 hizmet kartı, sağlık taraması adımları, SSS; müşteri, SLA, sertifika, başarı oranı iddiası yok) |
 | 19 | P1 | Örnek rapor sayfası: test verisinden üretilmiş ve öyle etiketlenmiş | Sayfa, i18n, test | bekliyor |
 | 20 | P1 | Yönetim paneli: gösterge sayıları ve ticari süreç durumları (basit durum makinesi ve not) | Test | bekliyor |
-| 21 | P1 | İş kuyruğu: yalnızca doğrudan bağlantı için, SQLite tabanlı, ayrı işçi | Durum geçişleri idempotent, yeniden başlatmada toparlanır | bekliyor |
+| 21 | P1 | İş kuyruğu: yalnızca doğrudan bağlantı için, PostgreSQL tabanlı (`FOR UPDATE SKIP LOCKED`, `pg-gecis` dalında; v5 bölüm 9), ayrı işçi | Durum geçişleri idempotent, yeniden başlatmada toparlanır | bekliyor |
 | 22 | P2 | SQL Server: yetenek tablosu ve gerçek sunucu çıktısına göre düzeltme | Ali'nin gönderdiği `ok` / `ATLANDI` listesi | Ali'yi bekliyor |
 | 23 | P2 | LLM rapor özeti: varsayılan kapalı, kanıt üretemez, puanı değiştiremez | Sağlayıcı yokken rapor aynen çalışır | bekliyor |
 | 24 | P3 | Kip B kalanları: istek listesi panelde, sunucu sertifikası doğrulaması, yanıt süresini sabitleme, kılavuz bölümü (`channel_binding=require` yapıldı) | Ayrı kabul kapısı | bekliyor |
@@ -45,6 +66,37 @@ Kod incelemesinden (`docs/kod-inceleme.md`) gelen açık maddeler:
 | 28 | P2 | İş eylemi ve denetim kaydı aynı işlemde; firma eşitleme tek işlemde ve yalnız yeni talepler için (O10, O11) | Test | **tamam** (`depo.islem`; çapraz dosya işlemleri sıralı: form.sqlite ile yonetim.sqlite tek işlemde olamaz) |
 | 29 | P2 | Toplayıcı: bağlantı dizgisinde kaçış, şifresiz bağlantıda uyarı (D5, D6) | Test | **tamam** |
 | 30 | P2 | Küçükler: talep listesi sayfalama, firma kimliği yeniden kullanılmasın, tünel kipinde CSP, sınır metni sabitten, TOTP girişinde kilit (D7–D11) | Test | **tamam** |
+
+## PostgreSQL geçişi ve v5 maddeleri
+
+Ayrıntı: `docs/postgresql-gecis.md`. Kararlar: `docs/kararlar.md`. v5'ten alınmayanlar en altta.
+
+| Kimlik | Öncelik | Madde | Bitti sayılır | Bağımlılık | Durum |
+| --- | --- | --- | --- | --- | --- |
+| ALIG-DB-001 | P0 | PostgreSQL'e tam geçiş (şemsiye madde; aşağıdakiler bitince kapanır) | `docs/postgresql-gecis.md` bölüm 7'nin tamamı PG18'de PASS, kapılar PASS | DB-K1, DB-K2, DB-K4 | bekliyor |
+| ALIG-DB-002 | P0 | Sürücü değerlendirmesi: `ctypes` + `libpq` prototipi, yalnız değerlendirme (uygulamaya bağlanmaz); bağlantı, `PQexecParams`, işlem, zaman aşımı, iptal, sızıntı ve iş parçacığı testleri PG16'da | Karşılaştırma tablosu ölçümle güncellenmiş, DB-K1 için öneri | — | bekliyor |
+| ALIG-DB-003a | P0 | PostgreSQL şeması ve roller: mevcut tablo adlarıyla DDL, PK/FK/UNIQUE/CHECK, `timestamptz`, `alig_owner/app/migrator/readonly/backup`, `public` CREATE kaldırılır; göç sistemi (`schema_migrations`) | PG16'da kurulur; uygulama rolüyle DDL ve salt okuma rolüyle DML reddedilir (test) | — | bekliyor |
+| ALIG-DB-003b | P0 | Ortak bağlantı katmanı `ortak/pg.py`: işlem, geri alma, zaman aşımı, hata sınıfları, sır maskeleme; kör yeniden deneme yok | Birim + PG16 testleri; bağlantı kesintisinde güvenli hata | DB-K1 | bekliyor |
+| ALIG-DB-003c | P0 | `tarama/depo.py` ve `portal_depo.py` PostgreSQL'e: kota kilitli ve idempotent, rapor silme, firma işlemleri | Mevcut testler PG'de de geçer; paralel kota testi ATOMIC | 003a, 003b | bekliyor |
+| ALIG-DB-003d | P0 | `yonetim/depo.py` PostgreSQL'e; iki denetim zinciri: kanonik biçim aynı, uç kayıt kilidiyle sıralı yazma, uygulama rolünde UPDATE/DELETE yok | Zincir testleri, eşzamanlı yazma testi | 003a, 003b | bekliyor |
+| ALIG-DB-003e | P1 | İletişim formu PostgreSQL'e; kritik uçlarda hız sınırı PostgreSQL'de atomik sayaç (iletişim, yükleme, yönetim girişi, rapor doğrulama, tarama başlatma), aşımda 429 | Test | 003a, 003b | bekliyor |
+| ALIG-DB-004 | P0 | SQLite → PostgreSQL göç aracı (yalıtılmış, çalışma zamanına girmez): envanter, prova, satır sayısı ve kanonik özet, zincir/belirteç/kota doğrulaması, geri dönüş sınırı | Test verisiyle prova MATCH; cutover ayrı onay | 003a–e; Faz D: DB-K4 | bekliyor |
+| ALIG-DB-005 | P0 | PostgreSQL yedek ve geri yükleme: `pg_basebackup` + WAL arşivi, şifreli yedek, `bakim.py` karşılığı, restore tatbikatı | PG16'da yedek alınır, bozulur, geri yüklenir, zincir sağlam; RTO ölçülür | 003a; canlı: DB-K2, DB-K5 | bekliyor |
+| ALIG-DB-006 | P1 | Giden kutusu (outbox): gönderim niyeti iş verisiyle aynı işlemde, işçi commit sonrası gönderir, kontrollü yeniden deneme, çift gönderim etkisiz | Test (sahte gönderici) | 003c; gerçek gönderim WEB-K1 | bekliyor |
+| ALIG-SEC-001 | P0 | Yönetim ve rapor erişim güvenliği denetimi: firma A belirteci firma B raporunu açamaz, belirteç süresi, silinen rapor, CSV yalnız yetkili, kaçış; TOTP tekrar engeli ve oturum özeti var (doğrulandı); **TOTP sırrı düz metin**: standart kütüphanede simetrik şifre yok, seçenekler (systemd-creds, dosya izni + ayrı dizin) belgelenir; kurtarma yöntemi | Eksik negatif testler eklenir, bulgular `docs/kod-inceleme.md`e | — | bekliyor |
+| ALIG-SCAN-001 | P0 | Tarama güvenliği denetimi: toplayıcıda yalnız okuma (sorgu allowlist testi), `statement_timeout`, Kip B SSRF/iç ağ reddi, kaynak sınırları | Eksik testler eklenir | — | bekliyor |
+| ALIG-CI-001 | P0 | PostgreSQL entegrasyon testleri: yalıtılmış test veritabanı (geçici küme), PostgreSQL yoksa testler SKIPPED olarak raporlanır, PASS sayılmaz | `ci/run_all.py` PG adımını ayrı gösterir | 003a | bekliyor |
+| ALIG-CI-002 | P0 | CI'da SQLite çalışma zamanı yasağı (`sqlite3` yalnız göç aracında) | Denetim, `pg-gecis` dalında geçer | 003c–e | bekliyor |
+
+v5'ten bilerek alınmayanlar ya da uyarlananlar:
+
+- "Bu sürümde müşteri portalı oluşturma": portal zaten yazıldı (madde 16–17) ve varsayılan kapalı; RLS ayrı tasarım (DB-K3).
+- İngilizce tablo adları (`companies` vb.): mevcut adlar korunur, karşılık tablosu `docs/postgresql-gecis.md`.
+- On ayrı yeni belge: eşdeğerleri var (`faz0-analiz.md`, `kod-inceleme.md`, `canli-kontrol-listesi.md`); yalnız `kararlar.md`
+  ve `postgresql-gecis.md` eklendi, v5 metni `docs/master-prompt-v5.md`.
+- Kota için `remaining - 1` kalıbı: bizim kota kayan penceredir; eşdeğer kilitli sayım kullanılır.
+- Olgunluk yüzdesi puanlaması: alınmadı; kapılar (`PRODUCTION_READY` vb.) `docs/postgresql-gecis.md` bölüm 8'de.
+- Canlı sunucuda kurulum ve göç: sunucu erişimi yok; yalnız onaylı ortamda ve ayrı onayla.
 
 ## Varsayılanla ilerleyenler (onay bekliyor, engellemiyor)
 
@@ -89,3 +141,4 @@ Kod incelemesinden (`docs/kod-inceleme.md`) gelen açık maddeler:
 | SQL Server'ın gerçek sunucuda denenmesi | SQL Server taramasının yayımlanması |
 | Rapor silindikten sonra karşılaştırma için özet (puan ve denetim durumları, nesne adı yok) saklanması ve süresi; KVKK metnine girmesi | Saklama süresinden (30 gün) eski taramayla karşılaştırma |
 | Logo ve arka plan görselleri | Tasarımın son hâli |
+| PostgreSQL sürücüsü, kurulum topolojisi, cutover penceresi, RPO/RTO (DB-K1, DB-K2, DB-K4, DB-K5) | PostgreSQL geçişinin kod ve canlı kısmı (`docs/kararlar.md`) |
