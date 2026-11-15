@@ -1,0 +1,20 @@
+<article class="wrap prose report">
+<h1>Health check report</h1>
+<p>This report is advisory. No changes have been applied.</p>
+
+<nav class="rapor-sekme" aria-label="Report view"><a href="/en/ornek-rapor/" aria-current="page">Executive summary</a><a href="/en/ornek-rapor-teknik/">Technical report</a></nav>
+<dl class="facts">
+<dt>Scan time (UTC)</dt><dd>2026-11-10T12:00:00Z</dd>
+<dt>Engine</dt><dd>PostgreSQL</dd>
+</dl>
+<h2>Overall status</h2><p><strong>Minor improvements needed: only medium, low or informational findings.</strong></p>
+<p>Health score 93/100, evidence coverage 100%. The score only describes what this report looks at.</p>
+<h2>Top risks</h2>
+<table class="tiers durumlar riskler"><thead><tr><th scope="col">Risk</th><th scope="col">Severity</th><th scope="col">Possible business impact</th><th scope="col">Evidence type</th></tr></thead><tbody><tr><th scope="row">Connection count is close to the limit</th><td data-label="Severity">Medium</td><td data-label="Possible business impact">When the limit is reached new connections are refused.</td><td data-label="Evidence type">Statistics or a snapshot</td></tr><tr><th scope="row">Tables with a high dead-row ratio</th><td data-label="Severity">Medium</td><td data-label="Possible business impact">If cleanup lags, tables bloat and queries slow down.</td><td data-label="Evidence type">Statistics or a snapshot</td></tr><tr><th scope="row">Password hashes are stored as MD5</th><td data-label="Severity">Medium</td><td data-label="Possible business impact">MD5 password hashing is weak and deprecated in PostgreSQL.</td><td data-label="Evidence type">Firm evidence: a setting or catalog state</td></tr><tr><th scope="row">Large indexes that were never used</th><td data-label="Severity">Low</td><td data-label="Possible business impact">Unused indexes cost disk and write time. Results can mislead if statistics were reset.</td><td data-label="Evidence type">Hypothesis: an indirect sign, not a firm conclusion</td></tr></tbody></table>
+<h2>Actions in priority order</h2>
+<ol class="isler"><li><strong>Connection count is close to the limit.</strong> Use a connection pooler and reduce application pool sizes. Raise max_connections only as a last resort (memory cost). (effort: medium)</li><li><strong>Tables with a high dead-row ratio.</strong> Review per-table autovacuum settings (scale_factor, cost) and check for long transactions blocking cleanup. (effort: medium)</li><li><strong>Password hashes are stored as MD5.</strong> Set password_encryption to scram-sha-256, renew role passwords in turn and switch pg_hba.conf rules to scram. (effort: medium)</li><li><strong>Large indexes that were never used.</strong> Check when statistics were last reset and usage on all replicas; consider dropping once sure. (effort: small)</li></ol>
+<p>The actions are advisory; no changes have been applied. Before acting, see the prerequisites and verification section of the technical report.</p>
+<h2>Change since the previous scan</h2>
+<p>No previous scan to compare with was found (an earlier upload with the same firm and the same server identity is needed).</p>
+<h2>What this summary is based on</h2><p>This summary is produced by rules from the findings of the technical report; no model writes commentary. The evidence type column shows how firm a finding is: a finding marked as a hypothesis is not a firm conclusion and must be verified.</p>
+</article>

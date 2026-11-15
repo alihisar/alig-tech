@@ -1,0 +1,20 @@
+<article class="wrap prose report">
+<h1>Sağlık taraması raporu</h1>
+<p>Bu rapor tavsiye niteliğindedir. Hiçbir değişiklik uygulanmamıştır.</p>
+
+<nav class="rapor-sekme" aria-label="Rapor görünümü"><a href="/ornek-rapor/" aria-current="page">Yönetici özeti</a><a href="/ornek-rapor-teknik/">Teknik rapor</a></nav>
+<dl class="facts">
+<dt>Tarama zamanı (UTC)</dt><dd>2026-11-10T12:00:00Z</dd>
+<dt>Motor</dt><dd>PostgreSQL</dd>
+</dl>
+<h2>Genel durum</h2><p><strong>Küçük iyileştirmeler gerekiyor: yalnız orta, düşük ya da bilgi düzeyinde bulgu var.</strong></p>
+<p>Sağlık puanı 93/100, kanıt kapsamı %100. Puan yalnız bu raporun baktığı konuları anlatır.</p>
+<h2>En önemli riskler</h2>
+<table class="tiers durumlar riskler"><thead><tr><th scope="col">Risk</th><th scope="col">Önem</th><th scope="col">Olası iş etkisi</th><th scope="col">Kanıt türü</th></tr></thead><tbody><tr><th scope="row">Bağlantı sınırına yaklaşılıyor</th><td data-label="Önem">Orta</td><td data-label="Olası iş etkisi">Sınır dolarsa yeni bağlantılar reddedilir.</td><td data-label="Kanıt türü">İstatistik ya da anlık görüntü</td></tr><tr><th scope="row">Ölü satır oranı yüksek tablolar</th><td data-label="Önem">Orta</td><td data-label="Olası iş etkisi">Temizlik yetişmiyorsa tablo şişer, sorgular yavaşlar.</td><td data-label="Kanıt türü">İstatistik ya da anlık görüntü</td></tr><tr><th scope="row">Parola özeti MD5 olarak saklanıyor</th><td data-label="Önem">Orta</td><td data-label="Olası iş etkisi">MD5 parola özeti zayıftır ve PostgreSQL&#x27;de kullanımdan kalkmıştır.</td><td data-label="Kanıt türü">Kesin kanıt: ayar ya da katalog durumu</td></tr><tr><th scope="row">Büyük ve hiç kullanılmamış indeksler</th><td data-label="Önem">Düşük</td><td data-label="Olası iş etkisi">Kullanılmayan indeks disk ve yazma maliyeti getirir. İstatistikler sıfırlanmışsa sonuç yanıltıcı olabilir.</td><td data-label="Kanıt türü">Hipotez: dolaylı işaret, kesin sonuç değil</td></tr></tbody></table>
+<h2>Yapılması gerekenler (öncelik sırasıyla)</h2>
+<ol class="isler"><li><strong>Bağlantı sınırına yaklaşılıyor.</strong> Bağlantı havuzlayıcı kullanın, uygulama havuz boyutlarını azaltın. max_connections yalnızca son çare olarak artırılmalı (bellek maliyeti). (iş büyüklüğü: orta)</li><li><strong>Ölü satır oranı yüksek tablolar.</strong> Bu tablolar için autovacuum ayarlarını (scale_factor, cost) tablo bazında gözden geçirin; temizliği engelleyen uzun işlem var mı bakın. (iş büyüklüğü: orta)</li><li><strong>Parola özeti MD5 olarak saklanıyor.</strong> password_encryption ayarını scram-sha-256 yapın, rollerin parolalarını sırayla yenileyin, pg_hba.conf kurallarını scram&#x27;a çevirin. (iş büyüklüğü: orta)</li><li><strong>Büyük ve hiç kullanılmamış indeksler.</strong> İstatistik sıfırlama zamanını ve tüm replikalardaki kullanımı kontrol edin; emin olunca kaldırmayı değerlendirin. (iş büyüklüğü: küçük)</li></ol>
+<p>Öneriler tavsiye niteliğindedir; hiçbir değişiklik uygulanmamıştır. Uygulamadan önce teknik raporun ön koşul ve doğrulama bölümüne bakın.</p>
+<h2>Önceki taramaya göre değişim</h2>
+<p>Karşılaştırılacak önceki tarama bulunamadı (aynı firma ve aynı sunucu kimliğiyle daha önce yüklenmiş bir tarama gerekir).</p>
+<h2>Bu özet neye dayanır</h2><p>Bu özet, teknik raporun bulgularından kurallarla üretilir; yorum yazan bir model kullanılmaz. Kanıt türü sütunu bulgunun ne kadar kesin olduğunu gösterir: hipotez olarak işaretli bulgu kesin sonuç değildir, doğrulanmalıdır.</p>
+</article>

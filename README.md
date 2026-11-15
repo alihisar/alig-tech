@@ -51,25 +51,26 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 ```
 
 <!-- oto:basla denetimler -->
-`run_all.py` şu 13 denetimi sırayla çalıştırır:
+`run_all.py` şu 14 denetimi sırayla çalıştırır:
 
 1. derleme
 2. toplayici guncel
-3. birim testleri
-4. html yapisi
-5. ic baglantilar
-6. dis kaynak
-7. boyut butcesi
-8. sir taramasi
-9. is akisi sabitleme
-10. yasakli kaliplar
-11. dil esligi
-12. doldurulacak alanlar
-13. readme guncel
+3. ornek rapor guncel
+4. birim testleri
+5. html yapisi
+6. ic baglantilar
+7. dis kaynak
+8. boyut butcesi
+9. sir taramasi
+10. is akisi sabitleme
+11. yasakli kaliplar
+12. dil esligi
+13. doldurulacak alanlar
+14. readme guncel
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 578 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
+Birim testleri: 592 test (gerçek PostgreSQL testleri `ALIG_TEST_PG_HOST` olmadan atlanır).
 <!-- oto:bitis testler -->
 
 ## Dizinler

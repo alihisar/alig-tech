@@ -59,7 +59,12 @@ def main(argv=None):
         r = subprocess.run([sys.executable, str(ROOT / "tarama" / "uret_toplayici.py"), "--kontrol"], capture_output=True, text=True, timeout=120)
         return [] if r.returncode == 0 else [r.stdout.strip() or r.stderr.strip()]
 
+    def ornek_rapor():
+        r = subprocess.run([sys.executable, str(ROOT / "tarama" / "uret_ornek_rapor.py"), "--kontrol"], capture_output=True, text=True, timeout=120)
+        return [] if r.returncode == 0 else [r.stdout.strip() or r.stderr.strip()]
+
     step("toplayici guncel", toplayici)
+    step("ornek rapor guncel", ornek_rapor)
     step("birim testleri", tests)
     step("html yapisi", lambda: check_html.check(dist))
     step("ic baglantilar", lambda: check_links.check(dist))
