@@ -126,8 +126,25 @@ Cutover sonrası SQLite'a dönüş, cutover'dan sonra yazılan veriyi kaybettiri
 
 ## 6. Yedek ve geri yükleme (ALIG-DB-005)
 
-`pg_basebackup` + WAL arşivi (PITR için); yalnız `pg_dump` ile PITR iddia edilmez. Şifreli yedek, saklama, restore
-tatbikatı; RTO yalnız tatbikatla ölçülür. `BACKUP_RESTORE_VERIFIED` tatbikat yapılmadan `false`.
+`pg_basebackup` + WAL arşivi (PITR için); yalnız `pg_dump` ile PITR iddia edilmez. Saklama, restore tatbikatı; RTO yalnız
+tatbikatla ölçülür. `BACKUP_RESTORE_VERIFIED` tatbikat yapılmadan `false`.
+
+Araç: `db/yedek.py` (stdlib; PostgreSQL CLI araçlarını alt süreçle çağırır; uygulamaya ve `deploy/bakim.py`ye bağlı değil).
+- `al`: `pg_basebackup -X stream` ile `alig_backup` rolüyle (yalnız REPLICATION; parola komut satırında değil, `PGPASSFILE`
+  ya da soket), düz ya da tar biçim, SHA-256 manifest; ardından `pg_verifybackup`. Doğrulama geçmeden yedek son adını almaz
+  (`pg-<UTC>.devam` yarım yedektir ve hata halinde silinir). Tar biçimi PG18'den önce `pg_verifybackup` ile doğrudan
+  doğrulanamaz; araç geçici dizine açıp doğrular.
+- `dogrula`: `pg_verifybackup`. `geri-yukle`: yalnız boş (ya da olmayan) hedef dizine açar; dolu dizine, çalışan kümenin
+  veri dizinine ve yedeğin içine/üstüne yazmaz; `--evet` olmadan yalnız plan yazar ve hiçbir şey yazmaz. WAL arşivi verilirse
+  `recovery.signal` + `restore_command` (+ isteğe bağlı `recovery_target_time`, saat dilimi zorunlu, `promote`) eklenir;
+  geri yüklenen kümede `archive_mode = off` yazılır ki kaynağın arşivini bozmasın. Küme başlatılmaz. `eskileri-sil`: en yeni
+  N yedeği saklar (`--evet` olmadan listeler). `arsiv-onerisi`: `archive_command` metnini yazar, sunucuya dokunmaz.
+- WAL arşiv komutu: `test ! -f ARSIV/%f && cp %p ARSIV/%f.gecici && mv ARSIV/%f.gecici ARSIV/%f` (var olanın üstüne yazmaz,
+  atomik). Yalnız belge ve test kümesinde kullanıldı; canlı sunucuya uygulanmadı. WAL arşivinin eskilerinin silinmesi
+  (`pg_archivecleanup`, en eski saklanan yedeğin başlangıç WAL'ına göre) elle yapılır; araç WAL silmez.
+- Şifreleme: kod yazılmadı (DB-K6). Varsayılan: yedek dizini şifreli hacimde, 0700.
+- RPO/RTO hedefi yazılmaz (DB-K5). Tatbikatta ölçülen süre yerel PG16 ve küçük veri içindir; hedef ya da canlı RTO değildir.
+- pgBackRest'e geçiş seçeneği DB-K5 notundadır; kurulmadı.
 
 ## 7. Test matrisi ve durum
 
@@ -146,7 +163,7 @@ tatbikatı; RTO yalnız tatbikatla ölçülür. `BACKUP_RESTORE_VERIFIED` tatbik
 | Salt okuma rolüyle DML, uygulama rolüyle DDL | DENY | PG16'da PASS (42501; denetim tablolarında UPDATE/DELETE/TRUNCATE de DENY) |
 | Şema göçü: tüm dosyalar, tekrar çalıştırma, değişmiş eski dosya | PASS | PG16'da PASS (`db/uygula.py`) |
 | Göç satır sayısı ve özet | MATCH | NOT_RUN |
-| Geri yükleme | VERIFIED | NOT_RUN |
+| Geri yükleme | VERIFIED | PG16'da tatbikat geçti (`tests/test_pg_yedek.py`: tam yedek, `pg_verifybackup`, PITR ile zaman damgasına geri yükleme, denetim zinciri sağlam, bozuk yedek reddi, dolu hedef reddi, kuru çalıştırma); canlı sunucuda VERIFIED değil |
 | Sır maskeleme | PASS | PG16'da PASS (prototip; parola hata metninde ve repr'de yok) |
 
 Ortam notu: bu geliştirme ortamında yalnız sistem PostgreSQL 16 var. PostgreSQL 18 ikilisi indirilmesine izin
@@ -154,5 +171,5 @@ verilmedi; PG18 üzerinde testler **BLOCKED**. PG16'da geçen test "PG16'da PASS
 
 ## 8. Kapılar
 
-`POSTGRESQL_GATE = FAIL` (SQLite çalışma zamanında), `MIGRATION_GATE = NOT_RUN`, `BACKUP_RESTORE = NOT_RUN`,
+`POSTGRESQL_GATE = FAIL` (SQLite çalışma zamanında), `MIGRATION_GATE = NOT_RUN`, `BACKUP_RESTORE = PG16 tatbikatı geçti, canlı sunucuda NOT_RUN` (`BACKUP_RESTORE_VERIFIED = false`: canlı sunucu tatbikatı, şifreleme kararı DB-K6 ve RPO/RTO kararı DB-K5 bekliyor),
 dolayısıyla `PRODUCTION_READY = false`.

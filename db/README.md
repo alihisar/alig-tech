@@ -15,6 +15,7 @@ Python bağlantı kodu yoktur; şema SQL dosyalarıyla kurulur, `psql` ile doğr
 | `sema/0004_idempotency.sql` | `idempotency_anahtari` | `alig_migrator` |
 | `sema/0005_yetkiler.sql` | Tablo ve sütun yetkileri | `alig_migrator` |
 | `uygula.py` | Göç dosyalarını sırayla uygulayan araç (yalnız standart kütüphane, `psql` alt süreci) | operatör |
+| `yedek.py` | Fiziksel yedek (`pg_basebackup`), doğrulama, boş dizine geri yükleme/PITR, saklama (ALIG-DB-005; `docs/postgresql-gecis.md` bölüm 6, `docs/runbook.md`) | operatör (`alig_backup` rolüyle) |
 
 ## Roller
 
