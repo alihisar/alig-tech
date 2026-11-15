@@ -18,7 +18,6 @@ KOD = re.compile(r"^/portal/dogrula/([A-Za-z0-9_\-]{43})$")
 RAPOR = re.compile(r"^/portal/rapor/([0-9]{1,12})/?$")
 RAPOR_SIL = re.compile(r"^/portal/rapor/([0-9]{1,12})/sil$")
 COREZ = "alig_portal"
-CSP = "default-src 'self'; img-src 'self'; style-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
 
 M = {
     "tr": {"baslik": "Müşteri portalı", "giris": "Giriş yap", "eposta": "E-posta", "parola": "Parola", "sirket": "Firma adı",
@@ -269,8 +268,7 @@ def _ayni_kaynak(h):
 
 
 def _gonder(h, kod, sayfa, extra=()):
-    h._send(kod, sayfa.encode("utf-8"), "text/html; charset=utf-8",
-            extra=(("Content-Security-Policy", CSP), ("X-Frame-Options", "DENY")) + tuple(extra))
+    h._send(kod, sayfa.encode("utf-8"), "text/html; charset=utf-8", extra=tuple(extra))   # strict CSP and the rest come from _send
 
 
 def _yonlendir(h, yer, extra=()):

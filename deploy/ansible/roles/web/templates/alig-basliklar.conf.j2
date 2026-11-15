@@ -5,3 +5,10 @@ add_header Referrer-Policy "no-referrer" always;
 add_header X-Frame-Options "DENY" always;
 add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
 add_header Strict-Transport-Security "max-age={{ hsts_saniye }}" always;
+# The application processes send these too (tunnel mode, no nginx). Hide the upstream copy so the browser sees one of each:
+# two X-Frame-Options values are treated as invalid. The application Content-Security-Policy is NOT hidden: two policies
+# intersect, so the stricter application CSP (no script at all) stays in force for reports, portal and panel.
+proxy_hide_header X-Content-Type-Options;
+proxy_hide_header Referrer-Policy;
+proxy_hide_header X-Frame-Options;
+proxy_hide_header Permissions-Policy;
