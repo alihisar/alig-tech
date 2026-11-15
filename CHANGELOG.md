@@ -2,6 +2,7 @@
 
 ## Yayınlanmadı
 
+- Yönetim paneli: Özet sayfasında gösterge (son 7 ve 30 gün tarama, aktif ve pasif firma, açık iletişim, portal ve Kip B talepleri, giden kutusunda bekleyen posta, iki denetim zincirinin doğrulaması; salt okuma, okunamayan sayı "veri yok" gösterilir). Firma başına ticari süreç durumu (aday, görüşülüyor, teklif, müşteri, kapandı) ve notu: geçersiz geçiş reddedilir, geçiş iki denetim zincirine yazılır (not yazılmaz), firma sayfasında değişir, listede süzülür. Not firma kaydıyla birlikte silinir (`docs/saklama-politikasi.md`). Ek göç (SQLite, mevcut çalışma zamanı).
 - Yol haritası: Master Prompt v5 (v4.1 dahil) maddeleri eklendi; PostgreSQL geçişi (ALIG-DB-001…006), güvenlik ve tarama denetimleri (ALIG-SEC-001, ALIG-SCAN-001), PostgreSQL CI (ALIG-CI-001, 002). Günde iki maddelik plan. Yeni belgeler: `docs/kararlar.md`, `docs/postgresql-gecis.md`, `docs/master-prompt-v5.md`. Kod değişmedi.
 - Ana sayfa: 7 hizmet kartı (sağlık denetimi, yönetilen operasyon, yüksek erişilebilirlik, güvenlik sertleştirme, performans, sürüm yükseltme ve göç, danışmanlık), "sağlık taraması nasıl çalışır" dört adımı ve altı soruluk SSS; üç temada, TR ve EN. Sürüm desteği SSS'de olduğu gibi yazılır: yalnız PostgreSQL 16 gerçek sunucuda sınandı. Tema C'de ajan bölümünün bağlantı kimliği `#ajan` oldu; `#hizmetler` hizmet kartlarına gider.
 - Müşteri portalı, ikinci dilim (varsayılan kapalı): tarama geçmişinde önceki taramaya göre puan değişimi, rapor silme

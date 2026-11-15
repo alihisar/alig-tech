@@ -1,6 +1,7 @@
 """Yonetim paneli deposu: kullanicilar, oturumlar, giris denemeleri, talep durumlari, denetim zinciri. SQLite WAL, UTC."""
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from tarama import depo as zincir  # denetim_ekle / denetim_dogrula ayni sema ile calisir
 from yonetim import guvenlik
@@ -186,3 +187,66 @@ def talep_durum_yaz(con, talep_id, durum, aciklama, kim):
                   "aciklama=excluded.aciklama, guncelleme_utc=excluded.guncelleme_utc, guncelleyen=excluded.guncelleyen",
                   (talep_id, durum, aciklama[:500], _z(_simdi()), kim))
         denetim_ekle(c, kim, "talep #%d durumu: %s" % (talep_id, durum))
+
+
+# --- gosterge (panel ozeti): salt okuma. Okunamayan sayi None doner; 0 ile karistirilmaz ---
+def _ro(yol):
+    if not yol or not Path(yol).exists():
+        return None
+    try:
+        return sqlite3.connect("file:%s?mode=ro" % yol, uri=True, timeout=5)
+    except sqlite3.Error:
+        return None
+
+
+def _say(con, sorgu, arg=()):
+    """Tek sayim sorgusu; tablo yok, kilit ya da bozukluk durumunda None."""
+    if con is None:
+        return None
+    try:
+        return con.execute(sorgu, arg).fetchone()[0]
+    except sqlite3.Error:
+        return None
+
+
+def gosterge(ycon, tarama_yol, form_yol, simdi=None):
+    """Panel ozeti sayilari. Anahtarlar: tarama_7, tarama_30, firma_aktif, firma_pasif, iletisim_acik, portal_acik,
+    kipb_bekleyen, posta_bekleyen (int ya da None=veri yok/okunamadi), zincir_tarama (denetim_durum sozlugu ya da None),
+    zincir_yonetim (sozluk). tarama ve form veritabanlari salt okunur acilir, hicbir sey yazilmaz."""
+    n = simdi or _simdi()
+    g = {}
+    tc = _ro(tarama_yol)
+    try:
+        for ad, gun in (("tarama_7", 7), ("tarama_30", 30)):
+            g[ad] = _say(tc, "SELECT count(*) FROM rapor WHERE olusturma_utc>=?", (_z(n - timedelta(days=gun)),))
+        g["firma_aktif"] = _say(tc, "SELECT count(*) FROM firma WHERE durum='aktif'")
+        g["firma_pasif"] = _say(tc, "SELECT count(*) FROM firma WHERE durum='pasif'")
+        g["portal_acik"] = _say(tc, "SELECT count(*) FROM portal_talep WHERE durum IN ('yeni','inceleniyor')")
+        g["kipb_bekleyen"] = _say(tc, "SELECT count(*) FROM baglanti_istegi WHERE durum='bekliyor' AND bitis_utc>?", (_z(n),))
+        g["posta_bekleyen"] = _say(tc, "SELECT count(*) FROM posta WHERE durum='bekliyor'")
+        g["zincir_tarama"] = None
+        if tc is not None:
+            try:
+                g["zincir_tarama"] = zincir.denetim_durum(tc, zincir.denetim_anahtari())
+            except sqlite3.Error:
+                pass
+    finally:
+        if tc is not None:
+            tc.close()
+    idler = None
+    fc = _ro(form_yol)
+    try:
+        if fc is not None:
+            try:
+                idler = {r[0] for r in fc.execute("SELECT id FROM contact")}
+            except sqlite3.Error:
+                idler = None
+    finally:
+        if fc is not None:
+            fc.close()
+    g["iletisim_acik"] = None
+    if idler is not None:
+        kapali = {t for t, d in talep_durumlari(ycon).items() if d["durum"] == "kapandi"}
+        g["iletisim_acik"] = len(idler - kapali)
+    g["zincir_yonetim"] = zincir.denetim_durum(ycon, zincir.denetim_anahtari())
+    return g

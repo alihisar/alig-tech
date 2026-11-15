@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlencode
@@ -163,7 +164,7 @@ class PanelTests(Taban):
         self.assertEqual(self.giris().status, 303)
 
     def test_sayfalar_acilir_ve_kacislidir(self):
-        for yol, icerik in (("/yonetim/", "Yeni talep"), ("/yonetim/talepler", "ada@ornek.com"), ("/yonetim/taramalar", "Yüksek 1"),
+        for yol, icerik in (("/yonetim/", "Açık iletişim talebi"), ("/yonetim/talepler", "ada@ornek.com"), ("/yonetim/taramalar", "Yüksek 1"),
                             ("/yonetim/denetim", "Zincir sağlam"), ("/yonetim/denetim?kaynak=yonetim", "giris yapildi"), ("/yonetim/denetim?kaynak=yonetim", "ip_ozeti"), ("/yonetim/sistem", "Veritabanları"), ("/yonetim/sistem", "Saklama süreleri")):
             r, g = self.istek("GET", yol)
             self.assertEqual(r.status, 200, yol)
@@ -655,6 +656,265 @@ class IslemTests(Taban):
         f = next(x for x in tdepo.firma_listele(t) if x["anahtar"] == "ornek.com")
         self.istek("POST", "/yonetim/firmalar/%d/sil" % f["id"], {"emin": "evet", "csrf": self.csrf()})
         self.assertEqual(sqlite3.connect(self.fdb).execute("SELECT count(*) FROM contact").fetchone()[0], 1)
+
+
+class SurecDepoTests(unittest.TestCase):
+    """Ticari surec durum makinesi (tarama/depo.py): aday -> gorusuluyor -> teklif -> musteri, her durumdan -> kapandi."""
+
+    def setUp(self):
+        self.con = tdepo.baglan(str(Path(tempfile.mkdtemp()) / "t.sqlite"))
+        self.fid = tdepo.firma_kaydet(self.con, "firma.com.tr", "Firma", "a@firma.com.tr", "tarama")["id"]
+
+    def durum(self):
+        return tdepo.firma_getir(self.con, self.fid)["surec"]
+
+    def test_yeni_firma_aday_baslar(self):
+        self.assertEqual(self.durum(), "aday")
+        self.assertEqual(tdepo.SUREC_DURUMLARI, ("aday", "gorusuluyor", "teklif", "musteri", "kapandi"))
+
+    def test_gecerli_zincir_ve_not(self):
+        for hedef in ("gorusuluyor", "teklif", "musteri", "kapandi"):
+            self.assertEqual(tdepo.firma_surec_gecis(self.con, self.fid, hedef, "not " + hedef)[1], hedef)
+            f = tdepo.firma_getir(self.con, self.fid)
+            self.assertEqual((f["surec"], f["surec_notu"]), (hedef, "not " + hedef))
+            self.assertTrue(f["surec_utc"])
+
+    def test_her_durumdan_kapandiya_gecilir(self):
+        for baslangic in ("aday", "gorusuluyor", "teklif", "musteri"):
+            self.con.execute("UPDATE firma SET surec=? WHERE id=?", (baslangic, self.fid))
+            tdepo.firma_surec_gecis(self.con, self.fid, "kapandi")
+            self.assertEqual(self.durum(), "kapandi")
+
+    def test_gecersiz_gecis_reddedilir_ve_durum_degismez(self):
+        gecersiz = (("aday", "teklif"), ("aday", "musteri"), ("aday", "aday"), ("gorusuluyor", "aday"), ("gorusuluyor", "musteri"),
+                    ("teklif", "gorusuluyor"), ("musteri", "teklif"), ("musteri", "aday"), ("kapandi", "aday"), ("kapandi", "musteri"),
+                    ("kapandi", "kapandi"), ("aday", "yok"), ("aday", ""))
+        for bas, hedef in gecersiz:
+            self.con.execute("UPDATE firma SET surec=?, surec_notu='eski' WHERE id=?", (bas, self.fid))
+            with self.assertRaises(tdepo.SurecHatasi, msg="%s -> %s" % (bas, hedef)):
+                tdepo.firma_surec_gecis(self.con, self.fid, hedef, "yeni not")
+            f = tdepo.firma_getir(self.con, self.fid)
+            self.assertEqual((f["surec"], f["surec_notu"]), (bas, "eski"))
+
+    def test_var_olmayan_firma_none_doner(self):
+        self.assertIsNone(tdepo.firma_surec_gecis(self.con, 9999, "gorusuluyor"))
+
+    def test_not_500_karakterle_sinirlanir(self):
+        tdepo.firma_surec_gecis(self.con, self.fid, "gorusuluyor", "x" * 900)
+        self.assertEqual(len(tdepo.firma_getir(self.con, self.fid)["surec_notu"]), 500)
+
+    def test_firma_silinince_surec_ve_not_da_gider(self):
+        tdepo.firma_surec_gecis(self.con, self.fid, "gorusuluyor", "kisi adi iceren not")
+        tdepo.firma_sil(self.con, self.fid)
+        self.assertEqual(self.con.execute("SELECT count(*) FROM firma WHERE surec_notu<>''").fetchone()[0], 0)
+        self.assertEqual(tdepo.firma_listele(self.con), [])
+
+    def test_eski_veritabani_surec_sutunlarini_alir(self):
+        yol = str(Path(tempfile.mkdtemp()) / "eski.sqlite")
+        i = next(k for k, g in enumerate(tdepo.GOCLER) if "surec" in g)
+        c = sqlite3.connect(yol)
+        for g in tdepo.GOCLER[:i]:
+            c.execute(g)
+        c.execute("PRAGMA user_version=%d" % i)
+        c.execute("INSERT INTO firma(anahtar, ad, eposta, kaynak, kayit_utc, son_utc) VALUES('a.com','A','x@a.com','tarama','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')")
+        c.commit()
+        c.close()
+        con = tdepo.baglan(yol)
+        self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], len(tdepo.GOCLER))
+        self.assertEqual(tdepo.firma_listele(con)[0]["surec"], "aday")
+
+    def test_saklama_politikasi_notun_firmayla_silindigini_yazar(self):
+        from tarama import saklama
+        self.assertIn("ticari surec", saklama.SINIFLAR["firma"][3])
+        self.assertIn("süreç", (ROOT / "docs" / "saklama-politikasi.md").read_text(encoding="utf-8"))
+
+
+class SurecPanelTests(Taban):
+    def setUp(self):
+        super().setUp()
+        self.assertEqual(self.giris().status, 303)
+        self.fid = self.firma["id"]
+        self.yol = "/yonetim/firmalar/%d/surec" % self.fid
+
+    def surec(self):
+        t = tdepo.baglan(self.tdb)
+        try:
+            return tdepo.firma_getir(t, self.fid)
+        finally:
+            t.close()
+
+    def olaylar(self):
+        t, y = tdepo.baglan(self.tdb), depo.baglan(self.ydb)
+        try:
+            return ([o for (o,) in t.execute("SELECT olay FROM denetim")], [o for (o,) in y.execute("SELECT olay FROM denetim")],
+                    tdepo.denetim_dogrula(t), depo.denetim_dogrula(y))
+        finally:
+            t.close()
+            y.close()
+
+    def test_firma_sayfasi_durumu_ve_yalniz_gecerli_hedefleri_gosterir(self):
+        g = self.istek("GET", "/yonetim/firmalar/%d" % self.fid)[1]
+        self.assertIn("Ticari süreç", g)
+        self.assertIn("Aday", g)
+        secenekler = re.search(r'name="surec">(.*?)</select>', g, re.S).group(1)
+        self.assertIn('value="gorusuluyor"', secenekler)
+        self.assertIn('value="kapandi"', secenekler)
+        self.assertNotIn('value="teklif"', secenekler)
+        self.assertNotIn('value="musteri"', secenekler)
+
+    def test_gecis_iki_zincire_yazilir_not_zincire_yazilmaz(self):
+        r, _ = self.istek("POST", self.yol, {"surec": "gorusuluyor", "aciklama": "Ahmet Bey ile gorusuldu <b>x</b>", "csrf": self.csrf()})
+        self.assertEqual((r.status, r.getheader("Location")), (303, "/yonetim/firmalar/%d" % self.fid))
+        f = self.surec()
+        self.assertEqual((f["surec"], f["surec_notu"]), ("gorusuluyor", "Ahmet Bey ile gorusuldu <b>x</b>"))
+        tarama_o, yonetim_o, tz, yz = self.olaylar()
+        olay = "firma #%d surec: aday -> gorusuluyor" % self.fid
+        self.assertIn(olay, tarama_o)
+        self.assertIn(olay, yonetim_o)
+        self.assertFalse(any("Ahmet" in o for o in tarama_o + yonetim_o))
+        self.assertEqual((tz, yz), (None, None))
+        g = self.istek("GET", "/yonetim/firmalar/%d" % self.fid)[1]
+        self.assertIn("Ahmet Bey ile gorusuldu &lt;b&gt;x&lt;/b&gt;", g)
+        self.assertNotIn("<b>x</b>", g)
+
+    def test_gecersiz_gecis_422_ve_iz_birakmaz(self):
+        suz = lambda o: ([x for x in o[0] if "surec" in x], [x for x in o[1] if "surec" in x])  # noqa: E731
+        onceki = suz(self.olaylar())
+        for hedef in ("teklif", "musteri", "aday", "yok", ""):
+            self.assertEqual(self.istek("POST", self.yol, {"surec": hedef, "csrf": self.csrf()})[0].status, 422, hedef)
+        self.assertEqual(self.surec()["surec"], "aday")
+        self.assertEqual(suz(self.olaylar()), onceki)
+        self.assertEqual(onceki, ([], []))
+
+    def test_tam_zincir_ve_kapandi_sonrasi_degisim_yok(self):
+        for hedef in ("gorusuluyor", "teklif", "musteri", "kapandi"):
+            self.assertEqual(self.istek("POST", self.yol, {"surec": hedef, "csrf": self.csrf()})[0].status, 303, hedef)
+        self.assertEqual(self.surec()["surec"], "kapandi")
+        self.assertEqual(self.istek("POST", self.yol, {"surec": "aday", "csrf": self.csrf()})[0].status, 422)
+        self.assertEqual(self.olaylar()[2:], (None, None))
+
+    def test_csrf_oturum_ve_var_olmayan_firma(self):
+        self.assertEqual(self.istek("POST", self.yol, {"surec": "gorusuluyor"})[0].status, 403)
+        self.assertEqual(self.surec()["surec"], "aday")
+        self.assertEqual(self.istek("POST", self.yol, {"surec": "gorusuluyor"}, cerez=False)[0].status, 303)
+        self.assertEqual(self.surec()["surec"], "aday")
+        self.assertEqual(self.istek("POST", "/yonetim/firmalar/99999/surec", {"surec": "gorusuluyor", "csrf": self.csrf()})[0].status, 404)
+        self.assertEqual(self.istek("POST", self.yol, {"surec": "gorusuluyor", "csrf": self.csrf()}, basliklar={"Origin": "http://baska.example"})[0].status, 403)
+
+    def test_firma_listesi_surece_gore_suzulur(self):
+        t = tdepo.baglan(self.tdb)
+        tdepo.firma_kaydet(t, "diger.com.tr", "Diger Firma", "x@diger.com.tr", "tarama")
+        t.close()
+        self.istek("POST", self.yol, {"surec": "gorusuluyor", "csrf": self.csrf()})
+        g = self.istek("GET", "/yonetim/firmalar?surec=gorusuluyor")[1]
+        self.assertIn("ayse@firma.com.tr", g)
+        self.assertNotIn("x@diger.com.tr", g)
+        g = self.istek("GET", "/yonetim/firmalar?surec=aday")[1]
+        self.assertIn("x@diger.com.tr", g)
+        self.assertNotIn("ayse@firma.com.tr", g)
+        g = self.istek("GET", "/yonetim/firmalar?surec=gecersiz")[1]   # gecersiz suzgec yok sayilir
+        self.assertIn("x@diger.com.tr", g)
+        self.assertIn("ayse@firma.com.tr", g)
+
+    def test_firma_silinince_not_gider(self):
+        self.istek("POST", self.yol, {"surec": "gorusuluyor", "aciklama": "gizli not", "csrf": self.csrf()})
+        self.istek("POST", "/yonetim/firmalar/%d/sil" % self.fid, {"emin": "evet", "csrf": self.csrf()})
+        t = tdepo.baglan(self.tdb)
+        self.assertEqual(t.execute("SELECT count(*) FROM firma WHERE surec_notu LIKE '%gizli not%'").fetchone()[0], 0)
+
+    def test_ticari_tutar_alani_yok(self):
+        t = tdepo.baglan(self.tdb)
+        kolonlar = [r[1] for r in t.execute("PRAGMA table_info(firma)")]
+        for yasak in ("fiyat", "tutar", "teklif_tutari", "musteri_adi", "ucret"):
+            self.assertNotIn(yasak, kolonlar)
+
+
+class GostergeTests(Taban):
+    def test_sayilar_dogru_ve_okunamayan_none(self):
+        t = tdepo.baglan(self.tdb)
+        tdepo.firma_kaydet(t, "pasif.com.tr", "P", "p@pasif.com.tr", "tarama")
+        tdepo.firma_durum_yaz(t, t.execute("SELECT id FROM firma WHERE anahtar='pasif.com.tr'").fetchone()[0], "pasif")
+        eski = (datetime.now(timezone.utc) - timedelta(days=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        tdepo.rapor_ekle(t, "eski-kod", "postgresql", "tr", temiz_belge(), self.firma["id"])
+        t.execute("UPDATE rapor SET olusturma_utc=? WHERE token_sha256=?", (eski, tdepo.token_ozeti("eski-kod")))
+        z = tdepo.simdi()
+        for tur, durum in (("destek", "yeni"), ("denetim", "inceleniyor"), ("silme", "tamamlandi")):
+            t.execute("INSERT INTO portal_talep(firma_id, kullanici_id, tur, durum, olusturma_utc, guncelleme_utc) VALUES(?,?,?,?,?,?)", (self.firma["id"], 1, tur, durum, z, z))
+        tdepo.istek_ekle(t, "tk1", self.firma["id"], "k", "ad", "10.0.0.1", 5432, "db", "u", False, "tr")
+        tdepo.istek_ekle(t, "tk2", self.firma["id"], "k", "ad", "10.0.0.1", 5432, "db", "u", False, "tr")
+        t.execute("UPDATE baglanti_istegi SET durum='bitti' WHERE id=2")
+        tdepo.posta_ekle(t, "a@b.com", "k", "m")
+        tdepo.posta_ekle(t, "c@d.com", "k", "m")
+        tdepo.posta_sonuc(t, 2)
+        t.commit()
+        t.close()
+        y = depo.baglan(self.ydb)
+        depo.talep_durum_yaz(y, 1, "gorusuluyor", "", "ali")
+        g = depo.gosterge(y, self.tdb, self.fdb)
+        self.assertEqual((g["tarama_7"], g["tarama_30"]), (1, 2))
+        self.assertEqual((g["firma_aktif"], g["firma_pasif"]), (1, 1))
+        self.assertEqual(g["iletisim_acik"], 1)     # gorusuluyor hala acik
+        self.assertEqual(g["portal_acik"], 2)
+        self.assertEqual(g["kipb_bekleyen"], 1)
+        self.assertEqual(g["posta_bekleyen"], 1)
+        self.assertEqual(g["zincir_tarama"]["bozuk"], None)
+        self.assertEqual(g["zincir_yonetim"]["bozuk"], None)
+        depo.talep_durum_yaz(y, 1, "kapandi", "", "ali")
+        self.assertEqual(depo.gosterge(y, self.tdb, self.fdb)["iletisim_acik"], 0)
+
+    def test_dosya_yoksa_sayilar_none_sifir_degil(self):
+        y = depo.baglan(self.ydb)
+        yok = str(Path(self.tdb).parent / "yok.sqlite")
+        g = depo.gosterge(y, yok, yok)
+        for k in ("tarama_7", "tarama_30", "firma_aktif", "firma_pasif", "iletisim_acik", "portal_acik", "kipb_bekleyen", "posta_bekleyen", "zincir_tarama"):
+            self.assertIsNone(g[k], k)
+        self.assertIsNotNone(g["zincir_yonetim"])
+        self.assertFalse(Path(yok).exists())   # salt okuma: dosya olusturulmaz
+
+    def test_bozuk_tablo_none_doner(self):
+        c = sqlite3.connect(self.fdb)
+        c.execute("DROP TABLE contact")
+        c.commit()
+        c.close()
+        y = depo.baglan(self.ydb)
+        self.assertIsNone(depo.gosterge(y, self.tdb, self.fdb)["iletisim_acik"])
+        self.assertEqual(depo.gosterge(y, self.tdb, self.fdb)["firma_aktif"], 1)
+
+    def test_gosterge_salt_okumadir(self):
+        y = depo.baglan(self.ydb)
+        yonetim_once = y.execute("SELECT count(*) FROM denetim").fetchone()[0]
+        t = tdepo.baglan(self.tdb)
+        tarama_once = t.execute("SELECT count(*) FROM denetim").fetchone()[0]
+        t.close()
+        depo.gosterge(y, self.tdb, self.fdb)
+        self.assertEqual(y.execute("SELECT count(*) FROM denetim").fetchone()[0], yonetim_once)
+        t = tdepo.baglan(self.tdb)
+        self.assertEqual(t.execute("SELECT count(*) FROM denetim").fetchone()[0], tarama_once)
+
+    def test_ozet_sayfasi_gostergeyi_gosterir(self):
+        self.giris()
+        g = self.istek("GET", "/yonetim/")[1]
+        for etiket in ("Tarama (son 7 gün)", "Tarama (son 30 gün)", "Aktif firma", "Pasif firma", "Açık iletişim talebi", "Açık portal talebi",
+                       "Bekleyen Kip B isteği", "Giden kutusunda bekleyen posta", "Tarama denetim zinciri", "Yönetim denetim zinciri"):
+            self.assertIn(etiket, g)
+        self.assertNotIn("veri yok", g)
+
+    def test_ozet_sayfasi_eksik_veriyi_sifir_gostermez(self):
+        self.giris()
+        Path(self.fdb).unlink()
+        g = self.istek("GET", "/yonetim/")[1]
+        kutu = re.search(r'Açık iletişim talebi</p><p class="stat-v">([^<]*)<', g)
+        self.assertEqual(kutu.group(1), "veri yok")
+
+    def test_ozet_kirik_zinciri_gosterir(self):
+        self.giris()
+        t = tdepo.baglan(self.tdb)
+        tdepo.denetim_ekle(t, "x", "olay")
+        t.execute("UPDATE denetim SET olay='degistirildi' WHERE seq=(SELECT max(seq) FROM denetim)")
+        t.commit()
+        t.close()
+        g = self.istek("GET", "/yonetim/")[1]
+        self.assertRegex(g, r"Tarama denetim zinciri</p><p class=\"stat-v\">KIRIK")
 
 
 class CliTests(unittest.TestCase):
