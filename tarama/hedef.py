@@ -80,8 +80,16 @@ def _gomulu(ip):
     return out
 
 
+def _kapsamsiz(ip):
+    """IPv6 kapsam kimligini (%eth0) atar; kimlik adresin ic mi genel mi oldugunu degistirmez."""
+    return ipaddress.IPv6Address(int(ip)) if ip.version == 6 and getattr(ip, "scope_id", None) else ip
+
+
 def adres_uygun(ip, yasak_aglar=()):
-    """Yalnizca genel internet adresleri uygundur."""
+    """Yalnizca genel internet adresleri uygundur. Kapsam kimlikli (%...) adres hicbir zaman uygun degildir:
+    kimlik rastgele metin tasiyabilir ve baglanti dizgisine girerek hostaddr/options alanlarini ezebilirdi."""
+    if getattr(ip, "scope_id", None):
+        return False
     if ip.version == 6 and (ip in NAT64 or ip in NAT64_YEREL):
         return False
     for a in [ip] + _gomulu(ip):
@@ -128,8 +136,10 @@ def dogrula(ad, port, cozumleyici=socket.getaddrinfo, yasak_aglar=()):
     ad, ip = _ad(ad)
     port = _port(port)
     if ip is not None:
-        if not adres_uygun(ip, aglar):
+        if not adres_uygun(_kapsamsiz(ip), aglar):
             raise Reddedildi("ic_adres")
+        if getattr(ip, "scope_id", None):
+            raise Reddedildi("ad")
         return Hedef(str(ip), str(ip), port)
     try:
         sonuc = cozumleyici(ad, port, 0, socket.SOCK_STREAM)

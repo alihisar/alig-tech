@@ -11,6 +11,7 @@ Guvenlik kurallari (docs/kip-b-tasarim.md):
 import json
 import os
 import re
+import selectors
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -18,8 +19,11 @@ from datetime import datetime, timezone
 from tarama import katalog, yukleme
 from tarama.uret_toplayici import katalog_ozeti
 
-AD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+AD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}\Z")   # \Z: sondaki satir sonu da reddedilir
 EN_COK_VERITABANI = 20   # sure butcesi (toplam_sure) icinde kalsin diye toplayicidan dusuk
+CIKTI_SINIRI = 2 * 1024 * 1024   # psql stdout; musterinin sectigi sunucu dusmanca olabilir, bellek sinirsiz buyumez
+HATA_SINIRI = 64 * 1024
+GUVENLI_AD = re.compile(r"^[0-9A-Za-z.:-]{1,255}\Z")   # baglanti dizgisine giren host/hostaddr: bosluk, tirnak, % ve = yok
 KANIT_ON_EK = "alig-kanit-"
 ILK_SORGU = ("SELECT current_setting('is_superuser') = 'on' AS super, "
              "shobj_description((SELECT oid FROM pg_roles WHERE rolname = current_user), 'pg_authid') AS kanit, "
@@ -60,6 +64,10 @@ def baglanti_dizgisi(hedef, veritabani, kullanici, sslmode="require"):
         raise BaglantiHatasi("bicim")
     if sslmode not in ("require", "verify-ca", "verify-full", "prefer"):
         raise BaglantiHatasi("bicim")
+    # hedef nesnesi calistirici soketinden de gelir: dizgiye ek anahtar sokulamasin (hostaddr, options, sslmode...)
+    if not (isinstance(hedef.ad, str) and GUVENLI_AD.match(hedef.ad) and isinstance(hedef.ip, str) and GUVENLI_AD.match(hedef.ip)
+            and isinstance(hedef.port, int) and not isinstance(hedef.port, bool) and 1 <= hedef.port <= 65535):
+        raise BaglantiHatasi("bicim")
     # channel_binding=require: sunucu SCRAM-SHA-256-PLUS ile TLS kanalina bagli kimlik dogrulamak zorunda. Boylece parola
     # duz metin ya da MD5 ile gonderilmez ve sertifikasi dogrulanamayan sunucuya karsi aktarma (MITM) saldirisi isleme girmez.
     return ("host=%s hostaddr=%s port=%d dbname=%s user=%s sslmode=%s channel_binding=require connect_timeout=10 gssencmode=disable"
@@ -74,17 +82,57 @@ def _ortam(parola):
             "PGSYSCONFDIR": os.devnull}
 
 
+def _surec_calistir(cmd, env, sure):
+    """(donus kodu, stdout, stderr). Sure asilirsa TimeoutError, stdout CIKTI_SINIRI'ni asarsa OverflowError; surec her
+    durumda oldurulur. stderr HATA_SINIRI'ndan sonrasi atilir."""
+    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    sec = selectors.DefaultSelector()
+    sec.register(p.stdout, selectors.EVENT_READ, "out")
+    sec.register(p.stderr, selectors.EVENT_READ, "err")
+    tampon = {"out": bytearray(), "err": bytearray()}
+    bitis = time.monotonic() + sure
+    try:
+        while sec.get_map():
+            kalan = bitis - time.monotonic()
+            if kalan <= 0:
+                raise TimeoutError("sure doldu")
+            for anahtar, _ in sec.select(kalan):
+                parca = os.read(anahtar.fd, 65536)
+                if not parca:
+                    sec.unregister(anahtar.fileobj)
+                    continue
+                t = tampon[anahtar.data]
+                t += parca
+                if anahtar.data == "out" and len(t) > CIKTI_SINIRI:
+                    raise OverflowError("cikti siniri")
+                if anahtar.data == "err" and len(t) > HATA_SINIRI:
+                    del t[HATA_SINIRI:]
+        p.wait(timeout=max(0.1, bitis - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        raise TimeoutError("sure doldu")
+    finally:
+        sec.close()
+        if p.poll() is None:
+            p.kill()
+        p.wait()
+        p.stdout.close()
+        p.stderr.close()
+    return p.returncode, tampon["out"].decode("utf-8", "replace"), tampon["err"].decode("utf-8", "replace")
+
+
 def _calistir(psql, dizgi, parola, sql, sure):
     sarmal = "SELECT coalesce(json_agg(t), '[]'::json) FROM (" + sql + ") t"
     cmd = [psql, "-X", "-A", "-t", "-w", "--no-psqlrc", "-v", "ON_ERROR_STOP=1", "-d", dizgi, "-c", sarmal]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=max(1, sure), env=_ortam(parola), stdin=subprocess.DEVNULL)
-    except subprocess.TimeoutExpired:
+        kod, cikti, hata = _surec_calistir(cmd, _ortam(parola), max(1, sure))
+    except TimeoutError:
         return {"durum": "hata", "neden": "zaman_asimi"}, ""
-    if r.returncode != 0:
-        return {"durum": "hata", "neden": hata_sinifi(r.stderr)}, r.stderr
+    except OverflowError:
+        return {"durum": "hata", "neden": "hata"}, ""
+    if kod != 0:
+        return {"durum": "hata", "neden": hata_sinifi(hata)}, hata
     try:
-        satirlar = json.loads(r.stdout.strip() or "[]")
+        satirlar = json.loads(cikti.strip() or "[]")
     except ValueError:
         return {"durum": "hata", "neden": "hata"}, ""
     return ({"durum": "ok", "satirlar": satirlar} if isinstance(satirlar, list) else {"durum": "hata", "neden": "hata"}), ""
