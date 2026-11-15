@@ -14,6 +14,7 @@ import re
 import secrets
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -65,6 +66,12 @@ class H(BaseHTTPRequestHandler):
     portal_cerez_guvenli = True          # oturum cerezi Secure; yalniz yerel HTTP'de kapatilir
     posta_adres_siniri = 3               # ayni adrese 24 saatte en cok posta
     bekleyen_firma_siniri = 5            # bir firmada 24 saatte en cok dogrulanmamis rapor
+    # Kip B yanit suresi sabitleme: hedef reddi, DNS hatasi ve baglanti hatasi ayni alt sureye tamamlanir; boylece yanit suresi
+    # ic aginin taranmasina yardim etmez. Alt sinirdir: DNS ya da baglanti bu sureyi zaten asarsa ek bekleme olmaz.
+    SABIT_RED_SN = 6.0                   # baglanti formu: hedef reddedildi (adres, port, ad cozumu)
+    SABIT_BAGLANTI_SN = 12.0             # parola adimi: baglanti kurulamadi (psql connect_timeout=10 sn'yi kapsar)
+    saat = staticmethod(time.monotonic)  # testlerde sahte saatle degistirilir
+    bekle = staticmethod(time.sleep)
     sys_version = ""
 
     def _send(self, kod, govde=b"", ctype="text/plain; charset=utf-8", extra=()):
@@ -258,7 +265,13 @@ class H(BaseHTTPRequestHandler):
             return None
         return {k: v[0] for k, v in parse_qs(self.rfile.read(n).decode("utf-8", "replace"), keep_blank_values=True).items()}
 
+    def _sabit_bekle(self, baslangic, sure):
+        kalan = sure - (self.saat() - baslangic)
+        if kalan > 0:
+            self.bekle(kalan)
+
     def _baglan_baslat(self):
+        bas = self.saat()
         f = self._form()
         if f is None:
             return self._hata(415, "tur")
@@ -295,7 +308,8 @@ class H(BaseHTTPRequestHandler):
                 h = self.hedef_dogrula(f.get("sunucu", ""), f.get("port", ""), yasak_aglar=self.yasak_aglar)
             except hedef.Reddedildi as e:
                 depo.denetim_ekle(con, "sistem", "dogrudan baglanti hedefi reddedildi (%s), firma #%d" % (e.kod, firma["id"]), {"firma": firma["id"], "sonuc": "reddedildi", "neden": e.kod})
-                return self._hata(422, "hedef", dil)   # neden musteriye soylenmez
+                self._sabit_bekle(bas, self.SABIT_RED_SN)   # neden ne sure ne govdeyle soylenir
+                return self._hata(422, "hedef", dil)
             anahtar, kanit = secrets.token_urlsafe(32), secrets.token_hex(16)
             with depo.islem(con) as c:   # istek ve denetim kaydi birlikte
                 depo.istek_ekle(c, anahtar, firma["id"], kanit, h.ad, h.ip, h.port, veritabani, kullanici,
@@ -306,7 +320,8 @@ class H(BaseHTTPRequestHandler):
         self._send(200, hata.kanit_sayfasi(dil, anahtar, baglanti.kanit_komutu(kullanici, kanit)).encode("utf-8"), "text/html; charset=utf-8")
 
     def _baglan_calistir(self, token):
-        f = self._form()
+        bas = self.saat()
+        f = self._form(sinir=3 * baglanti.CA_PEM_SINIRI + 4096)   # CA PEM'i url kodlamasiyla uc kata cikabilir
         con = depo.baglan(self.db_yolu)
         try:
             i = depo.istek_getir(con, token)
@@ -315,6 +330,13 @@ class H(BaseHTTPRequestHandler):
             dil = i["dil"]
             if f is None or not f.get("parola"):
                 return self._hata(422, "baglanti", dil)
+            ca = (f.get("ca_pem") or "").strip()   # istege bagli: verilirse sslmode=verify-full
+            if ca:
+                try:   # deneme hakki harcanmadan ve hicbir baglanti acilmadan
+                    ca = baglanti.ca_dogrula(ca)
+                except baglanti.BaglantiHatasi:
+                    return self._hata(422, "ca", dil)
+            ek = {"ca_pem": ca} if ca else {}
             firma = depo.firma_getir(con, i["firma_id"])
             if not firma or firma["durum"] != "aktif" or not firma["dogrudan_izin"]:
                 depo.istek_bitir(con, i["id"], "iptal")
@@ -330,20 +352,24 @@ class H(BaseHTTPRequestHandler):
             h = hedef.Hedef(i["ad"], i["ip"], i["port"])   # ad yeniden cozulmez: dogrulanmis IP kullanilir
             if not TARAMA_YUVASI.acquire(blocking=False):
                 return self._hata(503, "mesgul", dil, extra=(("Retry-After", "120"),))
+            basarisiz = None
             try:
                 if self.calistirici_soketi:
                     belge = calistirici.uzaktan_tara(self.calistirici_soketi, h, i["veritabani"], i["kullanici"], f["parola"],
-                                                     i["kanit"], maskele=bool(i["maskele"]))
+                                                     i["kanit"], maskele=bool(i["maskele"]), **ek)
                 else:
                     belge = self.tara(h, i["veritabani"], i["kullanici"], f["parola"], i["kanit"], psql=self.psql,
-                                      sslmode=self.sslmode, maskele=bool(i["maskele"]))
+                                      sslmode=self.sslmode, maskele=bool(i["maskele"]), **ek)
             except baglanti.BaglantiHatasi as e:
                 depo.denetim_ekle(con, "sistem", "dogrudan tarama basarisiz (%s), firma #%d, hedef=%s" % (e.kod, firma["id"], h.ozet()[:16]))
-                tur = {"kanit": "kanit", "super": "super", "zaman": "zaman", "mesgul": "mesgul", "calistirici": "mesgul",
-                       "hedef": "hedef"}.get(e.kod, "baglanti")
-                return self._hata({"zaman": 504, "mesgul": 503}.get(tur, 422), tur, dil)
+                basarisiz = {"kanit": "kanit", "super": "super", "zaman": "zaman", "mesgul": "mesgul", "calistirici": "mesgul",
+                             "ca": "ca"}.get(e.kod, "baglanti")   # hedef/bicim/baglanti: tek sayfa
             finally:
                 TARAMA_YUVASI.release()
+            if basarisiz:
+                if basarisiz == "baglanti":
+                    self._sabit_bekle(bas, self.SABIT_BAGLANTI_SN)   # tarama yuvasi birakildiktan sonra
+                return self._hata({"zaman": 504, "mesgul": 503}.get(basarisiz, 422), basarisiz, dil)
             anahtar = secrets.token_urlsafe(32)
             with depo.islem(con) as c:   # sinir sayimi, rapor, istek kapanisi ve denetim kaydi birlikte; tarama bu islemin disinda kostu
                 asildi = depo.kullanim_say(c, anahtar_s) >= self.sirket_adet

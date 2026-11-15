@@ -375,7 +375,7 @@ class YonetimOturumsuzTests(test_yonetim.Taban):
     GET = ("/yonetim", "/yonetim/", "/yonetim/firmalar", "/yonetim/firmalar?ara=ornek", "/yonetim/firmalar?durum=aktif",
            "/yonetim/firmalar.csv", "/yonetim/firmalar.csv?durum=aktif&ara=ornek", "/yonetim/talepler.csv", "/yonetim/talepler.csv?durum=yeni",
            "/yonetim/firmalar/1", "/yonetim/talepler", "/yonetim/talepler?durum=yeni&sayfa=1", "/yonetim/portal-talepleri",
-           "/yonetim/taramalar", "/yonetim/taramalar/1", "/yonetim/taramalar/1?gorunum=yonetici", "/yonetim/denetim",
+           "/yonetim/kip-b", "/yonetim/kip-b?firma=1&durum=bekliyor&sayfa=1", "/yonetim/taramalar", "/yonetim/taramalar/1", "/yonetim/taramalar/1?gorunum=yonetici", "/yonetim/denetim",
            "/yonetim/denetim?kaynak=yonetim", "/yonetim/sistem", "/yonetim/yok", "/yonetim/firmalar/1/", "/yonetim/%2e%2e/yonetim/sistem",
            "/yonetim/giris/../sistem", "/yonetim/firmalar/999999999", "/yonetimx")
     POST = (("/yonetim/cikis", {}), ("/yonetim/talepler/1/durum", {"durum": "kapandi", "aciklama": "x"}),

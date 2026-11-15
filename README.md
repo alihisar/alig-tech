@@ -71,7 +71,7 @@ python3 ci/uret_readme.py                   # README otomatik bölümlerini gün
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Birim testleri: 783 test (PostgreSQL testleri ayrı `postgresql testleri` adımında sayılır: `ALIG_TEST_PG_HOST` varsa dış sunucu, yoksa sistem PostgreSQL 16 ile geçici küme; ikisi de yoksa SKIP, `--release` kipinde hata).
+Birim testleri: 824 test (PostgreSQL testleri ayrı `postgresql testleri` adımında sayılır: `ALIG_TEST_PG_HOST` varsa dış sunucu, yoksa sistem PostgreSQL 16 ile geçici küme; ikisi de yoksa SKIP, `--release` kipinde hata).
 <!-- oto:bitis testler -->
 
 ## Dizinler

@@ -8,11 +8,15 @@ Guvenlik kurallari (docs/kip-b-tasarim.md):
 - Tablo, indeks ve sequence denetimleri baglanilabilen her veritabaninda calisir; adi `AD` kalibina uymayan
   veritabani baglanti dizgisine hic girmez, "ad" nedeniyle atlanir.
 """
+import base64
+import binascii
 import json
 import os
 import re
 import selectors
+import shutil
 import subprocess
+import tempfile
 import time
 from datetime import datetime, timezone
 
@@ -24,6 +28,11 @@ EN_COK_VERITABANI = 20   # sure butcesi (toplam_sure) icinde kalsin diye toplayi
 CIKTI_SINIRI = 2 * 1024 * 1024   # psql stdout; musterinin sectigi sunucu dusmanca olabilir, bellek sinirsiz buyumez
 HATA_SINIRI = 64 * 1024
 GUVENLI_AD = re.compile(r"^[0-9A-Za-z.:-]{1,255}\Z")   # baglanti dizgisine giren host/hostaddr: bosluk, tirnak, % ve = yok
+CA_PEM_SINIRI = 16 * 1024   # musterinin yapistirdigi CA PEM'i icin ust sinir (zincir dahil)
+CA_EN_COK_SERTIFIKA = 5
+SSLROOTCERT_YOLU = re.compile(r"^/[0-9A-Za-z._/-]{1,255}\Z")   # dizgiye giren dosya yolu: bosluk, tirnak, ters bolu, = ve satir sonu yok
+_PEM_BAS, _PEM_SON = "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----"
+_PEM_SATIR = re.compile(r"^[A-Za-z0-9+/]{1,100}={0,2}\Z")
 KANIT_ON_EK = "alig-kanit-"
 ILK_SORGU = ("SELECT current_setting('is_superuser') = 'on' AS super, "
              "shobj_description((SELECT oid FROM pg_roles WHERE rolname = current_user), 'pg_authid') AS kanit, "
@@ -31,7 +40,7 @@ ILK_SORGU = ("SELECT current_setting('is_superuser') = 'on' AS super, "
 
 
 class BaglantiHatasi(Exception):
-    """kod: 'baglanti', 'kanit', 'super', 'zaman', 'bicim'."""
+    """kod: 'baglanti', 'kanit', 'super', 'zaman', 'bicim', 'ca'."""
 
     def __init__(self, kod):
         super().__init__("dogrudan baglanti: " + kod)
@@ -59,10 +68,54 @@ def hata_sinifi(stderr):
     return "hata"
 
 
-def baglanti_dizgisi(hedef, veritabani, kullanici, sslmode="require"):
+def ca_dogrula(pem):
+    """Musterinin verdigi CA PEM'ini dogrular ve normallestirilmis metni dondurur (yalniz sertifika bloklari, LF satir sonu).
+    Ozel anahtar, baslikli blok, ek metin, NUL, ASCII disi, bozuk base64, cok buyuk ya da cok sertifikali girdi BaglantiHatasi('ca')."""
+    if not isinstance(pem, str) or len(pem) > CA_PEM_SINIRI or "\x00" in pem or not pem.isascii():
+        raise BaglantiHatasi("ca")
+    satirlar = [x.strip() for x in pem.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    bloklar, govde, icinde = [], [], False
+    for x in satirlar:
+        if not x:
+            continue
+        if x == _PEM_BAS:
+            if icinde:
+                raise BaglantiHatasi("ca")
+            icinde, govde = True, []
+        elif x == _PEM_SON:
+            if not icinde or not govde:
+                raise BaglantiHatasi("ca")
+            icinde = False
+            bloklar.append(govde)
+        elif icinde and _PEM_SATIR.match(x):
+            govde.append(x)
+        else:
+            raise BaglantiHatasi("ca")   # blok disi metin, baska PEM turu (ozel anahtar), baslik satiri, bozuk karakter
+    if icinde or not 1 <= len(bloklar) <= CA_EN_COK_SERTIFIKA:
+        raise BaglantiHatasi("ca")
+    cikti = []
+    for govde in bloklar:
+        if any("=" in x for x in govde[:-1]):
+            raise BaglantiHatasi("ca")
+        try:
+            ham = base64.b64decode("".join(govde), validate=True)
+        except (binascii.Error, ValueError):
+            raise BaglantiHatasi("ca")
+        if len(ham) < 16 or ham[0] != 0x30:   # DER SEQUENCE ile baslamayan govde sertifika degildir
+            raise BaglantiHatasi("ca")
+        cikti.append("\n".join([_PEM_BAS] + govde + [_PEM_SON]) + "\n")
+    return "".join(cikti)
+
+
+def baglanti_dizgisi(hedef, veritabani, kullanici, sslmode="require", sslrootcert=None):
     if not AD.match(veritabani or "") or not AD.match(kullanici or ""):
         raise BaglantiHatasi("bicim")
     if sslmode not in ("require", "verify-ca", "verify-full", "prefer"):
+        raise BaglantiHatasi("bicim")
+    # verify-* kok sertifikasiz kabul edilmez (libpq ev dizinindeki dosyaya duserdi); kok sertifika verify-* disinda sessizce yok sayilmaz
+    if (sslrootcert is None) == (sslmode in ("verify-ca", "verify-full")):
+        raise BaglantiHatasi("bicim")
+    if sslrootcert is not None and not (isinstance(sslrootcert, str) and SSLROOTCERT_YOLU.match(sslrootcert)):
         raise BaglantiHatasi("bicim")
     # hedef nesnesi calistirici soketinden de gelir: dizgiye ek anahtar sokulamasin (hostaddr, options, sslmode...)
     if not (isinstance(hedef.ad, str) and GUVENLI_AD.match(hedef.ad) and isinstance(hedef.ip, str) and GUVENLI_AD.match(hedef.ip)
@@ -70,8 +123,9 @@ def baglanti_dizgisi(hedef, veritabani, kullanici, sslmode="require"):
         raise BaglantiHatasi("bicim")
     # channel_binding=require: sunucu SCRAM-SHA-256-PLUS ile TLS kanalina bagli kimlik dogrulamak zorunda. Boylece parola
     # duz metin ya da MD5 ile gonderilmez ve sertifikasi dogrulanamayan sunucuya karsi aktarma (MITM) saldirisi isleme girmez.
-    return ("host=%s hostaddr=%s port=%d dbname=%s user=%s sslmode=%s channel_binding=require connect_timeout=10 gssencmode=disable"
-            % (hedef.ad, hedef.ip, hedef.port, veritabani, kullanici, sslmode))
+    kok = (" sslrootcert=" + sslrootcert) if sslrootcert is not None else ""
+    return ("host=%s hostaddr=%s port=%d dbname=%s user=%s sslmode=%s%s channel_binding=require connect_timeout=10 gssencmode=disable"
+            % (hedef.ad, hedef.ip, hedef.port, veritabani, kullanici, sslmode, kok))
 
 
 def _ortam(parola):
@@ -174,14 +228,14 @@ def _veritabanlari(psql, dizgi, parola, ilk_db, bitis):
     return taranacak, atlanan
 
 
-def _her_veritabani(psql, parola, hedef, kullanici, sslmode, c, sql, taranacak, atlanan, bitis):
+def _her_veritabani(psql, parola, hedef, kullanici, sslmode, c, sql, taranacak, atlanan, bitis, sslrootcert=None):
     satirlar, at, calisti, ilk_neden = [], list(atlanan), False, None
     for db in taranacak:
         kalan = bitis - time.monotonic()
         if kalan <= 1:
             at.append({"veritabani": db, "neden": "zaman_asimi"})
             continue
-        sonuc, _ = _calistir(psql, baglanti_dizgisi(hedef, db, kullanici, sslmode), parola, sql, min(30, kalan))
+        sonuc, _ = _calistir(psql, baglanti_dizgisi(hedef, db, kullanici, sslmode, sslrootcert), parola, sql, min(30, kalan))
         if sonuc["durum"] == "ok":
             calisti = True
             for s in _temizle(c, sonuc["satirlar"]):
@@ -198,11 +252,30 @@ def _her_veritabani(psql, parola, hedef, kullanici, sslmode, c, sql, taranacak, 
     return sonuc
 
 
-def tara(hedef, veritabani, kullanici, parola, kanit, psql="psql", sslmode="require", maskele=False, toplam_sure=90):
-    """Dogrulanmis toplama belgesini dondurur ya da BaglantiHatasi firlatir."""
+def tara(hedef, veritabani, kullanici, parola, kanit, psql="psql", sslmode="require", maskele=False, toplam_sure=90, ca_pem=None):
+    """Dogrulanmis toplama belgesini dondurur ya da BaglantiHatasi firlatir.
+
+    Sunucu sertifikasi: varsayilan `sslmode=require` + `channel_binding=require` (sertifika denetlenmez). ca_pem verilirse
+    (musterinin CA'si) sslmode=verify-full olur: zincir bu CA'ya ve sertifika `hedef.ad`'a karsi dogrulanir. CA gecersizse
+    sessizce zayif moda dusulmez, BaglantiHatasi('ca') firlatilir. CA dosyasi 0600 gecici dizinde durur, is bitince silinir."""
     if not isinstance(parola, str) or not parola or len(parola) > 1024 or "\x00" in parola:
         raise BaglantiHatasi("baglanti")
-    dizgi = baglanti_dizgisi(hedef, veritabani, kullanici, sslmode)
+    if ca_pem is None:
+        return _tara(hedef, veritabani, kullanici, parola, kanit, psql, sslmode, None, maskele, toplam_sure)
+    pem = ca_dogrula(ca_pem)
+    dizin = tempfile.mkdtemp(prefix="alig-ca-")   # mkdtemp: 0700
+    try:
+        yol = os.path.join(dizin, "ca.pem")
+        fd = os.open(yol, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="ascii", newline="\n") as f:
+            f.write(pem)
+        return _tara(hedef, veritabani, kullanici, parola, kanit, psql, "verify-full", yol, maskele, toplam_sure)
+    finally:
+        shutil.rmtree(dizin, ignore_errors=True)
+
+
+def _tara(hedef, veritabani, kullanici, parola, kanit, psql, sslmode, sslrootcert, maskele, toplam_sure):
+    dizgi = baglanti_dizgisi(hedef, veritabani, kullanici, sslmode, sslrootcert)
     bitis = time.monotonic() + toplam_sure
 
     ilk, _ = _calistir(psql, dizgi, parola, ILK_SORGU, min(30, toplam_sure))
@@ -225,7 +298,7 @@ def tara(hedef, veritabani, kullanici, parola, kanit, psql="psql", sslmode="requ
             kontroller[c["id"]] = {"durum": "hata", "neden": "desteklenmiyor"}
             continue
         if c.get("kapsam") == "veritabani":
-            sonuc = _her_veritabani(psql, parola, hedef, kullanici, sslmode, c, sql, taranacak, atlanan, bitis)
+            sonuc = _her_veritabani(psql, parola, hedef, kullanici, sslmode, c, sql, taranacak, atlanan, bitis, sslrootcert)
         else:
             kalan = bitis - time.monotonic()
             if kalan <= 1:

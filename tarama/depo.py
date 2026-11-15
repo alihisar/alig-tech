@@ -460,6 +460,28 @@ def istek_bitir(con, iid, durum):
     con.commit()
 
 
+ISTEK_DURUMLARI = ("bekliyor", "tamam", "iptal", "deneme")
+_ISTEK_LISTE_KOLON = "i.id, i.firma_id, f.ad, i.ad, i.port, i.veritabani, i.kullanici, i.maskele, i.deneme, i.durum, i.olusturma_utc, i.bitis_utc"
+
+
+def istek_listele(con, firma_id=None, durum=None, limit=25, offset=0):
+    """Yonetim paneli icin salt okuma: (satirlar, toplam). Belirtec ozeti, sahiplik kaniti ve IP bilerek DONMEZ; parola zaten saklanmaz."""
+    kosul, arg = [], []
+    if isinstance(firma_id, int) and not isinstance(firma_id, bool):
+        kosul.append("i.firma_id=?")
+        arg.append(firma_id)
+    if durum in ISTEK_DURUMLARI:
+        kosul.append("i.durum=?")
+        arg.append(durum)
+    nere = (" WHERE " + " AND ".join(kosul)) if kosul else ""
+    toplam = con.execute("SELECT count(*) FROM baglanti_istegi i" + nere, arg).fetchone()[0]
+    anahtarlar = ("id", "firma_id", "firma_ad", "ad", "port", "veritabani", "kullanici", "maskele", "deneme", "durum", "olusturma_utc", "bitis_utc")
+    satirlar = [dict(zip(anahtarlar, r)) for r in con.execute(
+        "SELECT %s FROM baglanti_istegi i LEFT JOIN firma f ON f.id=i.firma_id%s ORDER BY i.id DESC LIMIT ? OFFSET ?" % (_ISTEK_LISTE_KOLON, nere),
+        arg + [max(1, min(int(limit), 200)), max(0, int(offset))])]
+    return satirlar, toplam
+
+
 def istek_say(con, firma_id, dakika=60):
     esik = (datetime.now(timezone.utc) - timedelta(minutes=dakika)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return con.execute("SELECT count(*) FROM baglanti_istegi WHERE firma_id=? AND olusturma_utc > ?", (firma_id, esik)).fetchone()[0]

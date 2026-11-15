@@ -33,13 +33,15 @@ except Exception:  # tzdata yoksa sabit UTC+3
 
 GOVDE_SINIRI = 8192
 TALEP_SAYFA = 100
+KIPB_SAYFA = 25
+KIPB_DURUM_AD = {"bekliyor": "Bekliyor", "tamam": "Tamamlandı", "iptal": "İptal", "deneme": "Deneme hakkı doldu"}
 ONEM_AD = {"kritik": "Kritik", "yuksek": "Yüksek", "orta": "Orta", "dusuk": "Düşük", "bilgi": "Bilgi"}
 DURUM_AD = {"yeni": "Yeni", "gorusuluyor": "Görüşülüyor", "kapandi": "Kapandı"}
 DB_AD = {"pg": "PostgreSQL", "ms": "SQL Server", "my": "MySQL", "multi": "Birden çok", "unsure": "Emin değil"}
 FIRMA_DURUM_AD = {"aktif": "Aktif", "pasif": "Pasif"}
 SUREC_AD = {"aday": "Aday", "gorusuluyor": "Görüşülüyor", "teklif": "Teklif", "musteri": "Müşteri", "kapandi": "Kapandı"}
 KAYNAK_AD = {"tarama": "Sağlık taraması", "talep": "İletişim talebi"}
-MENU = (("/yonetim/", "Özet"), ("/yonetim/firmalar", "Firmalar"), ("/yonetim/talepler", "Talepler"), ("/yonetim/portal-talepleri", "Portal talepleri"), ("/yonetim/taramalar", "Taramalar"),
+MENU = (("/yonetim/", "Özet"), ("/yonetim/firmalar", "Firmalar"), ("/yonetim/talepler", "Talepler"), ("/yonetim/portal-talepleri", "Portal talepleri"), ("/yonetim/kip-b", "Kip B istekleri"), ("/yonetim/taramalar", "Taramalar"),
         ("/yonetim/denetim", "Denetim kaydı"), ("/yonetim/sistem", "Sistem"))
 
 
@@ -212,6 +214,8 @@ class H(BaseHTTPRequestHandler):
                 return self._talepler(con, o, q)
             if yol == "/yonetim/portal-talepleri":
                 return self._portal_talepleri(con, o, q)
+            if yol == "/yonetim/kip-b":
+                return self._kipb(con, o, q)
             if yol == "/yonetim/taramalar":
                 return self._taramalar(con, o)
             m = re.match(r"^/yonetim/taramalar/(\d{1,9})$", yol)
@@ -688,6 +692,46 @@ class H(BaseHTTPRequestHandler):
             "<a href=\"/yonetim/talepler?sayfa=%d%s\">Daha eski</a>" % (sayfa + 1, ek) if sayfa * TALEP_SAYFA < len(secili) else "")
         depo.denetim_ekle(con, o["ad"], "talepler goruntulendi")
         self._sayfa("Talepler", suzgec + tablo(["Zaman", "Kişi", "E-posta", "Veritabanı", "Mesaj", "Durum"], satirlar, "Talep yok.") + gez, o)
+
+    def _kipb(self, con, o, q):
+        """Kip B (dogrudan baglanti) istekleri: salt okuma. Parola saklanmadigi icin yoktur; baglanti dizgisi, sahiplik kaniti,
+        belirtec ve IP de gosterilmez."""
+        if not Path(self.tarama_db).exists():
+            return self._sayfa("Kip B istekleri", "<p class=\"muted\">Tarama veritabanı yok.</p>", o)
+        try:
+            sayfa = max(1, min(int((q.get("sayfa") or ["1"])[0]), 100000))
+        except ValueError:
+            sayfa = 1
+        ham_firma = (q.get("firma") or [""])[0]
+        firma = int(ham_firma) if re.fullmatch(r"\d{1,9}", ham_firma) else None
+        durum = (q.get("durum") or [""])[0]
+        durum = durum if durum in KIPB_DURUM_AD else None
+        tc = tdepo.baglan(self.tarama_db)
+        try:
+            kayitlar, toplam = tdepo.istek_listele(tc, firma, durum, KIPB_SAYFA, (sayfa - 1) * KIPB_SAYFA)
+        finally:
+            tc.close()
+        simdi = tdepo.simdi()
+        satirlar = []
+        for k in kayitlar:
+            ad = KIPB_DURUM_AD[k["durum"]] if k["durum"] in KIPB_DURUM_AD else k["durum"]
+            if k["durum"] == "bekliyor" and k["bitis_utc"] <= simdi:
+                ad = "Süresi doldu"
+            satirlar.append([e(ist(k["olusturma_utc"])), "<a href=\"/yonetim/firmalar/%d\">%s</a>" % (k["firma_id"], e(k["firma_ad"] or "(adsız firma)")),
+                             e("%s:%d" % (k["ad"], k["port"])), e(k["veritabani"]), e(k["kullanici"]), e("evet" if k["maskele"] else "hayır"),
+                             e(k["deneme"]), "<span class=\"pill pill-%s\">%s</span>" % (e(k["durum"]), e(ad)), e(ist(k["bitis_utc"]))])
+        firma_arg = {"firma": firma} if firma is not None else {}
+        sorgu = lambda **ek: "/yonetim/kip-b" + ("?" + urlencode(ek) if ek else "")   # noqa: E731
+        suzgec = "<p class=\"filters\">Süz: <a href=\"%s\">Tümü</a> %s</p>" % (
+            e(sorgu(**firma_arg)), " ".join("<a href=\"%s\">%s</a>" % (e(sorgu(**dict(firma_arg, durum=k))), e(v)) for k, v in KIPB_DURUM_AD.items()))
+        taban = dict(firma_arg, **({"durum": durum} if durum else {}))
+        gez = "<p class=\"filters\">%d istek. %s %s</p>" % (
+            toplam,
+            "<a href=\"%s\">Daha yeni</a>" % e(sorgu(**dict(taban, sayfa=sayfa - 1))) if sayfa > 1 else "",
+            "<a href=\"%s\">Daha eski</a>" % e(sorgu(**dict(taban, sayfa=sayfa + 1))) if sayfa * KIPB_SAYFA < toplam else "")
+        not_ = "<p class=\"muted\">Salt okuma. Parola ve bağlantı dizgisi saklanmaz ya da gösterilmez; istek kayıtları süresi dolunca silinir. Kip B varsayılan olarak kapalıdır.</p>"
+        depo.denetim_ekle(con, o["ad"], "kip b istekleri goruntulendi")
+        self._sayfa("Kip B istekleri", not_ + suzgec + tablo(["Zaman", "Firma", "Hedef", "Veritabanı", "Hesap", "Maskeli", "Deneme", "Durum", "Geçerlilik sonu"], satirlar, "Kip B isteği yok.") + gez, o)
 
     def _taramalar(self, con, o):
         satirlar = []

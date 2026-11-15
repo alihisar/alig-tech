@@ -658,6 +658,91 @@ class IslemTests(Taban):
         self.assertEqual(sqlite3.connect(self.fdb).execute("SELECT count(*) FROM contact").fetchone()[0], 1)
 
 
+class KipBPanelTests(Taban):
+    """Kip B istek listesi: salt okuma, sayfali, firma ve durum suzgecli; parola, kanit ve belirtec gorunmez."""
+
+    def setUp(self):
+        super().setUp()
+        t = tdepo.baglan(self.tdb)
+        self.diger = tdepo.firma_kaydet(t, "diger.com.tr", "Diger AS", "x@diger.com.tr", "tarama")
+        for i in range(30):
+            fid = self.firma["id"] if i < 27 else self.diger["id"]
+            tdepo.istek_ekle(t, "tk-%02d" % i, fid, "kanit-gizli-%02d" % i, "db%02d.ornek.com" % i, "93.184.216.%d" % (i + 1), 5432, "veri%02d" % i, "alig_hc", i % 2 == 0, "tr")
+        t.execute("UPDATE baglanti_istegi SET durum='tamam' WHERE id IN (1,2,28)")
+        t.execute("UPDATE baglanti_istegi SET bitis_utc='2000-01-01T00:00:00Z' WHERE id=3")   # suresi dolmus bekleyen
+        t.commit()
+        t.close()
+        self.giris()
+
+    def test_liste_alanlari_gosterir_gizlileri_gostermez(self):
+        r, g = self.istek("GET", "/yonetim/kip-b")
+        self.assertEqual(r.status, 200)
+        self.assertIn("db29.ornek.com:5432", g)   # en yeni once
+        self.assertIn("veri29", g)
+        self.assertIn("Diger AS", g)
+        for gizli in ("kanit-gizli", "tk-", "93.184.216", "host=", "sslmode", "password", "parola", "alig-kanit"):
+            self.assertNotIn(gizli, g.replace("Parola yok", ""), gizli)
+        self.assertNotIn("<form", g.split("</nav>")[-1].replace('action="/yonetim/cikis"', ""))   # salt okuma: islem formu yok
+
+    def test_sayfalama(self):
+        r, g1 = self.istek("GET", "/yonetim/kip-b")
+        self.assertIn("db29.ornek.com", g1)
+        self.assertNotIn("db00.ornek.com", g1)   # ilk sayfada en cok 25 kayit
+        self.assertIn("sayfa=2", g1)
+        r, g2 = self.istek("GET", "/yonetim/kip-b?sayfa=2")
+        self.assertIn("db00.ornek.com", g2)
+        self.assertNotIn("db29.ornek.com", g2)
+        for kotu in ("0", "-3", "abc", "999999999999"):
+            self.assertEqual(self.istek("GET", "/yonetim/kip-b?sayfa=" + kotu)[0].status, 200, kotu)
+
+    def test_firma_ve_durum_suzgeci(self):
+        _, g = self.istek("GET", "/yonetim/kip-b?firma=%d" % self.diger["id"])
+        self.assertIn("db29.ornek.com", g)
+        self.assertNotIn("db00.ornek.com", g)
+        _, g = self.istek("GET", "/yonetim/kip-b?durum=tamam")
+        self.assertIn("db00.ornek.com", g)   # id 1
+        self.assertNotIn("db10.ornek.com", g)
+        _, g = self.istek("GET", "/yonetim/kip-b?durum=tamam&firma=%d" % self.diger["id"])
+        self.assertIn("db27.ornek.com", g)   # id 28
+        self.assertNotIn("db00.ornek.com", g)
+        # gecersiz suzgec yok sayilir, SQL'e girmez
+        r, g = self.istek("GET", "/yonetim/kip-b?durum=x'%20OR%201=1--&firma=abc")
+        self.assertEqual(r.status, 200)
+        self.assertIn("db29.ornek.com", g)
+
+    def test_suresi_dolan_bekleyen_ayri_gosterilir(self):
+        _, g = self.istek("GET", "/yonetim/kip-b?firma=%d" % self.firma["id"])
+        self.assertIn("Süresi doldu", g)   # id 3
+
+    def test_xss_kacisi(self):
+        t = tdepo.baglan(self.tdb)
+        t.execute("UPDATE baglanti_istegi SET ad='<script>alert(1)</script>.ornek.com', veritabani='<img src=x>' WHERE id=30")
+        t.commit()
+        t.close()
+        _, g = self.istek("GET", "/yonetim/kip-b")
+        self.assertNotIn("<script>alert(1)", g)
+        self.assertNotIn("<img src=x>", g)
+        self.assertIn("&lt;script&gt;", g)
+
+    def test_oturum_gerekli_ve_menude(self):
+        _, g = self.istek("GET", "/yonetim/kip-b")
+        self.assertIn('href="/yonetim/kip-b"', g)
+        r, g = self.istek("GET", "/yonetim/kip-b", cerez=False)
+        self.assertEqual((r.status, r.getheader("Location")), (303, "/yonetim/giris"))
+        self.assertNotIn("db29", g)
+
+    def test_tarama_veritabani_yoksa_bos_sayfa(self):
+        Path(self.tdb).unlink()
+        r, g = self.istek("GET", "/yonetim/kip-b")
+        self.assertEqual(r.status, 200)
+        self.assertIn("veritabanı yok", g)
+
+    def test_goruntuleme_denetim_kaydina_yazilir(self):
+        self.istek("GET", "/yonetim/kip-b")
+        y = depo.baglan(self.ydb)
+        self.assertTrue(any("kip b istekleri goruntulendi" in r[0] for r in y.execute("SELECT olay FROM denetim")))
+
+
 class SurecDepoTests(unittest.TestCase):
     """Ticari surec durum makinesi (tarama/depo.py): aday -> gorusuluyor -> teklif -> musteri, her durumdan -> kapandi."""
 
