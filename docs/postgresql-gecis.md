@@ -72,7 +72,7 @@ geri alma, zaman aşımı, hata sınıflandırma, sır maskeleme). Gerekçe: dı
 sorgulu işlem ve sunucu tarafı parametre bağlama yoktur, bu yüzden kota ve denetim zinciri işlemleri (bölüm 4) A ile
 yazılamaz; B bunları ~19 µs sorgu maliyetiyle ve sınırlı bellekle sağlar. Risk: ctypes imza hatası süreci çökertebilir; bu
 yüzden sarmalayıcı dar tutulur, imzalar tek yerde tanımlıdır ve testler her sürümde çalışır. Yeniden deneme yalnız bağlantı
-kurulurken yapılır; işlem kör tekrarlanmaz. Sıfırdan protokol sürücüsü yazılmaz. `libpq5` ve sürümü `deploy/` içinde açıkça
+kurulurken yapılır; işlem kör tekrarlanmaz (v5.1: yeniden deneme yalnız salt okuma işlemlerinde ya da idempotency anahtarlı yazmalarda). Sıfırdan protokol sürücüsü yazılmaz. `libpq5` ve sürümü `deploy/` içinde açıkça
 kurulur ve belgelenir. Karar DB-K1 sahibine aittir; bu bölüm öneridir.
 
 Windows notu: `libpq.dll` (PostgreSQL istemci dağıtımından) ve bağımlılıkları (`libssl`, `libcrypto`, `libintl` vb.) `PATH`
@@ -123,6 +123,16 @@ A envanter (satır sayısı, zincir doğrulama) → B şema ve göç rolü → C
 denetim zinciri, kota tutarlılığı) → D cutover (yalnız DB-K4 onayıyla). SQLite dosyaları başarı doğrulanmadan silinmez.
 `sqlite3` yalnız yalıtılmış göç aracında okunur; bu araç çalışma zamanına paketlenmez ve cutover sonrası kaldırılır.
 Cutover sonrası SQLite'a dönüş, cutover'dan sonra yazılan veriyi kaybettirir; bu sınır cutover raporunda yazılır.
+
+Faz C'ye v5.1 ile eklenenler: içe aktarmadan sonra her sequence `setval` ile en büyük kimliğe çekilir; kayıt ve olay
+kimlikleri korunur (denetim zinciri kimlikle bağlıdır, yeniden üretilirse zincir kırılır ve `MIGRATION_GATE = FAIL`); zincir
+doğrulaması kaynakta ve hedefte ayrı çalıştırılır; SQLite `NOCASE` ve Türkçe İ/ı farkından doğan benzersizlik çakışmaları
+(e-posta) raporlanır; `foreign_keys` kapalıyken oluşmuş yetim kayıtlar karantina tablosuna alınır, sessizce silinmez, insan
+karar verir; saat dilimsiz zaman değerlerinin UTC olduğu koddan doğrulanır; üç SQLite deposu (form, yönetim, tarama) tek
+veritabanında birleşir ve firma silme + iletişim talepleri + KVKK silme talebi tek işlem olur (atomiklik testi). Göç aracı
+danışma kilidiyle tek kopya çalışır, yalnız ileri gider, uygulanan dosyanın özetini saklar (`db/uygula.py` bunu zaten yapar).
+Şema değişiklikleri genişlet/daralt (expand/contract) düzenindedir: eski kod yeni şemayla çalışabilir, yıkıcı değişiklik ayrı
+sürümdedir. Faz D'de yazma dondurması bakım moduyla (OPS-K1, ALIG-OPS-002) yapılır ve kaynak özetinin değişmediğiyle doğrulanır.
 
 ## 6. Yedek ve geri yükleme (ALIG-DB-005)
 
@@ -176,7 +186,23 @@ ayrı raporlar; PostgreSQL yoksa adım "atlandı" der (başarı sayılmaz), `--r
 Ortam notu: bu geliştirme ortamında yalnız sistem PostgreSQL 16 var. PostgreSQL 18 ikilisi indirilmesine izin
 verilmedi; PG18 üzerinde testler **BLOCKED**. PG16'da geçen test "PG16'da PASS" olarak yazılır, PG18 için PASS sayılmaz.
 
+Kanıt kaydı (v5.1 §23): her PASS için kanıt kimliği, UTC zaman, commit, tam komut, çalışma dizini, ortam (işletim
+sistemi, Python, PostgreSQL ve libpq sürümleri), çıkış kodu ve çıktı yolu yazılır. CI'daki PostgreSQL adımı (`ci/pg_adimi.py`)
+sürümü ve PASS/FAIL/SKIP sayılarını özetler; sürüm kapısında (`--release`) atlanan PostgreSQL testi hatadır.
+
 ## 8. Kapılar
 
 `POSTGRESQL_GATE = FAIL` (SQLite çalışma zamanında), `MIGRATION_GATE = NOT_RUN`, `BACKUP_RESTORE = PG16 tatbikatı geçti, canlı sunucuda NOT_RUN` (`BACKUP_RESTORE_VERIFIED = false`: canlı sunucu tatbikatı, şifreleme kararı DB-K6 ve RPO/RTO kararı DB-K5 bekliyor),
 dolayısıyla `PRODUCTION_READY = false`.
+
+## 9. PostgreSQL erişilemezken (OPS-K1 varsayılanı)
+
+| Bileşen | Davranış |
+| --- | --- |
+| Statik site | nginx sunmaya devam eder |
+| `/healthz` | canlılık: süreç yaşıyorsa geçer |
+| Hazır olma, `/api/tarama/saglik` | 503 |
+| Form, yükleme, portal, yönetim, rapor | 503 + Retry-After, güvenli hata sayfası, veri kaybı yok |
+
+Hiçbir uçta SQLite'a dönüş yoktur. Bakım modu (`ALIG_BAKIM`, ALIG-OPS-002) aynı sayfayı kullanır.
+

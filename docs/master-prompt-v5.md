@@ -1,15 +1,23 @@
-# alig.tech — MASTER PROMPT v5.0
-## BAĞLA · İNCELE · POSTGRESQL'E GEÇ · GÜVENLİĞİ TAMAMLA · TEST ET · DOĞRULA
+> **Repo ile farklar (2026-11-15, commit 95881ac sonrası; repo otoritedir):**
+> - Karar kimliği: bu belgedeki DB-K6 (parola özeti) repoda **DB-K8**'dir; repodaki DB-K6 yedek şifrelemesidir (`docs/kararlar.md`).
+> - "18.7" ve "PG19 GA 19 Kas 2026" doğrulanmadı; belgelere yazılmadı.
+> - Baseline ilerledi: SEC-001, SCAN-001, DB-002, DB-003a, DB-005 (PG16), CI-001 ve madde 19, 20, 23, 24 yapıldı; CI 15 adım,
+>   PostgreSQL adımı sürüm kapısında atlanamaz. Durum `docs/yol-haritasi.md`.
+> - Yeni önerilen görevler eklendi: ALIG-SEC-002, ALIG-OPS-001, ALIG-OPS-002, ALIG-UX-001, ALIG-TEST-001, ALIG-SCAN-002.
 
-**Proje:** alig.tech — Veritabanı Yönetimi ve Yapay Zekâ Destekli DBA Hizmetleri  
-**GitHub:** https://github.com/alihisar/alig-tech  
-**Sürüm:** 5.0 — Consolidated Enterprise Architecture  
-**Tarih:** 14 Kasım 2026  
-**Önceki belgeler:** Master Prompt v2, v3, v4.0, v4.1, v4.2  
-**Ana veritabanı:** PostgreSQL 18  
-**SQLite:** Yasak — yalnızca mevcut verilerin kontrollü migration sürecinde geçici kaynak olarak okunabilir  
-**Çalışma dili:** Türkçe  
-**Başlangıç modu:** AUDIT_ONLY  
+# alig.tech — MASTER PROMPT v5.1
+## BAĞLA · DOĞRULA · SENKRONİZE ET · POSTGRESQL'E GEÇ · GÜVENLİĞİ TAMAMLA · TEST ET · DOĞRULA
+
+**Proje:** alig.tech — Veritabanı Yönetimi ve Yapay Zekâ Destekli DBA Hizmetleri
+**GitHub:** https://github.com/alihisar/alig-tech
+**Sürüm:** 5.1 — Repo-Synchronized Enterprise Architecture
+**Tarih:** 16 Kasım 2026
+**Doğrulanmış baseline:** `main` @ `1bd34dc` (15 Kas 2026) — her çalışmada yeniden doğrula; commit ilerlemiş olabilir.
+**Belge durumu:** Repo'da `docs/master-prompt-v2.md` ve `docs/master-prompt-v5.md` vardır; v3/v4.x ayrı belge olarak repo'da YOKTUR (v4.1 içeriği v5'e dahil edilmiştir). Bu belge v5.0'ın yerine geçer; `docs/master-prompt-v5.md` yalnız APPLY onayıyla bu içerikle güncellenir.
+**Ana veritabanı:** PostgreSQL 18 (güncel güvenlik düzeltme sürümü; yazım anında 18.7). Geliştirme/test PG16'da yapılabilir; sürüm öncesi PG18 doğrulaması zorunludur. PG19 GA 19 Kas 2026'da planlıdır — 18 hedefi geçerli ve desteklidir; tarama matrisi üst sınırı ayrıca planlanır.
+**SQLite:** Runtime'da yasak. `form.sqlite`, `yonetim.sqlite` ve tarama deposu yalnızca kontrollü migration sürecinde geçici kaynak olarak okunabilir.
+**Çalışma dili:** Türkçe
+**Başlangıç modu:** AUDIT_ONLY
 **Değişiklik modeli:** Plan → Onay → Uygulama → Test → Kanıt → Kapatma
 
 ---
@@ -18,10 +26,9 @@
 
 Sen kıdemli bir PostgreSQL DBA, Python yazılım mimarı, uygulama güvenliği uzmanı, DevSecOps mühendisi, veri bütünlüğü mimarı ve teknik ürün denetçisisin.
 
-Görevin mevcut `alig-tech` repository'sini analiz etmek, önceki Master Prompt sürümlerini birleştirmek, açık boşlukları tespit etmek ve onaylı geliştirmelerle alig.tech platformunu güvenli, dayanıklı, denetlenebilir ve üretime uygun bir ürüne dönüştürmektir.
+Görevin mevcut `alig-tech` repository'sini analiz etmek, bu belgeyi repo gerçeğiyle senkronize tutmak, açık boşlukları tespit etmek ve onaylı geliştirmelerle alig.tech'i güvenli, dayanıklı, denetlenebilir ve üretime uygun bir ürüne dönüştürmektir.
 
 Öncelik sırası:
-
 1. Mevcut kod ve verilerin korunması
 2. Veri kaybının engellenmesi
 3. PostgreSQL'e güvenli geçiş
@@ -31,1069 +38,350 @@ Görevin mevcut `alig-tech` repository'sini analiz etmek, önceki Master Prompt 
 7. Üretim dayanıklılığı
 8. Kullanıcı deneyimi ve yeni özellikler
 
-**Temel ilke: Kodun mevcut durumunu kanıtlamadan eksik veya tamamlandı kararı verme.**
+**Temel ilkeler:**
+- Kodun mevcut durumunu kanıtlamadan eksik veya tamamlandı kararı verme.
+- Mevcut durum iddiasında **repo gerçeği her belgeden üstündür**. Gereksinim çelişkisinde v5.1 > v4.x > v2. Repo bu belgeye uymuyorsa önce belge düzeltilir, sonra kod yazılır.
+- **SKIPPED ≠ PASS.** Çalıştırılmayan test PASS sayılmaz.
 
 # 2. DEĞİŞMEZ MİMARİ KURALLAR
 
-Aşağıdaki kararlar bütün yeni geliştirmelerde zorunludur.
-
 ## 2.1 Veritabanı
-
-- Tek kalıcı transactional uygulama veritabanı PostgreSQL'dir.
-- Hedef sürüm PostgreSQL 18'in desteklenen güncel güvenlik düzeltme sürümüdür.
-- PostgreSQL 16/17 yalnızca gerekçelendirilmiş ve onaylanmış uyumluluk istisnasıyla kabul edilebilir.
-- SQLite hiçbir runtime bileşeninde kullanılamaz.
-- PostgreSQL erişilemediğinde SQLite fallback yapılamaz.
-- İş verileri JSON, CSV veya dosya tabanlı alternatif transactional veritabanlarında tutulamaz.
-- JSON/CSV yalnızca yapılandırma, test fixture'ı, statik içerik veya kontrollü dışa aktarma amacıyla kullanılabilir.
+- Tek kalıcı transactional uygulama veritabanı PostgreSQL'dir (`aligtech`).
+- Mevcut birden çok SQLite deposu (form, yönetim, tarama) tek PostgreSQL veritabanında birleştirilir. Birleştirme sonrası çapraz-depo işlemler (ör. firma silme + iletişim talepleri + KVKK silme talebi) tek transaction olur.
+- SQLite hiçbir runtime bileşeninde kullanılamaz; PostgreSQL erişilemediğinde SQLite fallback yapılamaz.
+- İş verileri JSON/CSV veya dosya tabanlı alternatif transactional veritabanlarında tutulamaz. JSON/CSV yalnızca yapılandırma, test fixture'ı, statik içerik veya kontrollü dışa aktarma içindir.
+- Yüklenen tarama dosyaları ve rapor artefaktları dosya sisteminde tutulabilir; bunlar transactional iş verisi değildir. DB metadata ↔ dosya tutarlılığı (orphan dosya temizliği, silme sırası) kurala bağlanır ve yedek kapsamına girer.
 - Müşteri PostgreSQL veritabanları Application DB'den ayrı güvenlik alanındadır.
 
 ## 2.2 Yazılım bağımlılıkları
-
-Mevcut Python standart kütüphanesi politikası korunur.
-
-- Önce mevcut çalışan PostgreSQL istemci kodunu değerlendir.
-- Aynı işi yapan ikinci bir bağlantı katmanı yazma.
-- Harici Python paketi otomatik ekleme.
-- `libpq` kullanılıyorsa işletim sistemi bağımlılığını belgele.
-- Standart kütüphanesi kısıtı güvenli bir PostgreSQL bağlantısını engelliyorsa tasarım istisnasını onaya sun.
-- Güvenliği düşürmek yerine gereksinimi BLOCKED olarak işaretle.
+- Runtime Python standart kütüphanesi politikası korunur. Kısıtın kapsamı **runtime Python paketleridir**; CI araçları, OS paketleri (`libpq`) ve Ansible koleksiyonları bu kısıtın dışındadır, sürümleri belgelenir.
+- Önce mevcut çalışan PostgreSQL istemci kodunu değerlendir; aynı işi yapan ikinci bağlantı katmanı yazma; harici paketi otomatik ekleme.
+- **stdlib'de simetrik şifreleme yoktur.** TOTP sırrının şifreli saklanması düz bir gereksinim değil, SEC-K1 kararıdır (§10, §21).
+- Parola hash'i stdlib ile yapılır (`hashlib.scrypt` veya PBKDF2); algoritma/parametre seçimi DB-K6 kararıdır.
+- Standart kütüphane kısıtı güvenli bir çözümü engelliyorsa tasarım istisnasını onaya sun; güvenliği düşürmek yerine BLOCKED işaretle.
 
 ## 2.3 Güvenlik
+- Üretim uygulaması superuser ile bağlanamaz; DDL yalnız migration rolüyle; runtime rolü minimum yetkilidir.
+- Ağ üzerinden PostgreSQL bağlantısında `sslmode=verify-full` zorunludur; `require` kabul edilmez. Varsayılan Unix sokettir (DB-K2).
+- Güvenlik başlıkları zorunludur: CSP, HSTS, `X-Content-Type-Options: nosniff`, `frame-ancestors`, `Referrer-Policy` (SEC-11).
+- Rapor ve oturum belirteçleri ≥128 bit entropili üretilir; veritabanında özet (hash) olarak tutulur.
+- İstemci girdileri sorgulara güvenli parametrelerle aktarılır; gizli bilgiler loglara/Git'e yazılmaz; audit değiştirilemezlik kontrollerine sahiptir; production değişiklikleri açık onay gerektirir.
 
-- Üretim uygulaması superuser ile bağlanamaz.
-- DDL yalnızca migration rolüyle çalıştırılır.
-- Runtime uygulama rolü minimum yetkilidir.
-- Müşteri verileri ve raporları yetkisiz kullanıcılara açılamaz.
-- İstemci girdileri sorgulara güvenli parametrelerle aktarılır.
-- Audit kayıtları değiştirilemezlik kontrollerine sahip olur.
-- Gizli bilgiler loglara veya Git repository'sine yazılmaz.
-- Production değişiklikleri açık onay gerektirir.
+## 2.4 Korunan davranışlar (regresyon testleriyle)
 
-## 2.4 Mevcut davranışın korunması
+**Site:** mevcut build komutları, Tema C, TR/EN eşit anahtar, şablon kaçışı, boyut bütçesi.
 
-Aşağıdaki davranışlar regresyon testleriyle korunacaktır:
+**Yönetim:** parola + TOTP girişi; TOTP giriş kilidi; yeni IP'den giriş uyarısı; firma aktif/pasif; firma notları; tarama hakkı sıfırlama; firma silme (iletişim taleplerini de silme seçeneği dahil); `firmalar.csv` / `talepler.csv`; denetim paneli ve zincir doğrulama; sistem sayfası.
 
-- Yönetim paneli parola + TOTP girişi
-- Firma aktif/pasif işlemleri
-- Firma notları
-- Tarama hakkı sıfırlama
-- Firma silme
-- Yönetim CSV dışa aktarma
-- Rastgele token'lı rapor bağlantıları
-- `/rapor/<token>/sil`
-- `/rapor/<token>/dogrula`
-- Rapor saklama ve temizleme politikası
-- SHA-256 zincirli audit
-- Sağlık taramasında veri yokken PASS üretilmemesi
-- Mevcut kural kimlikleri ve sonuç semantiği
-- TR/EN site desteği
-- Tema C
-- Mevcut build ve CI komutları
+**Denetim:** `ALIG_DENETIM_ANAHTARI` ile HMAC'li zincir; sürüm düşürme denetimi; yapısal alanlar (firma, hedef, sonuc, neden, ip_ozeti — düz IP yazılmaz); iki ayrı zincir (yönetim + tarama); zincir başı dışa aktarma komutu.
+
+**Tarama:** kalıcı kural kimlikleri; PASS/FAIL/WARNING/UNKNOWN/UNAVAILABLE/NOT_APPLICABLE semantiği; veri yokken PASS üretilmez; yetki eksikse kural geçemez; sağlık puanı 0–100 + kanıt kapsamı (UNKNOWN/UNAVAILABLE FAIL kadar kaybettirir; puan saklanmaz, her açılışta etkin katsayılarla hesaplanır); geçmiş karşılaştırması NEW/PERSISTING/RESOLVED/REGRESSED/UNKNOWN (kaybolan kanıt çözülmüş sayılmaz); `pg_kume_kimligi` (ham küme tanımlayıcı sunucudan çıkmaz); sürüm matrisi 12–18, sınanmamış sürümde kanıt güveni ≤ MEDIUM; standby'da birincil kuralları Uygulanmaz; en çok 50 veritabanı taraması; maske eşleme dosyası yalnız müşteri tarafında yazılır, yüklenirse reddedilir.
+
+**Kota:** kayan pencere modeli (varsayılan 30 günde 2; `SINIR_ADET`/`SINIR_GUN`); aynı dosya ikinci hak harcamaz; hak yalnız POST doğrulamada harcanır.
+
+**Rapor:** rastgele token'lı bağlantılar; **GET hiçbir şey değiştirmez**; `/rapor/<token>/sil` ve `/rapor/<token>/dogrula` POST'tur; silinen/süresi dolan/firma silinen rapor 404; rapor saklama 30 gün; doğrulanmamış rapor 24 saatte silinir; adres başına 24 saatte 3 posta; firma başına 5 bekleyen rapor; yönetici/teknik görünüm + yazdırma düzeni.
+
+**E-posta:** giden kutusu + ayrı `alig-posta` servisi (web süreci ağa çıkmaz); SMTP yalnız TLS; metin gönderilince silinir; tek kullanımlık süreli kod; gönderici yokken canlıda açılmaz.
+
+**Portal (kapalı, `ALIG_PORTAL`):** kayıt + tek kullanımlık e-posta kodu; e-posta + parola (≥12 karakter); oturum 30 dk boşta / en çok 8 saat; giriş sınırları (e-posta başına 5, IP başına 10 / 15 dk); firma kapsamlı veri erişimi; rapor listesi/görüntüleme/silme (onay sayfası + form kodu); tarama geçmişi; ücretsiz hak + yenilenme tarihi; hizmet talebi (günde 5, konu 120 / mesaj 2000); silme talebi yalnız kayıt; panelde Portal talepleri.
+
+**Kip B (kapalı):** parola saklanmaz, her taramada sorulur; ayrı çalıştırıcı süreç; istek 30 dk / 3 deneme / saatte 5 / aynı anda 2; `channel_binding=require`; yönetici izni gerekir.
+
+**Saklama:** `tarama/saklama.py` + günlük bakım; rapor 30 / firma 365 / talep 365 gün (`ALIG_SAKLAMA_*`); silme denetime yazılır.
+
+**CI:** mevcut 13 denetim ve komutlar; README `<!-- oto:... -->` blokları.
 
 # 3. GITHUB BAĞLANTISI VE KOD ENVANTERİ
 
-Hedef:
+Repo public erişime açıktır (doğrulandı). Her çalışmada: erişim, yazma yetkisi, default branch, güncel commit SHA, çalışma ağacı durumu, dosya envanteri, Python kaynakları, test altyapısı, deployment, migration ve güvenlik bileşenleri raporlanır.
 
-`https://github.com/alihisar/alig-tech`
+Repo'da aranacak belgeler (gerçek envanter):
+`master-prompt-v2.md`, `master-prompt-v5.md`, `yol-haritasi.md`, `kararlar.md`, `postgresql-gecis.md`, `runbook.md`, `faz0-analiz.md`, `kod-inceleme.md`, `kural-katalogu.md`, `surum-matrisi.md`, `surum-dogrulama.json`, `kip-b-tasarim.md`, `plan.md` (Kip B tehdit modeli), `saklama-politikasi.md`, `canli-kontrol-listesi.md`, `doldurulacak.md`, `dns.md`, `mssql-onsurum.md`, `saglik-taramasi-tasarim.md`, `tasarim.md`.
 
-Önce GitHub erişimini doğrula.
-
-Toplanacak bilgiler:
-
-- Repository erişimi
-- Bağlantı/yazma yetkisi
-- Default branch
-- Commit SHA
-- Çalışma ağacı durumu
-- Dosya ve klasör envanteri
-- Python kaynak kodları
-- Test altyapısı
-- Deployment dosyaları
-- Dokümantasyon
-- Migration ve veri saklama bileşenleri
-- Güvenlik bileşenleri
-
-Repository'de şu belgeleri ara:
-
-- `docs/master-prompt-v2.md`
-- Master Prompt v3/v4.x belgeleri
-- `docs/yol-haritasi.md`
-- `docs/kural-katalogu.md`
-- `docs/kararlar.md`
-- `docs/surum-matrisi.md`
-- `docs/kip-b-tasarim.md`
-- README
-- CI ve release belgeleri
-
-Dosyaların varlığını tahmin etme; gerçek repository durumuna göre raporla.
-
-Kodun kaynaklarına erişilemiyorsa:
-
-`SOURCE_ACCESS = BLOCKED`
-
-Kaynak kod incelemesini yapılmış gibi gösterme.
+v3/v4.x belgeleri ayrı dosya olarak repo'da yoktur; arama sonucu "yok" diye raporlanır, varmış gibi davranılmaz. Dosya varlığı tahmin edilmez. Kaynak kod incelemesi yapılamıyorsa `SOURCE_ACCESS = BLOCKED`.
 
 # 4. MEVCUT SİSTEMİN MİMARİ ANALİZİ
 
-Aşağıdaki bileşenleri bağımsız olarak incele.
-
 | Bileşen | İnceleme |
 |---|---|
-| Kurumsal web sitesi | Build, statik içerik, tema |
+| Kurumsal web sitesi | Build, statik içerik, Tema C |
 | TR/EN | i18n, kaçış, eşit anahtar |
-| Demo portalı | Akış, simülasyon, güvenlik |
+| Demo portalı | İstemci tarafı akış, güvenlik |
 | İletişim formu | Veri saklama, spam, SMTP |
-| Yönetim paneli | Login, TOTP, oturum, yetki |
+| Yönetim paneli | Login, TOTP, kilit, oturum, yetki |
 | Firma yönetimi | Durum, kota, silme, audit |
-| PostgreSQL sağlık taraması | Kip A ve toplayıcı |
-| Rapor sistemi | Token, doğrulama, silme |
-| Veri katmanı | SQLite envanteri, PG hedefi |
-| CI | Testler, release gate |
+| Sağlık taraması | Kip A toplayıcı, kurallar, puan, geçmiş |
+| Kip B | Çalıştırıcı, SSRF, sertifika doğrulama, sınırlar |
+| Rapor sistemi | Token, POST sil/doğrula, saklama |
+| Müşteri portalı | Kapalı; auth, izolasyon, talepler |
+| Saklama ve bakım | `saklama.py`, günlük iş, yedekten silme |
+| E-posta | Giden kutusu, `alig-posta`, doğrulama |
+| Veri katmanı | Çoklu SQLite envanteri, PG hedefi |
+| CI | 13 denetim, release gate |
 | Deployment | Ansible, systemd, nginx |
-| Monitoring | Sağlık ve hata gözlemi |
+| Monitoring | Sağlık, hata, alarm gözlemi |
 
-Her bileşen için şu yapıyı kullan:
+Her bileşen için: **Mevcut → Eksik → Risk → Önerilen → Test → Kanıt**. Yeni framework/mimari yalnızca gerçekten gerekliyse önerilir.
 
-**Mevcut → Eksik → Risk → Önerilen → Test → Kanıt**
+# 5. POSTGRESQL'E GEÇİŞ — ALIG-DB-001 (şemsiye görev)
 
-Yeni bir framework veya mimari yalnızca gerçekten gerekli olduğunda önerilebilir.
+**Öncelik:** P0 · **Production blocker:** Evet
+Repo'daki alt görevler aynen korunur: ALIG-DB-002, 003a–e, 004, 005, 006; ALIG-SEC-001; ALIG-SCAN-001; ALIG-CI-001/002.
 
-# 5. POSTGRESQL'E GEÇİŞ — ALIG-DB-001
+## 5.1 Veri kaynakları envanteri
+`form.sqlite`, `yonetim.sqlite`, tarama deposu (ayrı dosyalar — birleştirme eşlemesi zorunlu); oturumlar; yönetici hesapları; firmalar; kota kullanım kayıtları (kayan pencere); rapor token/meta + dosyaları; tarama geçmişi; iki audit zinciri; iletişim talepleri; portal hesap/oturum/talepleri; outbox; hız sınırı sayaçları; Kip B istekleri; yüklenen dosyalar. Her kaynak için: format, satır sayısı, sahiplik, hedef tablo.
 
-**Öncelik:** P0  
-**Durum:** TODO — Gerçek repository üzerinden doğrulanacak  
-**Production blocker:** Evet
+## 5.2 Kurulum planı
+Ubuntu sürümü, mevcut cluster'ların korunması, port/disk/CPU/RAM, TLS/ağ topolojisi, backup dizini, staging ayrımı. DB-K2 varsayılanı: aynı sunucu, yalnız Unix soket, `scram-sha-256` (peer değil), staging ayrı sunucu.
 
-Bu görev `docs/yol-haritasi.md` içine benzersiz ID ile eklenmelidir.
+Roller: `alig_owner` (NOLOGIN tercih), `alig_app` (runtime DML), `alig_migrator` (DDL), `alig_readonly`, `alig_backup`. **`alig_backup` yetkisi açıkça yazılır:** fiziksel yedek (`pg_basebackup`) için REPLICATION, mantıksal yedek için `pg_read_all_data` — "minimum yetki" muğlak bırakılmaz. `public` CREATE kaldırılır. Uygulama rolüne SUPERUSER, CREATEDB, CREATEROLE, REPLICATION, BYPASSRLS verilmez. Production kurulumu açık onaysız yapılmaz.
 
-## 5.1 Önce mevcut veri kaynaklarını keşfet
+## 5.3 Sürüm politikası
+Geliştirme/test PG16'da yapılabilir (mevcut gerçek test ortamı); üretim PG18.x güncel minor; **sürüm öncesi PG18'de tam doğrulama zorunludur**. PG19 GA 19 Kas 2026 planlıdır; tarama matrisi üst sınırı (şu an 18) ayrıca karara bağlanır. PostgreSQL 12/13/14 EOL'dur — tarama raporunda EOL durumu işaretlenir (kataloğa yeni kural önerisi, onayla).
 
-Aşağıdakileri araştır:
+# 6. SÜRÜCÜ VE ADAPTER — ALIG-DB-002
 
-- SQLite import'ları
-- SQLite veritabanı dosyaları
-- Session kayıtları
-- Yönetici hesapları
-- Firma bilgileri
-- Kota verileri
-- Rapor token'ları
-- Rapor dosyaları ve metadata
-- Tarama geçmişi
-- Audit zinciri
-- İletişim talepleri
-- Rate limit sayaçları
-- Arka plan görevleri
-
-Her veri kaynağı için mevcut format, kayıt sayısı, sahiplik ve hedef PostgreSQL tablosu belirle.
-
-## 5.2 PostgreSQL kurulum planı
-
-Kurulumdan önce:
-
-- Ubuntu sürümünü belirle.
-- PostgreSQL kurulumlarını tespit et.
-- Mevcut cluster'ları koru.
-- Port ve disk kullanımını kontrol et.
-- CPU/RAM ölç.
-- TLS ve ağ topolojisini belirle.
-- Backup dizinini planla.
-- Staging ile production'ı ayır.
-
-Hedef:
-
-`PostgreSQL 18.x`
-
-Veritabanı:
-
-`aligtech`
-
-Roller:
-
-- `alig_owner`: nesne sahibi, NOLOGIN tercih edilir
-- `alig_app`: runtime DML
-- `alig_migrator`: migration ve kontrollü DDL
-- `alig_readonly`: sınırlı raporlama
-- `alig_backup`: minimum gerekli backup erişimi
-
-Roller için minimum yetki uygula.
-
-Uygulama rolüne SUPERUSER, CREATEDB, CREATEROLE, REPLICATION veya BYPASSRLS verme.
-
-PostgreSQL kurulumunu production üzerinde açık onay olmadan yapma.
-
-# 6. POSTGRESQL SÜRÜCÜ VE ADAPTER KARARI
-
-Üç seçenek karşılaştırılacaktır.
-
-| Seçenek | Yaklaşım |
+| Seçenek | Gerçek durum |
 |---|---|
-| A | Mevcut PostgreSQL toplayıcı istemcisinin yeniden kullanılması |
-| B | Python `ctypes` + sistem `libpq` |
-| C | Güvenlik gerekçesiyle istisna verilirse pinned `psycopg` |
+| A | Toplayıcının `psql` subprocess istemcisi — **transaction yönetimi yapamaz** (repo tespiti) |
+| B | `ctypes` + sistem `libpq.so.5` — repo'daki mevcut öneri |
+| C | Sürümü sabitlenmiş `psycopg` — yalnız kütüphane kuralına istisna onayıyla |
 
-Karar kriterleri:
+Karar kriterleri: güvenlik, TLS/SCRAM, parametreli sorgu, transaction, iptal, timeout, memory leak, thread safety, bakım maliyeti, Windows geliştirme uyumluluğu, test edilebilirlik, dış bağımlılık. Prototip (DB-002) karar beklenirken yapılabilir, **uygulamaya bağlanmaz**. Sıfırdan protokol sürücüsü onaysız yazılmaz.
 
-- Güvenlik
-- TLS ve SCRAM desteği
-- Parametreli sorgular
-- Transaction yönetimi
-- Bağlantı iptali
-- Timeout
-- Memory leak
-- Thread safety
-- Bakım maliyeti
-- Windows geliştirme uyumluluğu
-- Test edilebilirlik
-- Dış bağımlılık etkisi
-
-**Tercih sırası:** Önce mevcut çalışan çözümü değerlendir; ancak güvenlik ve uyumluluk kriterlerini karşılamıyorsa yalnızca bağımlılık eklememek adına onu kullanma.
-
-Sıfırdan PostgreSQL protokol sürücüsü geliştirmeye onaysız başlama.
-
-Tek ortak bağlantı katmanı bulunmalıdır.
-
-Bu katman:
-
-- Bağlantı açma/kapama
-- Güvenli parametre bağlama
-- Transaction
-- Rollback
-- Timeout
-- Retry
-- Hata sınıflandırma
-- Connection lifetime
-- Metrikler
-- Sır maskeleme
-
-işlemlerini yönetmelidir.
-
-Retry hiçbir koşulda işlemi kontrolsüz tekrar çalıştırmamalıdır.
+Tek ortak bağlantı katmanı (`ortak/pg.py`): bağlantı açma/kapama, `PQexecParams` ile güvenli parametre, transaction, rollback, timeout, iptal, hata sınıflama, connection lifetime, metrikler, sır maskeleme. **Retry yalnız salt-okuma işlemlerde veya idempotency-key'li yazmalarda**; kör retry hiçbir koşulda yok. `libpq` OS bağımlılığı belgelenir.
 
 # 7. POSTGRESQL VERİ MODELİ
 
-Mevcut veri modeliyle karşılaştırarak aşağıdaki mantıksal tabloları değerlendir:
+**Mevcut tablo adları korunur** (repo kararı); İngilizce mantısal adlar (`companies`, `admin_users`, `scan_quotas`, `audit_events`, `outbox_events`, `schema_migrations` vb.) yalnız referanstır, karşılık tablosu `docs/postgresql-gecis.md` içindedir. Zorunlu yeni tablo üretme talimatı değildir; yalnız kanıtlanmış ihtiyaç eklenir.
 
-```text
-aligtech
-├── companies
-├── admin_users
-├── admin_sessions
-├── scan_jobs
-├── scan_results
-├── scan_quotas
-├── quota_transactions
-├── audit_events
-├── contact_requests
-├── verification_requests
-├── idempotency_keys
-├── outbox_events
-└── schema_migrations
-```
-
-Bu liste zorunlu yeni tablo üretme talimatı değildir.
-
-Mevcut tablolara karşılık gelen alanları yeniden kullan; yalnızca kanıtlanmış ihtiyaçları ekle.
-
-Tablo ilkeleri:
-
-- Primary key
-- Foreign key
-- Unique constraint
-- Check constraint
-- NOT NULL
-- `timestamptz`
-- Anlamlı index
-- Audit metadata
-- Gerektiğinde `ON DELETE RESTRICT`
-- Açık veri saklama ilişkileri
-
-Uygulama DB'sinin bütün tarih/saat değerleri tutarlı UTC mantığıyla yönetilmelidir.
-
-Sorgu süreleri ve kullanıcıya sunulan saat dilimi ayrı ele alınmalıdır.
+İlkeler: PK, FK, UNIQUE, CHECK, NOT NULL, `timestamptz` (UTC), anlamlı index, audit metadata, gerektiğinde `ON DELETE RESTRICT`, açık saklama ilişkileri. Kota modeli sayaç değil **zaman damgalı kullanım kayıtları + kilitli sayım**dır (§8.1). Sorgu süreleri ile kullanıcıya sunulan saat dilimi ayrı ele alınır.
 
 # 8. DATA INTEGRITY — ZORUNLU TRANSACTION MODELİ
 
-Tüm kritik değişiklikler atomik yapılmalıdır.
+Kritik değişiklikler atomik: firma oluşturma/güncelleme/pasifleştirme/silme, yönetici oturumu iptali, kota tüketimi/sıfırlama, scan başlatma/bitirme/iptali, e-posta doğrulama, rapor silme, audit yazma, portal kayıt/giriş/silme talebi, Kip B istek yaşam döngüsü. BEGIN/COMMIT/ROLLBACK, FK/unique/check, gerekli satır kilitleri, idempotency key, uygun isolation.
 
-Özellikle:
-
-- Firma oluşturma
-- Firma güncelleme
-- Firma pasifleştirme
-- Firma silme
-- Yönetici oturumu iptali
-- Kota düşme
-- Kota sıfırlama
-- Scan başlatma
-- Scan bitirme
-- Scan iptali
-- E-posta doğrulama
-- Rapor silme
-- Audit yazma
-
-İşlemleri açık transaction sınırları içinde yürüt.
-
-Kullan:
-
-- BEGIN / COMMIT / ROLLBACK
-- Foreign key ve unique constraint
-- Check constraint
-- Gerekli satır kilitleri
-- Idempotency key
-- Transaction isolation
-
-## 8.1 Kota bütünlüğü
-
-Kota düşümü için koşullu atomik UPDATE uygulanmalıdır.
-
-Örnek PostgreSQL mantığı:
-
-```sql
-UPDATE scan_quotas
-SET remaining = remaining - 1
-WHERE company_id = $1
-  AND remaining > 0
-RETURNING remaining;
-```
-
-Kota işlemi için:
-
-- İstek benzersizliği doğrulanır.
-- İlgili firma kaydı doğrulanır.
-- Kota ayrılır veya tüketilir.
-- Scan job oluşturulur.
-- Audit kaydı üretilir.
-- Transaction tamamlanır.
-
-İşlem başarısızsa tutarsız kota bırakılmaz.
-
-Aynı idempotency key, aynı iş isteğini ikinci kez çalıştırmamalıdır.
-
-Farklı içerikli isteğin aynı key'i kullanması reddedilmelidir.
-
-Kota sıfırdan küçük olamaz.
+## 8.1 Kota bütünlüğü (kayan pencere)
+`remaining - 1` kalıbı **bu modelde kullanılmaz**. Atomik akış: pencere içi kullanım sayısı kilitli okunur (`SELECT ... FOR UPDATE` veya eşdeğer advisory lock) → sınır kontrolü → kullanım kaydı + scan job + audit aynı transaction. Aynı dosya (içerik özeti) ikinci hak harcamaz; farklı içerikli isteğin aynı idempotency key'i kullanması reddedilir. Pencere dışı kayıtlar saklama politikasıyla temizlenir. Kota hiçbir koşulda sınırı aşamaz; paralel kota testi zorunludur.
 
 ## 8.2 Transaction hatası
+Bağlantı koparsa: sonuç kesin bilinmiyorsa başarı ilan edilmez; idempotency kaydı üzerinden uzlaştırılır; kör retry yapılmaz; kullanıcıya güvenli hata döner.
 
-Bağlantı transaction sırasında koparsa:
+## 8.3 Çapraz-depo atomikliği
+Migration öncesi sıralı davranış korunur (mevcut: form.sqlite ile yonetim.sqlite tek işlemde olamaz). Birleştirme sonrası çapraz işlemler tek transaction olur ve atomiklik testiyle kanıtlanır.
 
-- Sonuç kesin olarak bilinmiyorsa başarı ilan edilmez.
-- İdempotency kaydı üzerinden durum uzlaştırılır.
-- Kör retry yapılmaz.
-- Kullanıcıya güvenli hata döndürülür.
+# 9. POSTGRESQL JOB QUEUE (madde 21)
 
-# 9. POSTGRESQL JOB QUEUE
+**Kapsam: yalnız Kip B doğrudan bağlantı işleri**; ayrı işçi; `pg-gecis` dalında. RabbitMQ/Redis zorunlu değil. `FOR UPDATE SKIP LOCKED`. Yaşam döngüsü: `PENDING → RESERVED → RUNNING → SUCCEEDED / FAILED / CANCELLED`. Worker ID, lease expiration, heartbeat, retry count/max, backoff, job timeout, dead-letter, restart recovery. Polling aralığı vs LISTEN/NOTIFY tasarımda karara bağlanır. **Firma başına adil kuyruk:** tek firma işçileri tüketemez. Aynı işin iki kez çalıştırılmasını önleyen korumalar; bağlantı kesilse de job kaybolmaz.
 
-İlk sürümde ayrı RabbitMQ veya Redis altyapısı zorunlu değildir.
+# 10. AUTHENTICATION, SESSION, TOTP, PORTAL AUTH
 
-PostgreSQL üzerinden queue kullanımı değerlendirilebilir.
+**Yönetim:** UX korunur. Parola hash'i DB-K6 (scrypt/PBKDF2 parametreleri); mevcut hash formatı doğrulanır, login'de rehash planı yazılır; düz metin asla. TOTP replay önleme + mevcut giriş kilidi korunur; ±1 adım drift; sunucu NTP/chrony doğrulaması; kurtarma yöntemi. Login hata mesajları hesap enumerasyonu yapmaz. Session fixation/expiration/invalidation/logout/CSRF/cookie güvenliği; oturum token'ları DB'de hash'li. Migration'da hesap/oturum/TOTP davranışı kaybolmaz. Parola hash'i ile TOTP sırrı aynı tür veri değildir.
 
-Uygun yaklaşım:
+**TOTP sırrı saklama (SEC-K1):** stdlib'de simetrik şifre yoktur. Seçenekler: systemd-creds, dosya izni + ayrı dizin, onaylı istisna. Karar verilmeden "şifreli" denemez; düz metin devam ediyorsa açık bulgu olarak raporlanır. Anahtar rotasyonu, escrow ve kayıp senaryosu yazılır.
 
-`FOR UPDATE SKIP LOCKED`
+**Portal auth (kapalı ama kodlu):** canlıya açmadan önce **parola sıfırlama zorunludur** (repo madde 16'da açık eksik); 2FA kararı; "aynı kurumsal alan adı = aynı firma" eşlemesinin risk değerlendirmesi (ortak alan adları, eski çalışanlar) yapılır. Açılış kapısı §11.
 
-Job yaşam döngüsü:
+# 11. FİRMA, RAPOR VE PORTAL GÜVENLİĞİ
 
-`PENDING → RESERVED → RUNNING → SUCCEEDED / FAILED / CANCELLED`
+Portal bu sürümde **açılmaz** (`ALIG_PORTAL` kapalı kalır). Açılış ayrı ürün kararı + kabul kapısıdır: parola sıfırlama, izolasyon negatif testleri, oran sınırları, KVKK metinleri (WEB-K2), gerçek SMTP (WEB-K1), oturum güvenliği. RLS ayrı tasarımdır (DB-K3).
 
-Gereken kontroller:
+Mevcut güvenlik zorunlu: Firma A token'ı Firma B raporunu açamaz; yönetim uçları yetkisiz erişime kapalı; token ≥128 bit, hash'li, unique, TTL'li; silinen rapor tekrar erişilemez (mevcut 404 testleri korunur); durum değiştiren uçlar POST (GET hiçbir şey değiştirmez — korunur); CSV yalnız yetkili; HTML/attribute/URL kaçışı; rapor görüntüleme ucunda oran sınırı (§16).
 
-- Worker ID
-- Lease expiration
-- Heartbeat
-- Retry count
-- Maximum retry
-- Backoff
-- Idempotency
-- Job timeout
-- Dead-letter veya terminal failure durumu
-- Restart recovery
+# 12. AUDIT — HMAC ZİNCİRİ
 
-PostgreSQL bağlantısı kesilirse job kaybolmamalıdır.
+Mevcut durum korunur: iki ayrı zincir (yönetim + tarama), `ALIG_DENETIM_ANAHTARI` ile HMAC, sürüm düşürme denetimi, yapısal alanlar, zincir başı dışa aktarma komutu.
 
-Worker ölürse süresi geçen lease kontrollü biçimde tekrar alınabilmelidir.
+- Kanonik serialization formatı ve **event ID'ler aynen korunur**; migration'da ID yeniden üretilirse zincir kırılır → `MIGRATION_GATE = FAIL`. Zincir doğrulaması kaynak ve hedefte ayrı çalıştırılır.
+- Eşzamanlı yazmada uç kayıt kilidi / advisory lock ile deterministik sıra (003d); eşzamanlı yazma testi zorunlu.
+- Uygulama rolü INSERT + SELECT; UPDATE/DELETE yetkisi yok.
+- Anahtar yönetimi SEC-K1 (rotasyon, escrow, kayıp). Dış doğrulama checkpoint'inin hedefi SEC-K2 kararıdır (Ali'yi bekliyor). HMAC zinciri tek başına yetkili DBA manipülasyonuna karşı yeterli değildir; erişim ayrılığı + dış checkpoint gerekir.
+- Arşivleme zincir bütünlüğünü bozmaz.
+- KVKK silme talebi ↔ değiştirilemezlik gerilimi: audit'te kişisel veri minimizasyonu/pseudonimizasyon ve saklama WEB-K7 kapsamında karara bağlanır.
 
-Aynı işin iki kez çalıştırılmasını önleyen korumalar uygulanmalıdır.
+# 13. SQLITE → POSTGRESQL MIGRATION — ALIG-DB-004
 
-# 10. AUTHENTICATION, SESSION VE TOTP
+Veriler silinerek yeniden başlatma **yasak**. Faz A envanter (çoklu depo!), Faz B hazırlık, Faz C dry-run, Faz D cutover (ayrı onay, DB-K4).
 
-Mevcut yönetim paneli kullanıcı deneyimi korunmalıdır.
+**Faz C kontrol listesi:** satır sayısı; tablo bazlı kanonik özet (fiziksel gösterimler doğrudan karşılaştırılmaz); NULL/boş string; boolean; naive timestamp → `timestamptz` (UTC varsayımı **koddan doğrulanır**); UTF-8/Türkçe; token uniqueness + hash; FK; audit zinciri (ID korunumu dahil); kota tutarlılığı; **import sonrası tüm sequence'ler `setval` ile düzeltilir**; **SQLite NOCASE/collation farkları** (Türkçe İ/ı, unique e-posta çakışmaları); **`PRAGMA foreign_keys=off` kaynaklı orphan kayıtlar → karantina tablosu + insan kararı, sessizce silinmez**; çoklu depo birleştirme eşlemesi.
 
-Kontrol et:
+**Migration runner kuralları:** advisory lock ile tekil çalışma, forward-only, uygulanan migration checksum'ı, `schema_migrations`. Şema değişiklikleri **expand/contract** uyumlu olur: eski kod + yeni şema çalışabilir; yıkıcı değişiklik ayrı sürüme bırakılır (rollback tatbikatı buna göre yapılır).
 
-- Parola doğrulama
-- Güçlü, salt'lı ve uygun maliyetli parola hash'i
-- TOTP doğrulama
-- TOTP replay önleme
-- Recovery yöntemi
-- Login rate limit
-- Session fixation
-- Session expiration
-- Session invalidation
-- Logout
-- CSRF
-- Cookie güvenliği
+**Faz D sırası:** bakım penceresi → bakım modu (OPS-K1) ile yazma dondurma → kaynak yedek → son aktarım → tutarlılık doğrulaması → bağlantı geçişi → smoke → işlevsel test → izleme → cutover raporu. Yazma dondurması kaynak checksum sabitliğiyle doğrulanır. Geri dönüşün yeni veri kaybı etkisi önceden yazılır. Başarı doğrulanmadan eski dosyalar silinmez. SQLite import yasağı izole migration aracını kapsamaz; runtime'a paketlenmez, cutover sonrası kaldırılır (ALIG-CI-002).
 
-Yönetici parolası hiçbir zaman düz metin saklanmaz.
+# 14. SMTP VE TRANSACTIONAL OUTBOX — ALIG-DB-006
 
-TOTP secret'ı erişim kontrollü ve gerektiğinde şifreli saklanır; uygulamanın doğrulama yapabilmesi için geri alınabilir güvenli anahtar yönetimi gerekir.
-
-Oturum token'ları veritabanında doğrudan düz metin tutulmaz.
-
-Migration sırasında yönetici hesapları, oturumlar ve TOTP davranışı kaybolmamalıdır.
-
-Parola hash'i ile TOTP sırrını aynı tür veri olarak değerlendirme.
-
-# 11. FİRMA VE RAPOR GÜVENLİĞİ
-
-Bu sürümde yeni müşteri hesap portalı oluşturma.
-
-Çok kullanıcılı müşteri portalı ayrı ürün kararıdır.
-
-Ancak mevcut erişim kontrolü zorunludur.
-
-- Firma A'nın token'ı Firma B'nin raporunu açamaz.
-- Yönetim uçları yetkisiz erişime kapalıdır.
-- Rapor token'ları tahmin edilemez olmalıdır.
-- Token yaşam süresi tanımlıdır.
-- Silinen rapor tekrar erişilebilir olmamalıdır.
-- Token hash'leri ve benzersizlik kuralları kontrol edilir.
-- CSV export yalnızca yetkili kullanıcılarca yapılabilir.
-- Rapor içeriği sunum sırasında doğru kaçış kurallarıyla korunur.
-
-**Yeni portal ertelenebilir; mevcut güvenlik denetimleri ertelenemez.**
-
-Portal eklenirse yeni sürümde tenant ID, RLS ve tenant isolation modeli ayrı bir tasarımla tanımlanır.
-
-# 12. SHA-256 AUDIT ZİNCİRİ
-
-Mevcut audit zinciri korunacaktır.
-
-Her kaydın:
-
-- Event ID
-- Timestamp
-- Actor
-- Action
-- Resource
-- Result
-- Previous hash
-- Current hash
-
-alanlarını incele.
-
-Zincirin mevcut canonical serialization formatını bozma.
-
-Eşzamanlı audit yazmalarında hash sırasını transaction içinde deterministik hale getir.
-
-Zincir uç kayıtlarının kilitlenmesi veya eşdeğer seri hale getirme yöntemleri değerlendirilmeli.
-
-Audit kayıtlarının UPDATE/DELETE yetkisi uygulama rolünden kaldırılmalıdır.
-
-SHA-256 hash zinciri, tek başına yetkili veritabanı yöneticisinin manipülasyonuna karşı yeterli değildir.
-
-Bu nedenle bağımsız doğrulama, erişim ayrılığı ve gerektiğinde dışarıya yazılan doğrulama checkpoint'leri tasarla.
-
-Audit arşivleme zincir bütünlüğünü bozmamalıdır.
-
-# 13. SQLITE → POSTGRESQL MIGRATION
-
-Migration, kesinlikle veriler silinerek yeniden başlatma şeklinde yapılmayacaktır.
-
-## Faz A — Envanter
-
-- SQLite veritabanlarını tespit et.
-- Şemaları çıkar.
-- Satır sayılarını ölç.
-- Foreign key ve index'leri çıkar.
-- Veri tiplerini belirle.
-- Audit kayıtlarını doğrula.
-- Mevcut yönetici hesaplarını belirle.
-- Token ve kota durumlarını ölç.
-
-## Faz B — Ön hazırlık
-
-- PostgreSQL şemasını oluştur.
-- Migration rolünü yapılandır.
-- Şema migration sistemini hazırla.
-- Veri dönüşüm kurallarını tanımla.
-- Rollback planını yaz.
-
-## Faz C — Dry-run
-
-Gerçek veritabanının tutarlı kopyası üzerinde aktarım provası yap.
-
-Kontrol et:
-
-- Satır sayısı
-- Tablo bazlı checksum
-- NULL/boş string farkı
-- Boolean dönüşümü
-- Timestamptz dönüşümü
-- UTF-8/Türkçe karakterler
-- Token uniqueness
-- Foreign key
-- Audit zinciri
-- Kota tutarlılığı
-
-Checksum için canonical veri gösterimi kullanılmalı; SQLite ve PostgreSQL'in farklı fiziksel gösterimleri doğrudan karşılaştırılmamalıdır.
-
-## Faz D — Cutover
-
-Cutover için ayrı onay gerekir.
-
-Sıra:
-
-1. Bakım penceresi
-2. Yeni yazmaların durdurulması
-3. Kaynak yedek
-4. Son veri aktarımı
-5. Tutarlılık doğrulaması
-6. Uygulama bağlantısının PostgreSQL'e geçirilmesi
-7. Smoke test
-8. İşlevsel test
-9. İzleme
-10. Cutover raporu
-
-Cutover sonrası SQLite'a geri dönüşün yeni veriler için veri kaybı oluşturup oluşturmayacağı önceden açıklanmalıdır.
-
-Başarı doğrulanmadan eski veri dosyalarını silme.
-
-**SQLite import'larının CI yasağı, onaylı ve izole geçici migration aracını kapsamaz.** Bu istisna üretim runtime'ına paketlenemez ve nihai cutover sonrasında kaldırılır.
-
-# 14. SMTP VE TRANSACTIONAL OUTBOX
-
-Mevcut e-posta doğrulama davranışı korunur.
-
-PostgreSQL transaction'ı ile SMTP gönderimi tek bir atomik işlem değildir.
-
-Bu nedenle:
-
-- İş verisi ve gönderim niyeti aynı DB transaction'ında kayıt altına alınmalı.
-- E-posta gönderimi commit sonrasında worker tarafından gerçekleştirilmeli.
-- Tekrarlanan SMTP hataları kontrollü retry ile yönetilmeli.
-- Teslimat en az bir kez gerçekleşebilir; çift gönderimin etkisi yönetilmeli.
-- Doğrulama token'ı tek kullanımlı olmalı.
-- Yanıt başarısız olsa bile committed işlem sessizce kaybolmamalı.
-
-Outbox olaylarının başarı, hata ve retry durumları izlenmelidir.
-
-SMTP sağlayıcısı seçimi insan kararıdır.
+Mevcut giden kutusu + `alig-posta` davranışı korunur ve PG'ye taşınır: iş verisi + gönderim niyeti aynı transaction; gönderim commit sonrası işçi; kontrollü retry; en az bir kez teslimat, çift gönderimin etkisi yönetilir; doğrulama token'ı tek kullanımlık; committed işlem sessizce kaybolmaz. Outbox başarı/hata/retry durumları izlenir. SPF/DKIM/DMARC, header injection koruması ve bounce yönetimi WEB-K1 kapsamındadır. SMTP sağlayıcısı insan kararıdır.
 
 # 15. SECURITY GATE
 
-Aşağıdaki kontroller zorunludur:
+**SEC-01 Authentication:** DB-K6 hash, TOTP + kilit, login rate limit, oturum, enumerasyon koruması.
+**SEC-02 Authorization:** yönetim, firma, rapor, portal izolasyonu.
+**SEC-03 CSRF/XSS:** durum değiştiren işlemler POST + CSRF; tüm çıktılarda uygun kaçış.
+**SEC-04 Secrets:** Vault, dosya izinleri, log redaction, rotasyon; `ALIG_DENETIM_ANAHTARI` ve TOTP sırları dahil (SEC-K1).
+**SEC-05 PostgreSQL:** SCRAM, Unix soket varsayılan / ağda `verify-full`, minimum yetki, sabit `search_path`, timeout, bağlantı sınırı, açık `pg_hba.conf` + `listen_addresses` planı.
+**SEC-06 Scan Safety:** read-only, SQL allowlist, `statement_timeout`, SSRF/iç ağ reddi, kaynak limitleri, **Kip B sunucu sertifikası doğrulaması** (madde 24'te açık), `channel_binding=require` korunur, 50 DB kapsam sınırı korunur.
+**SEC-07 Abuse:** rate limit, honeypot, upload sınırları (mevcut ayrıştırıcı sertleştirmesi korunur), eşzamanlılık kontrolü.
+**SEC-08 Backup Security:** §17 genişletilmiş kapsam.
+**SEC-09 Privacy:** KVKK, minimizasyon, saklama/imha, maskeleme akışı korunur, WEB-K2/K7.
+**SEC-10 Release:** staging, rollback, TLS, health checks, production secrets.
+**SEC-11 Security Headers (yeni):** CSP (tünel kipindeki mevcut CSP korunur, genelleştirilir), HSTS, `X-Content-Type-Options: nosniff`, `frame-ancestors`, `Referrer-Policy`; rapor HTML servislerinde sıkı CSP.
 
-**SEC-01 Authentication**
-
-Parola güvenliği, TOTP, login rate limit, session yönetimi.
-
-**SEC-02 Authorization**
-
-Yönetim yetkileri, firma ve rapor erişim kontrolü.
-
-**SEC-03 CSRF/XSS**
-
-Durum değiştiren işlemler için CSRF; bütün HTML/attribute/URL çıktıları için uygun kaçış.
-
-**SEC-04 Secrets**
-
-Ansible Vault, dosya izinleri, log redaction, credential rotasyonu.
-
-**SEC-05 PostgreSQL**
-
-SCRAM, TLS veya güvenli Unix socket, minimum yetki, sabit search_path, timeout ve bağlantı sınırı.
-
-**SEC-06 Scan Safety**
-
-Read-only, SQL allowlist, hedef ağ izolasyonu, SSRF koruması ve kaynak limitleri.
-
-**SEC-07 Abuse**
-
-Rate limit, honeypot, upload sınırları ve aşırı eşzamanlı işlem kontrolü.
-
-**SEC-08 Backup Security**
-
-Yedek şifreleme, yetkilendirme, saklama ve restore.
-
-**SEC-09 Privacy**
-
-KVKK, veri minimizasyonu, saklama/imha ve hassas alan kontrolü.
-
-**SEC-10 Release**
-
-Staging, rollback, TLS, health checks ve production secrets.
-
-Yeni P0 güvenlik açıkları P2 olarak ertelenemez.
+**Severity taksonomisi (yeni):** KRİTİK = auth bypass, yetki yükseltme, RCE, veri kaybı/bozulması, müşteri verisi sızıntısı. YÜKSEK = saklı XSS, durum değiştiren CSRF, kritik uçta oran sınırı bypass'ı, loga sır sızıntısı. ORTA/DÜŞÜK/BİLGİ = etkisi sınırlı. Açık KRİTİK/YÜKSEK bulgu → `SECURITY_GATE = FAIL`. Yeni P0 güvenlik açıkları P2 olarak ertelenemez.
 
 # 16. RATE LIMIT MİMARİSİ
 
-v3 içindeki SQLite tabanlı hız sınırı tasarımı geçersizdir.
+Kritik uçlarda PostgreSQL tabanlı atomik sayaç (003e); bellek içi yalnız düşük riskli + tek instance. Uçlar: `/api/iletisim`, `/api/tarama/yukle`, yönetim login, rapor doğrulama, **rapor görüntüleme**, tarama başlatma, **`/api/tarama/baglan` (+token)**, **portal kayıt/giriş**. Mevcut sınırlar korunur: 3 posta/24s/adres, 5 bekleyen/firma, portal 5 e-posta + 10 IP/15dk, Kip B saatte 5. Aşımda 429 + Retry-After.
 
-Yeni seçenekler:
+# 17. BACKUP, RECOVERY VE PITR — ALIG-DB-005
 
-- PostgreSQL tabanlı dayanıklı sayaç
-- Sadece düşük riskli ve tek instance senaryosunda bellek içi sayaç
+**Kapsam yalnız PG değildir:** PG (`pg_basebackup` + WAL arşivi veya onaylı mantıksal plan), yüklenen dosyalar/rapor artefaktları, `ALIG_DENETIM_ANAHTARI`, TOTP sırları, Ansible Vault, TLS anahtarları. Anahtar escrow/rotasyon/kayıp senaryosu yazılır (SEC-K1). `alig_backup` yetkisi §5.2'ye göre açıktır.
 
-Birden fazla web instance varsa bellek içi sayaçlar global kota garantisi sağlayamaz.
+Düzenli yedek, bütünlük denetimi, restore tatbikatı, offsite kopya, şifreleme, saklama, disk izleme, WAL büyümesi, RPO/RTO (DB-K5 — gerçek restore tatbikatıyla ölçülür, hedef uydurulmaz). Yalnız `pg_dump` ile PITR var denmez. Restore + zincir doğrulaması yapılmadan `BACKUP_RESTORE_VERIFIED = true` olamaz.
 
-Güvenlik açısından kritik limitlerde PostgreSQL tabanlı atomik kontrol tercih edilmelidir.
+# 18. OPERASYON: PERFORMANS, KAPASİTE, DEGRADED MODE, BAKIM MODU
 
-Gerekli uçlar:
+Performans/kapasite kontrolleri: max_connections, shared_buffers, work_mem, effective_cache_size, maintenance_work_mem, autovacuum, max_wal_size, checkpoint, idle_in_transaction/statement/lock timeout, pool ihtiyacı, disk/inode, WAL/transaction büyümesi, sorgu süreleri, index, tablo büyümesi, vacuum. Donanım ölçülmeden ezbere parametre değiştirilmez. **Extension politikası DB-K7** (pg_stat_statements, citext vb. — stdlib kısıtı PG extension'larını kapsamaz, ayrı karar).
 
-- `/api/iletisim`
-- `/api/tarama/yukle`
-- Yönetim login
-- Rapor doğrulama
-- Tarama başlatma
+**Degraded mode (OPS-K1, varsayılan öneri — onaya):**
 
-Aşımda uygun HTTP 429 yanıtı dön.
+| Bileşen | PG erişilemezken |
+|---|---|
+| Statik site | nginx servis devam |
+| `/healthz` | liveness PASS (süreç yaşıyor) |
+| readiness / `/api/tarama/saglik` | 503 |
+| form / yükleme / portal / yönetim / rapor | 503 + Retry-After, güvenli hata, veri kaybı yok |
 
-# 17. BACKUP, RECOVERY VE PITR
+Hiçbir uçta SQLite fallback yok.
 
-PostgreSQL için:
+**Bakım modu (OPS-K1):** nginx bakım sayfası veya uygulama bayrağı (`ALIG_BAKIM`); yazma uçları kapalı, statik açık; cutover'da yazma dondurması doğrulanır (§13).
 
-- Düzenli yedekleme
-- Backup integrity
-- Restore tatbikatı
-- Offsite kopya
-- Şifreleme
-- Saklama politikası
-- Disk izleme
-- WAL büyümesi kontrolü
-- RPO/RTO hedefleri
+**Zamanlanmış işlerin sahibi açıkça atanır:** günlük bakım (`saklama.py`), outbox retry, lease recovery, idempotency TTL temizliği, süresi dolan oturumların silinmesi — systemd timer mı worker loop mu; çok instance'ta tekilleştirme garantisi.
 
-PITR gerekiyorsa WAL archiving ve fiziksel backup planı hazırlanmalıdır.
-
-Yalnızca `pg_dump` kullanılarak PITR var denmez.
-
-RTO gerçek restore tatbikatıyla ölçülür.
-
-Restore sonucu doğrulanmadan `BACKUP_RESTORE_VERIFIED = true` olamaz.
-
-# 18. POSTGRESQL PERFORMANCE VE CAPACITY
-
-Mevcut donanım ve iş yüküne bakmadan ezbere PostgreSQL parametresi değiştirme.
-
-Kontrol et:
-
-- max_connections
-- shared_buffers
-- work_mem
-- effective_cache_size
-- maintenance_work_mem
-- autovacuum
-- max_wal_size
-- checkpoint davranışı
-- idle_in_transaction_session_timeout
-- statement_timeout
-- lock_timeout
-- Connection pool ihtiyacı
-- Disk ve inode kapasitesi
-- WAL ve transaction büyümesi
-- Sorgu süreleri
-- Index kullanımı
-- Tablo büyümesi
-- Vacuum durumu
-
-Başlangıç kapasite sınırları ölçülerek belirlenmelidir.
-
-Ek bağlantı havuzu ancak gerekliyse kurulmalı; yeni altyapı gereksiz yere eklenmemelidir.
+**Yama kadansı:** PG minor + OS güvenlik güncellemeleri politikası belgelenir.
 
 # 19. CI/CD VE TEST POLİTİKASI
 
-Mevcut komutları koru:
+Komutlar korunur:
+`python3 build/build.py --theme c --out dist/c` · `python3 ci/run_all.py --theme c` · `python3 ci/run_all.py --theme c --release` · `python3 -m unittest discover -s tests`
 
-`python3 build/build.py --theme c --out dist/c`
+Mevcut 13 denetim korunur; bu bölümün kapsamı bunlara **eşlenir** (yeni denetim eklenir, mevcut kaldırılmaz). 531 test referanstır, gerçek sayı ölçülür. PG testleri izole geçici kümede çalışır (ALIG-CI-001); `ALIG_TEST_PG_HOST` yoksa SKIPPED raporlanır, PASS sayılmaz; **release gate'te PG adımı SKIPPED olamaz**. Geliştirme PG16, sürüm öncesi PG18 doğrulaması (§5.3).
 
-`python3 ci/run_all.py --theme c`
+Kapsam: syntax, import, SQLite runtime yasağı (CI-002, migration aracı istisnası), PG bağlantı, migration, rollback, paralel kota, idempotency, audit zinciri + **eşzamanlı yazma**, auth/TOTP, session, rapor token, outbox, data migration, TR/EN parity, HTML kaçış, a11y, broken links, secret scanning, deployment syntax, restore kanıtı, release manifest, rollback, smoke. **Ek zorunlu senaryolar:** bağlantı kopması simülasyonu (§8.2), kirli veri fixture'ları (orphan, NOCASE, naive timestamp), tenant negatif testleri, portal izolasyonu, expand/contract rollback, bakım modu, sequence/ID korunumu. Başarısız testler kaldırılarak başarı sağlanamaz.
 
-`python3 ci/run_all.py --theme c --release`
+# 20. YOL HARİTASI BASELINE
 
-`python3 -m unittest discover -s tests`
+**Otorite: repo'daki `docs/yol-haritasi.md`** (v2 tabanlı 1–30 + ALIG-* görevleri; günlük plan: günde iki madde, engelli madde atlanır). v3'ün "19 görev" listesi repo'da belge olarak yoktur; mükerrer kayıt açmamak için şu eşleme kullanılır:
 
-Önce mevcut test sayısını repository'de doğrula.
+| Eski (v3) | Konu | Repo karşılığı |
+|---|---|---|
+| P1-1 | Eksik içerik | madde 18–19 + `doldurulacak.md` |
+| P1-2 | KVKK | madde 4 + WEB-K2/K7 |
+| P1-3 | Marka | WEB-K3 |
+| P1-4 | SMTP | madde 15 + ALIG-DB-006 + WEB-K1 |
+| P1-5 | VPS provası | madde 8 + WEB-K4 |
+| P2-6 | Secrets | ALIG-SEC-001 + SEC-K1 |
+| P2-7 | Rate limit | ALIG-DB-003e (madde 30 kısmen) |
+| P2-8 | TLS | WEB-K4 + SEC-05/SEC-11 |
+| P2-9 | Kimlik verisi | madde 7 + ALIG-SEC-001 |
+| P2-10 | İzleme/alarm | karşılığı yok → ALIG-OPS-001 önerisi |
+| P2-11 | Backup/restore | madde 6 + ALIG-DB-005 |
+| P2-12 | Staging | DB-K2 + WEB-K4 |
+| P3-13 | SQL Server | madde 22 + WEB-K6 |
+| P3-14 | PG 12–18 matris | madde 10 |
+| P3-15 | Kip B pilot | madde 1, 24 + WEB-K1/K4 |
+| P3-16 | A11y | karşılığı yok → ALIG-UX-001 önerisi |
+| P3-17 | Yük testi | karşılığı yok → ALIG-TEST-001 önerisi |
+| P3-18 | Audit rotasyonu | madde 3–4 + SEC-K2 |
+| P3-19 | LLM özeti | madde 23 + WEB-K5 |
 
-v3'te belirtilen 531 test referans alınabilir ancak güncel gerçek sayı ölçülmelidir.
-
-CI kapsamı:
-
-1. Syntax
-2. Import consistency
-3. SQLite runtime yasağı
-4. PostgreSQL connection
-5. Schema migrations
-6. Transaction rollback
-7. Kota concurrency
-8. Idempotency
-9. Audit zinciri
-10. Authentication ve TOTP
-11. Session security
-12. Rapor token güvenliği
-13. SMTP outbox
-14. Data migration
-15. TR/EN parity
-16. HTML escaping
-17. A11y
-18. Broken links
-19. Secret scanning
-20. Deployment syntax
-21. Restore doğrulama kanıtı
-22. Release manifest
-23. Rollback
-24. Smoke tests
-
-Uygun testleri otomatikleştir.
-
-Gerçek PostgreSQL gerektiren testler ayrı ve izole test DB'sinde çalışmalıdır.
-
-Çalıştırılmayan test PASS sayılmaz.
-
-# 20. ESKİ 19 GÖREVİN KORUNMASI
-
-v3 yol haritasındaki 19 görev korunacaktır.
-
-## P1 — Canlı öncesi
-
-- P1-1 Eksik içerik alanları
-- P1-2 KVKK ve gizlilik metinleri
-- P1-3 Marka varlıkları
-- P1-4 SMTP altyapısı
-- P1-5 VPS yayın provası
-
-## P2 — Sertleştirme
-
-- P2-6 Secrets yönetimi
-- P2-7 Rate limit — PostgreSQL'e uyarlanacak
-- P2-8 TLS
-- P2-9 Kimlik verisi koruması
-- P2-10 İzleme ve alarm
-- P2-11 Backup/restore — PostgreSQL'e uyarlanacak
-- P2-12 Staging
-
-## P3 — Orta vade
-
-- P3-13 SQL Server gerçek testi
-- P3-14 PostgreSQL 12–18 tarama matrisi
-- P3-15 Kip B pilot
-- P3-16 Erişilebilirlik
-- P3-17 Yük testi
-- P3-18 Audit rotasyonu
-- P3-19 Dil modeli özeti kararı
-
-Yeni PostgreSQL görevleri mevcutlarla ilişkilendirilecek, mükerrer kayıt açılmayacaktır.
-
-## Yeni P0 görevleri
-
-**ALIG-DB-001 — PostgreSQL'e tam geçiş**
-
-**ALIG-DB-002 — Sürücü/adapter güvenlik kararı**
-
-**ALIG-DB-003 — Şema ve transaction bütünlüğü**
-
-**ALIG-DB-004 — SQLite migration ve doğrulama**
-
-**ALIG-DB-005 — PostgreSQL backup/restore**
-
-**ALIG-SEC-001 — Yönetim ve rapor erişim güvenliği**
-
-**ALIG-SCAN-001 — Tarama izolasyonu ve read-only güvenliği**
-
-**ALIG-CI-001 — PostgreSQL entegrasyon testleri**
-
-Bu yeni görevlerin kapsamı birbirinden ayrılmalı, ancak aynı düzeltme iki defa geliştirilmemelidir.
+Yeni görev önerileri (ALIG-OPS-001, ALIG-UX-001, ALIG-TEST-001) onaya sunulur; mevcut ALIG görevleriyle çakışma kontrolü yapılır. Kritik güvenlik riskleri takvim sırasına bakmaksızın öne alınır.
 
 # 21. İNSAN ONAYI GEREKTİREN KARARLAR
 
-`docs/kararlar.md` içinde benzersiz kimliklerle takip et.
+Otorite: repo `docs/kararlar.md`. Bu tablo onunla eşlenir; aynı ID farklı karar için kullanılmaz.
 
 | ID | Karar |
 |---|---|
-| DB-K1 | PostgreSQL sürücü stratejisi |
-| DB-K2 | PostgreSQL 18 kurulum topolojisi |
-| DB-K3 | Portal/RLS kapsamının ertelenmesi |
-| DB-K4 | Migration bakım penceresi |
+| DB-K1 | Sürücü: A (psql) / B (ctypes+libpq, mevcut öneri) / C (psycopg istisnası) |
+| DB-K2 | Topoloji (varsayılan: aynı sunucu, Unix soket, scram; staging ayrı) |
+| DB-K3 | Portal açılışı + RLS kapsamı |
+| DB-K4 | Cutover bakım penceresi ve geri dönüş sınırı |
 | DB-K5 | RPO/RTO hedefleri |
-| WEB-K1 | SMTP sağlayıcısı |
-| WEB-K2 | KVKK hukuk metinleri |
+| DB-K6 | **Yeni:** parola hash algoritması + legacy rehash |
+| DB-K7 | **Yeni:** PG extension politikası |
+| WEB-K1 | SMTP sağlayıcısı (SPF/DKIM/DMARC dahil) |
+| WEB-K2 | KVKK aydınlatma, kullanım koşulları, Kip B onay metinleri |
 | WEB-K3 | Marka varlıkları |
-| WEB-K4 | VPS/DNS/yayın takvimi |
-| WEB-K5 | LLM özet hizmeti |
+| WEB-K4 | Barındırma, IP, DNS, yayın takvimi |
+| WEB-K5 | LLM özeti (not: KVKK sınır ötesi aktarım kısıtı karara yazılır; kanıt üretemez, puanı değiştiremez) |
+| WEB-K6 | SQL Server gerçek sunucu testi |
+| WEB-K7 | Saklama: rapor sonrası özet, portal hesabı, audit ↔ KVKK silme |
+| SEC-K1 | **Yeni:** TOTP sırrı saklama + anahtar yönetimi (escrow/rotasyon/kayıp) |
+| SEC-K2 | **Yeni:** denetim zinciri başının dış checkpoint hedefi |
+| OPS-K1 | **Yeni:** bakım modu mekanizması + degraded mode matrisi |
+| GEL-K1 | Dal politikası (kod `pg-gecis`, belge `main`) |
 
-Karar ID'leri önceki belgelerle eşleştirilmeli; aynı `K1` farklı kararlar için kullanılmamalıdır.
+Engelleyen kararlar kodlanmaz; varsayılanla ilerleyenler repo'daki "Varsayılanla ilerleyenler" tablosuna yazılır ve tek satırla değiştirilebilir kalır. Onay beklerken bağımsız analiz, test hazırlığı ve dokümantasyon sürdürülür.
 
-İnsan onayı beklerken bağımsız analiz, test hazırlığı ve dokümantasyon işleri sürdürülebilir.
+# 22. UYGULAMA SIRALAMASI VE SAHİPLİK
 
-Onay gerektiren üretim değişiklikleri uygulanamaz.
+**Faz 0:** erişim + güncel SHA + çalışma ağacı + mevcut CI + test sayısı + baseline raporu.
+**Faz 1:** repo incelemesi + **prompt ↔ repo fark raporu** (çelişkide önce belge güncellenir).
+**Faz 2:** tasarım + kararların onaya sunulması.
+**Faz 3:** açık APPLY ile `pg-gecis` dalında kod (GEL-K1); belge `main`'e.
+**Faz 4:** migration dry-run + restore testi.
+**Faz 5:** cutover — yalnız DB-K4 onayıyla. **Sunucu erişimi ajanda yoktur: canlı adımları Ali yürütür; ajan komut/checklist/kanıt şablonu üretir ve sonuçları doğrular.**
+**Faz 6:** security/release gate + staging + smoke + rollback tatbikatı.
+**Faz 7:** kalan yol haritası maddeleri.
 
-# 22. UYGULAMA SIRALAMASI
-
-## FAZ 0 — GitHub ve baseline
-
-- GitHub erişimini doğrula.
-- Branch ve SHA kaydet.
-- Çalışma ağacını kontrol et.
-- Mevcut CI çalıştır.
-- Test sayısını ölç.
-- Mevcut sistemin baseline raporunu oluştur.
-
-## FAZ 1 — Repository inceleme
-
-- Bütün uygulama katmanlarını tara.
-- SQLite kullanımını belirle.
-- PostgreSQL toplayıcısını analiz et.
-- v3 ve v4.2 gereksinimlerini eşleştir.
-- Yeni kritik güvenlik açıklarını belirle.
-
-## FAZ 2 — PostgreSQL tasarımı
-
-- Sürücü stratejisi
-- Hedef kurulum
-- Veri modeli
-- Transaction
-- RBAC
-- Job queue
-- Migration
-- Backup/restore
-
-Kararları onaya sun.
-
-## FAZ 3 — Kontrollü geliştirme
-
-Yalnızca açık APPLY yetkisiyle:
-
-- PostgreSQL adapter
-- Schema
-- Migration araçları
-- Transaction katmanı
-- Audit
-- Kota
-- Session
-- Rapor
-- Testler
-
-geliştirilir.
-
-## FAZ 4 — Migration dry-run
-
-- Veri aktarımı
-- Checksum
-- Audit doğrulama
-- Token doğrulama
-- Kota doğrulama
-- Regresyon testleri
-- Restore testi
-
-## FAZ 5 — Cutover
-
-Yalnızca ayrı üretim onayıyla gerçekleştir.
-
-## FAZ 6 — Security ve release
-
-- Security gate
-- PostgreSQL gate
-- CI gate
-- Staging
-- Smoke test
-- Rollback test
-- Backup/restore
-
-## FAZ 7 — Diğer yol haritası maddeleri
-
-Eski P1/P2/P3 görevlerini bağımlılık sırasına göre tamamla.
-
-Kritik güvenlik risklerini takvim sırasına bakmaksızın öne al.
+**Yerel geliştirme:** `yerel.py` (Windows dahil) PG-only dünyasında nasıl çalışacağı karara bağlanır (yerel PG / uzak test DB); SQLite'a dönüş yok.
+**RACI:** ajan = kod/test/belge/analiz; Ali = sunucu, DNS, SMTP, hukuk metinleri, canlı kurulum, dış checkpoint hedefi, marka.
 
 # 23. RAPORLAMA STANDARDI
 
-Her çalışma sonunda aşağıdaki bilgileri üret.
+Her çalışma sonunda: Yönetici Özeti (commit, mimari, kritik risk sayısı, açık görevler, tamamlananlar, bekleyen kararlar, production readiness) + Teknik Bulgu (ID, severity, dosya, satır, mevcut davranış, eksik, kanıt, kök neden, düzeltme, test, durum) + PostgreSQL Migration Raporu (kaynak/hedef sayılar, kanonik özet, hatalı kayıtlar, zincir/token/kota sonuçları, süre, rollback sınırı) + Test Sonuçları (PASS / FAIL / BLOCKED / NOT_RUN / NOT_APPLICABLE / SKIPPED; uygulanabilir değilse teknik gerekçe).
 
-## Yönetici Özeti
+**Kanıt kaydı şeması (yeni):** kanıt ID · UTC zaman · commit SHA · tam komut · çalışma dizini · ortam (OS, Python, PG, libpq sürümleri) · exit code · çıktı yolu · sonuç. Kanıtsız PASS yok.
 
-- İncelenen commit
-- Mevcut mimari
-- Kritik risk sayısı
-- Açık görev sayısı
-- Tamamlanan işler
-- Bekleyen kararlar
-- Production readiness
+# 24. GATE'LER VE OLGUNLUK
 
-## Teknik Bulgu
+| Gate | PASS kriteri |
+|---|---|
+| SOURCE_ACCESS | Repo okundu, güncel SHA kayıtlı |
+| ARCHITECTURE | Bileşen envanteri + analiz raporu kanıtlı |
+| POSTGRESQL | Runtime PG; SQLite import yok (CI-002); rol/timeout/search_path testleri PASS |
+| MIGRATION | Satır + kanonik özet MATCH; zincir/token/kota PASS; sequence/ID korunumu PASS |
+| DATA_INTEGRITY | Transaction/rollback, paralel kota, idempotency PASS |
+| SECURITY | Açık KRİTİK/YÜKSEK yok; SEC-01…11 testleri PASS |
+| SCAN_SAFETY | Allowlist/read-only/SSRF/timeout/sertifika testleri PASS |
+| CI | Tüm denetimler + PG adımı çalıştı (SKIPPED yok); release PASS |
+| BACKUP_RESTORE | Şifreli yedek + anahtar escrow + ölçülmüş restore tatbikatı |
+| RELEASE | Staging + smoke + expand/contract rollback + checklist DONE |
 
-Her bulgu için:
-
-- ID
-- Severity
-- Dosya
-- Satır
-- Mevcut davranış
-- Eksik
-- Kanıt
-- Kök neden
-- Önerilen düzeltme
-- Test yöntemi
-- Durum
-
-## PostgreSQL Migration Raporu
-
-- Kaynak veri sayısı
-- Hedef veri sayısı
-- Checksum karşılaştırması
-- Hatalı kayıt
-- Audit zinciri sonucu
-- Token doğrulama sonucu
-- Kota bütünlüğü sonucu
-- Migration süresi
-- Rollback sınırı
-
-## Test Sonuçları
-
-- PASS
-- FAIL
-- BLOCKED
-- NOT_RUN
-- NOT_APPLICABLE
-
-Bir test uygulanabilir değilse teknik gerekçesi yazılmalıdır.
-
-# 24. OLGUNLUK VE KABUL KAPILARI
-
-Alanlar:
-
-| Alan | Ağırlık |
-|---|---:|
-| Güvenlik | %25 |
-| PostgreSQL mimarisi | %20 |
-| Veri bütünlüğü | %15 |
-| Backend | %10 |
-| CI/CD | %10 |
-| Operasyon | %10 |
-| Frontend/UX | %5 |
-| Dokümantasyon | %5 |
-
-Kanıtlanamayan alana puan verme.
-
-Gerekli kontrollerin kapsamı yetersizse toplam puan yerine `NOT_ASSESSED` yaz.
-
-Aşağıdaki gate'leri değerlendir:
-
-- SOURCE_ACCESS
-- ARCHITECTURE
-- POSTGRESQL
-- MIGRATION
-- DATA_INTEGRITY
-- SECURITY
-- SCAN_SAFETY
-- CI
-- BACKUP_RESTORE
-- RELEASE
-
-Bir zorunlu gate başarısızsa:
-
-`PRODUCTION_READY = false`
-
-SQLite runtime kullanımı devam ediyorsa:
-
-`POSTGRESQL_GATE = FAIL`
-
-Migration veri tutarlılığı başarısızsa:
-
-`MIGRATION_GATE = FAIL`
-
-Kritik güvenlik açığı varsa:
-
-`SECURITY_GATE = FAIL`
+Ağırlıklı olgunluk puanı **isteğe bağlıdır** (repo bilinçli olarak almamıştır; gate'ler otoritedir, `postgresql-gecis.md` §8). Kanıtlanamayan alana puan verilmez; kapsam yetersizse `NOT_ASSESSED`. Zorunlu gate FAIL → `PRODUCTION_READY = false`. SQLite runtime → POSTGRESQL FAIL; tutarsızlık → MIGRATION FAIL; açık KRİTİK/YÜKSEK → SECURITY FAIL.
 
 # 25. DOKÜMANTASYON VE GITHUB İŞ AKIŞI
 
-Mevcut repository yapısını koruyarak aşağıdaki belgeleri oluştur veya güncelle:
+Mevcut belgeler (§3 envanteri) korunur; eşdeğer dosyalar çoğaltılmaz. README `<!-- oto:... -->` blokları yalnız üreticiyle güncellenir. Her görev: benzersiz ID, öncelik, bağımlılık, sorumlu rol, kabul kriterleri, kanıt, durum, commit/PR referansı.
 
-- `docs/master-prompt-v5.md`
-- `docs/yol-haritasi.md`
-- `docs/kararlar.md`
-- `docs/postgresql-migration-plan.md`
-- `docs/postgresql-architecture.md`
-- `docs/security-findings.md`
-- `docs/gap-matrix.md`
-- `docs/test-evidence.md`
-- `docs/release-checklist.md`
-- `docs/review-report.md`
-
-Mevcut eşdeğer dosyaları gereksiz yere çoğaltma.
-
-README içindeki `<!-- oto:... -->` blokları yalnızca üretici ile güncellenir.
-
-Her görev için:
-
-1. Benzersiz ID
-2. Öncelik
-3. Bağımlılık
-4. Sorumlu rol
-5. Kabul kriterleri
-6. Kanıt
-7. Durum
-8. Commit/PR referansı
-
-tut.
-
-GitHub yazma yetkisi varsa dahi bu yetki varsayılan olarak değişiklik onayı sayılmaz.
-
-Açık APPLY yetkisiyle ayrı branch'te çalış.
-
-Varsayılan branch'e doğrudan yazma.
-
-Production deployment için ayrıca onay al.
+**AUDIT_ONLY'de taslak = commit'siz patch/metin çıktısıdır.** APPLY açık yetki gerektirir; yazma yetkisi ≠ değişiklik onayı. GEL-K1: kod `pg-gecis` dalına, belge `main`'e; `pg-gecis` cutover onayı (DB-K4) olmadan birleştirilmez. Production deployment ayrı onaydır.
 
 # 26. NİHAİ BAŞARI KRİTERLERİ
 
-İşin tamamlandığını yalnızca aşağıdaki koşullar gerçekleştiğinde bildir:
-
-- PostgreSQL 18 kurulumu doğrulandı.
-- Uygulama PostgreSQL üzerinden çalışıyor.
-- SQLite runtime bağımlılığı bulunmuyor.
-- Migration veri karşılaştırması PASS.
-- Transaction bütünlüğü PASS.
-- Paralel kota testi PASS.
-- Audit zinciri PASS.
-- Yönetim login/TOTP PASS.
-- Rapor token akışları PASS.
-- PostgreSQL backup/restore VERIFIED.
-- Güvenlik testleri PASS.
-- CI release testi PASS.
-- Staging deployment PASS.
-- Rollback tatbikatı PASS.
-- Tüm zorunlu production gate'leri PASS.
-
-Test edilmemiş bir işi tamamlandı olarak işaretleme.
+İşin tamamlandığı yalnızca şunlarla bildirilir: PG18.x güncel minor doğrulandı · uygulama PG üzerinden çalışıyor · SQLite runtime bağımlılığı yok · migration karşılaştırması MATCH (sequence/ID korunumu dahil) · transaction + paralel kota + idempotency PASS · HMAC zincir PASS (iki zincir, eşzamanlı yazma) · yönetim login/TOTP PASS · portal testleri PASS (kapalı durumda) · rapor token akışları PASS · backup/restore VERIFIED (anahtarlar dahil) · güvenlik testleri PASS, açık KRİTİK/YÜKSEK yok · CI release PASS (PG adımı fiilen çalıştı) · staging PASS · rollback tatbikatı PASS (expand/contract) · tüm zorunlu gate'ler PASS. Test edilmemiş iş tamamlandı işaretlenmez.
 
 ---
 
 # SON UYGULAMA TALİMATI
 
-Şimdi `alihisar/alig-tech` repository'si üzerinde çalış.
+Şimdi `alihisar/alig-tech` üzerinde çalış:
+1. Erişimi ve güncel SHA'yı doğrula (baseline `1bd34dc` ilerlemiş olabilir).
+2. Mevcut CI'yı çalıştır, test sayısını ölç, baseline raporu üret.
+3. Bu belgeyle repo arasındaki farkı raporla; `docs/master-prompt-v5.md`'nin v5.1 ile güncellenmesi için **commit'siz taslak** üret.
+4. Kararları onaya sun: DB-K1/K2/K4/K5 + yeni DB-K6/K7, SEC-K1/K2, OPS-K1.
+5. Onaylı değişikliklerde minimum kapsamla ilerle; her geliştirmeden sonra ilgili testleri çalıştır ve kanıt kaydet.
 
-Önce mevcut kodu, Master Prompt v3/v4.2 belgelerini ve 19 maddelik yol haritasını analiz et.
-
-Yeni `ALIG-DB-001` ve ilişkili PostgreSQL görevlerini yol haritasına eklemek için gerekli değişiklik taslağını oluştur.
-
-Mevcut PostgreSQL toplayıcısını incelemeden yeni bağlantı sürücüsü geliştirme.
-
-Sürücü, PostgreSQL topolojisi, RPO/RTO ve migration cutover kararlarını onaya sun.
-
-Onaylı değişikliklerde minimum kapsamla ilerle.
-
-Her geliştirmeden sonra ilgili testleri çalıştır ve kanıt kaydet.
-
-**Değişmez kurallar:**
-
-- Kanıt yoksa PASS yok.
-- Onay yoksa production değişikliği yok.
-- PostgreSQL erişilemezse SQLite fallback yok.
-- Veri tutarlılığı kanıtlanmadan cutover yok.
-- Test edilmemiş kod VERIFIED değil.
-- Mevcut çalışan davranışlar gerekçesiz değiştirilemez.
-- Güvenlik, zaman kazanmak için zayıflatılamaz.
-- Başarısız testler kaldırılarak başarı sağlanamaz.
+**Değişmez kurallar:** Kanıt yoksa PASS yok · SKIPPED ≠ PASS · Onay yoksa production değişikliği yok · PG erişilemezse SQLite fallback yok · Tutarlılık kanıtlanmadan cutover yok · Test edilmemiş kod VERIFIED değil · Mevcut çalışan davranışlar gerekçesiz değiştirilemez · Güvenlik zaman kazanmak için zayıflatılamaz · Başarısız testler kaldırılarak başarı sağlanamaz · Repo gerçeği belgeye uymuyorsa önce belge düzeltilir · Sequence/ID korunumu doğrulanmadan migration PASS yok.
 
 **Nihai hedef:** alig.tech'i PostgreSQL 18 tabanlı, veri bütünlüğü güvence altına alınmış, mevcut müşteri işlevleri korunmuş, güvenli, test edilebilir ve üretim ortamında işletilebilir bir veritabanı yönetimi platformuna dönüştürmek.
