@@ -359,9 +359,10 @@ def gorunum_sec(deger):
     return deger if isinstance(deger, str) and deger in GORUNUMLER else "teknik"
 
 
-def _sekme(secili, m):
-    """Iki gorunum arasi baglantilar. Goreli sorgu baglantisi: sayfa nereden acildiysa (musteri ya da yonetim paneli) orada kalir."""
-    ogeler = ["<a href=\"?gorunum=%s\"%s>%s</a>" % (g, " aria-current=\"page\"" if g == secili else "", escape(m["gorunumler"][g])) for g in GORUNUMLER]
+def _sekme(secili, m, baglantilar=None):
+    """Iki gorunum arasi baglantilar. Goreli sorgu baglantisi: sayfa nereden acildiysa (musteri ya da yonetim paneli) orada kalir.
+    baglantilar: {gorunum: adres}; statik sayfalar (ornek rapor) sorgu degil kendi adreslerini verir."""
+    ogeler = ["<a href=\"%s\"%s>%s</a>" % (escape((baglantilar or {}).get(g, "?gorunum=" + g)), " aria-current=\"page\"" if g == secili else "", escape(m["gorunumler"][g])) for g in GORUNUMLER]
     return "<nav class=\"rapor-sekme\" aria-label=\"%s\">%s</nav>" % (escape(m["gorunum_a"]), "".join(ogeler))
 
 
@@ -437,8 +438,9 @@ def _bulgu_karti(b, m, d):
             + "".join(kanit_blok) + "".join(yorum) + "</section>")
 
 
-def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik"):
-    """onceki: karsilastirilacak onceki rapor (depo.onceki_rapor) ya da None. gorunum: GORUNUMLER (gecersiz deger teknik)."""
+def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik", sekme_baglantilari=None):
+    """onceki: karsilastirilacak onceki rapor (depo.onceki_rapor) ya da None. gorunum: GORUNUMLER (gecersiz deger teknik).
+    sekme_baglantilari: gorunum sekmelerinin adresleri (varsayilan ?gorunum=). rapor[\"bitis_utc\"] None ise silinme satiri yazilmaz."""
     d = dil if dil in M else "tr"
     m = M[d]
     gorunum = gorunum_sec(gorunum)
@@ -448,7 +450,7 @@ def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik"):
     pn = puan.hesapla(sonuc)
     motor = belge.get("motor", "postgresql")
     p = ["<article class=\"wrap prose report\">", "<h1>%s</h1>" % escape(m["baslik"]), "<p>%s</p>" % escape(m["uyari"]),
-         "<p><strong>%s</strong></p>" % escape(m["onsurum"]) if motor == "mssql" else "", _sekme(gorunum, m)]
+         "<p><strong>%s</strong></p>" % escape(m["onsurum"]) if motor == "mssql" else "", _sekme(gorunum, m, sekme_baglantilari)]
     if gorunum == "yonetici":
         p += ["<dl class=\"facts\">",
               "<dt>%s</dt><dd>%s</dd>" % (escape(m["tarama"]), escape(belge["olusturma_utc"])),
@@ -456,7 +458,8 @@ def govde(rapor, dil, token, eylemler=True, onceki=None, gorunum="teknik"):
               _yonetici(belge, sonuc, bulgu, pn, onceki, m, d)]
     else:
         p += _teknik(rapor, belge, sonuc, bulgu, pn, onceki, motor, m, d)
-    p.append("<p>%s: %s</p>" % (escape(m["bitis"]), escape(rapor["bitis_utc"])))
+    if rapor["bitis_utc"] is not None:
+        p.append("<p>%s: %s</p>" % (escape(m["bitis"]), escape(rapor["bitis_utc"])))
     if not eylemler:
         p.append("</article>")
         return "\n".join(p), bulgu, olcul

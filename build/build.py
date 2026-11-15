@@ -22,7 +22,9 @@ ROOT = Path(__file__).resolve().parent.parent
 SITE = ROOT / "site"
 LANGS = ("tr", "en")
 THEMES = ("a", "b", "c")
-SHARED_PAGES = ("kvkk", "cerez", "tesekkurler", "demo", "saglik-taramasi", "tarama-hazirlik")
+SHARED_PAGES = ("kvkk", "cerez", "tesekkurler", "demo", "saglik-taramasi", "tarama-hazirlik", "ornek-rapor", "ornek-rapor-teknik")
+# Ornek rapor sayfalari: govde tarama/uret_ornek_rapor.py ile uretilir (site/uretilen/), build yalniz okur
+ORNEK_RAPOR = {"ornek-rapor": "yonetici", "ornek-rapor-teknik": "teknik"}
 TOKEN = re.compile(r"\{\{\s*([A-Za-z0-9_:.\-]+)\s*\}\}")
 MAX_INCLUDE_DEPTH = 5
 
@@ -178,6 +180,12 @@ def build(theme, out, base_url, noindex):
                 "toplayici_sha256": hashlib.sha256((SITE / "assets" / "alig-toplayici.py").read_bytes()).hexdigest(),
                 "katalog_sha256": hashlib.sha256((SITE / "assets" / "sorgu-katalogu.txt").read_bytes()).hexdigest(),
             }
+            if slug in ORNEK_RAPOR:
+                uretilen = SITE / "uretilen" / f"ornek-rapor-{ORNEK_RAPOR[slug]}.{lang}.html"
+                if not uretilen.is_file():
+                    errors.append(f"{where}: uretilen ornek rapor yok: python3 tarama/uret_ornek_rapor.py")
+                    continue
+                ctx["ornek_govde_html"] = read(uretilen)
             if title_key not in strings or desc_key not in strings:
                 errors.append(f"{where}: baslik/aciklama anahtari yok ({title_key}, {desc_key})")
                 continue

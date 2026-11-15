@@ -217,3 +217,11 @@ html:not(.js) .console .btns{display:none}
 .faq summary{cursor:pointer;font-family:var(--font-head);font-weight:var(--w-h3)}
 .faq summary:focus-visible{outline:2px solid currentColor;outline-offset:3px}
 .faq details p{margin-top:.6rem}
+
+/* ornek rapor: etiket sayfanin en ustunde, yazdirmada da gorunur */
+.ornek-etiket-kap{padding-top:1.5rem}
+.ornek-etiket{max-width:48rem;margin:0;padding:.8rem 1rem;border:2px solid var(--signal);border-radius:var(--r-s);font-family:var(--font-sans);line-height:1.4}
+.ornek-alt{padding-bottom:3rem}
+.ornek-alt .btn{margin-right:1rem}
+.entry .textlink + .textlink{margin-left:1.5rem}
+@media print{.ornek-etiket{border:2px solid #000;color:#000;background:#fff}.ornek-alt .btn,.rapor-sekme{display:none}}
