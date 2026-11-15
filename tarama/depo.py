@@ -91,6 +91,11 @@ GOCLER = [
        olusturma_utc TEXT NOT NULL, guncelleme_utc TEXT NOT NULL)""",
     """CREATE INDEX portal_talep_firma ON portal_talep(firma_id, olusturma_utc)""",
     """CREATE UNIQUE INDEX portal_talep_acik_silme ON portal_talep(firma_id) WHERE tur='silme' AND durum IN ('yeni', 'inceleniyor')""",
+    # ticari surec (yonetim paneli): firma basina durum ve not. Yalniz durum ve not; fiyat, tutar, musteri adi yok.
+    # Firma satiriyla birlikte silinir (firma_sil, saklama_uygula): not kisisel veri icerebilir.
+    """ALTER TABLE firma ADD COLUMN surec TEXT NOT NULL DEFAULT 'aday'""",
+    """ALTER TABLE firma ADD COLUMN surec_notu TEXT NOT NULL DEFAULT ''""",
+    """ALTER TABLE firma ADD COLUMN surec_utc TEXT""",
 ]
 ISTEK_DAKIKA = 30
 BEKLEME_SAAT = 24      # e-postayla dogrulanmamis rapor bu sure sonunda silinir
@@ -98,6 +103,14 @@ POSTA_DENEME = 5       # gecici hatada en cok deneme
 ISTEK_DENEME = 3
 ISTEK_SAATLIK = 5
 FIRMA_DURUMLARI = ("aktif", "pasif")
+# ticari surec: aday -> gorusuluyor -> teklif -> musteri; her durumdan -> kapandi (kapandi son durumdur)
+SUREC_DURUMLARI = ("aday", "gorusuluyor", "teklif", "musteri", "kapandi")
+SUREC_GECISLERI = {"aday": ("gorusuluyor", "kapandi"), "gorusuluyor": ("teklif", "kapandi"), "teklif": ("musteri", "kapandi"),
+                   "musteri": ("kapandi",), "kapandi": ()}
+
+
+class SurecHatasi(ValueError):
+    """Gecersiz ticari surec gecisi."""
 
 
 def simdi():
@@ -326,7 +339,8 @@ def sirket_anahtari(eposta):
     return hashlib.sha256(("sirket|" + ham).encode()).hexdigest() if ham else None
 
 
-_FIRMA_KOLON = "id, anahtar, ad, eposta, durum, kaynak, aciklama, kayit_utc, son_utc, dogrudan_izin, eposta_dogrulama_utc"
+_FIRMA_KOLON = ("id, anahtar, ad, eposta, durum, kaynak, aciklama, kayit_utc, son_utc, dogrudan_izin, eposta_dogrulama_utc, "
+                "surec, surec_notu, surec_utc")
 
 
 def _firma(r):
@@ -390,6 +404,22 @@ def firma_durum_yaz(con, fid, durum):
     n = con.execute("UPDATE firma SET durum=? WHERE id=?", (durum, fid)).rowcount
     con.commit()
     return n
+
+
+def firma_surec_gecis(con, fid, yeni, aciklama=""):
+    """Ticari surec gecisi (durum makinesi) ve istege bagli not. (eski, yeni) doner; firma yoksa None.
+    Gecersiz gecis SurecHatasi verir ve hicbir sey degistirmez. Not bu gecisin notudur (en cok 500 karakter);
+    denetim zincirine yazilmaz (kisisel veri icerebilir, zincir silinemez)."""
+    r = con.execute("SELECT surec FROM firma WHERE id=?", (fid,)).fetchone()
+    if not r:
+        return None
+    if yeni not in SUREC_GECISLERI.get(r[0], ()):
+        raise SurecHatasi("%s -> %s" % (r[0], yeni))
+    n = con.execute("UPDATE firma SET surec=?, surec_notu=?, surec_utc=? WHERE id=? AND surec=?", (yeni, (aciklama or "")[:500], simdi(), fid, r[0])).rowcount
+    if n != 1:
+        raise SurecHatasi("durum arada degisti")
+    con.commit()
+    return r[0], yeni
 
 
 def firma_izin_yaz(con, fid, izin):

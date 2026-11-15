@@ -37,6 +37,7 @@ ONEM_AD = {"kritik": "Kritik", "yuksek": "Yüksek", "orta": "Orta", "dusuk": "D�
 DURUM_AD = {"yeni": "Yeni", "gorusuluyor": "Görüşülüyor", "kapandi": "Kapandı"}
 DB_AD = {"pg": "PostgreSQL", "ms": "SQL Server", "my": "MySQL", "multi": "Birden çok", "unsure": "Emin değil"}
 FIRMA_DURUM_AD = {"aktif": "Aktif", "pasif": "Pasif"}
+SUREC_AD = {"aday": "Aday", "gorusuluyor": "Görüşülüyor", "teklif": "Teklif", "musteri": "Müşteri", "kapandi": "Kapandı"}
 KAYNAK_AD = {"tarama": "Sağlık taraması", "talep": "İletişim talebi"}
 MENU = (("/yonetim/", "Özet"), ("/yonetim/firmalar", "Firmalar"), ("/yonetim/talepler", "Talepler"), ("/yonetim/portal-talepleri", "Portal talepleri"), ("/yonetim/taramalar", "Taramalar"),
         ("/yonetim/denetim", "Denetim kaydı"), ("/yonetim/sistem", "Sistem"))
@@ -261,7 +262,7 @@ class H(BaseHTTPRequestHandler):
             m = re.match(r"^/yonetim/portal-talepleri/(\d{1,9})/durum$", yol)
             if m:
                 return self._portal_talep_durum(con, o, int(m.group(1)), f)
-            m = re.match(r"^/yonetim/firmalar/(\d{1,9})/(durum|not|sinir|sil|izin)$", yol)
+            m = re.match(r"^/yonetim/firmalar/(\d{1,9})/(durum|not|sinir|sil|izin|surec)$", yol)
             if m:
                 return self._firma_islem(con, o, int(m.group(1)), m.group(2), f)
             m = re.match(r"^/yonetim/taramalar/(\d{1,9})/sil$", yol)
@@ -341,35 +342,44 @@ class H(BaseHTTPRequestHandler):
         talepler = self._talep_satirlari()
         durumlar = depo.talep_durumlari(con)
         yeni = [t for t in talepler if durumlar.get(t[0], {}).get("durum", "yeni") == "yeni"]
-        hafta = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
         raporlar = self._raporlar()
         sayim = {k: 0 for k in kurallar.ONEM}
         for r in raporlar:
             for b in degerlendir(r["belge"])[0]:
                 sayim[b["onem"]] += 1
-        zincir_t, red, kull, firma_n, pasif_n = "veritabanı yok", 0, 0, 0, 0
+        red, kull = None, None
         if Path(self.tarama_db).exists():
             tc = tdepo.baglan(self.tarama_db)
             try:
-                zd = tdepo.denetim_durum(tc, tdepo.denetim_anahtari())
-                zincir_t = tdepo.denetim_metni(zd).replace("sağlam (anahtarsız kayıtlar)", "sağlam")
                 red = tc.execute("SELECT count(*) FROM denetim WHERE olay LIKE 'sirket siniri asildi%'").fetchone()[0]
                 kull = tc.execute("SELECT count(DISTINCT anahtar_sha256) FROM kullanim").fetchone()[0]
                 self._firma_esitle(tc)
-                firma_n = tc.execute("SELECT count(*) FROM firma").fetchone()[0]
-                pasif_n = tc.execute("SELECT count(*) FROM firma WHERE durum='pasif'").fetchone()[0]
             finally:
                 tc.close()
-        yb = depo.denetim_dogrula(con, tdepo.denetim_anahtari())
+        g = depo.gosterge(con, self.tarama_db, self.form_db)
+        sayi = lambda v: "veri yok" if v is None else v  # noqa: E731 - bilinmeyen sayi 0 gibi gosterilmez
         kutu = lambda ad, deger, alt="", kotu=False: "<div class=\"stat%s\"><p class=\"stat-k\">%s</p><p class=\"stat-v\">%s</p><p class=\"stat-s\">%s</p></div>" % (" bad" if kotu else "", e(ad), e(deger), e(alt))  # noqa: E731
-        ic = "<div class=\"stats\">" + "".join([
-            kutu("Kayıtlı firma", firma_n, "aktif %d, pasif %d" % (firma_n - pasif_n, pasif_n)),
-            kutu("Yeni talep", len(yeni), "toplam %d, son 7 gün %d" % (len(talepler), len([t for t in talepler if t[1] >= hafta]))),
-            kutu("Etkin tarama raporu", len(raporlar), "son 7 gün %d" % len([r for r in raporlar if r["olusturma_utc"] >= hafta])),
+        zt = g["zincir_tarama"]
+        zincir_t = "veri yok" if zt is None else tdepo.denetim_metni(zt).replace("sağlam (anahtarsız kayıtlar)", "sağlam")
+        yz = g["zincir_yonetim"]
+        zincir_y = tdepo.denetim_metni(yz).replace("sağlam (anahtarsız kayıtlar)", "sağlam")
+        gosterge = [
+            kutu("Tarama (son 7 gün)", sayi(g["tarama_7"]), "saklanan raporlar"),
+            kutu("Tarama (son 30 gün)", sayi(g["tarama_30"]), "saklanan raporlar"),
+            kutu("Aktif firma", sayi(g["firma_aktif"])),
+            kutu("Pasif firma", sayi(g["firma_pasif"])),
+            kutu("Açık iletişim talebi", sayi(g["iletisim_acik"]), "yeni ve görüşülen"),
+            kutu("Açık portal talebi", sayi(g["portal_acik"]), "yeni ve inceleniyor"),
+            kutu("Bekleyen Kip B isteği", sayi(g["kipb_bekleyen"]), "süresi dolmamış"),
+            kutu("Giden kutusunda bekleyen posta", sayi(g["posta_bekleyen"])),
+            kutu("Tarama denetim zinciri", zincir_t, kotu=zt is not None and not zincir_t.startswith("sağlam")),
+            kutu("Yönetim denetim zinciri", zincir_y, kotu=not zincir_y.startswith("sağlam")),
+        ]
+        ic = "<h2>Gösterge</h2><div class=\"stats\">" + "".join(gosterge) + "</div>"
+        ic += "<h2>Sistem</h2><div class=\"stats\">" + "".join([
+            kutu("Etkin tarama raporu", len(raporlar)),
             kutu("Kritik ve yüksek bulgu", sayim["kritik"] + sayim["yuksek"], "kritik %d, yüksek %d" % (sayim["kritik"], sayim["yuksek"])),
-            kutu("Tarama yapan şirket (30 gün)", kull, "sınır nedeniyle reddedilen %d" % red),
-            kutu("Tarama denetim zinciri", zincir_t, kotu=not zincir_t.startswith("sağlam") and zincir_t != "veritabanı yok"),
-            kutu("Yönetim denetim zinciri", "sağlam" if yb is None else "KIRIK: kayıt #%d" % yb, kotu=yb is not None),
+            kutu("Tarama yapan şirket (30 gün)", sayi(kull), "sınır nedeniyle reddedilen %s" % sayi(red)),
             kutu("İletişim servisi", "çalışıyor" if self._saglik(self.form_portu, "/healthz") else "YANIT YOK", kotu=not self._saglik(self.form_portu, "/healthz")),
             kutu("Tarama servisi", "çalışıyor" if self._saglik(self.tarama_portu, "/api/tarama/saglik") else "YANIT YOK", kotu=not self._saglik(self.tarama_portu, "/api/tarama/saglik")),
         ]) + "</div>"
@@ -441,11 +451,14 @@ class H(BaseHTTPRequestHandler):
             tc.close()
         suz = (q.get("durum") or [""])[0]
         suz = suz if suz in tdepo.FIRMA_DURUMLARI else ""
+        surec = (q.get("surec") or [""])[0]
+        surec = surec if surec in tdepo.SUREC_DURUMLARI else ""
         ara = (q.get("ara") or [""])[0].strip().lower()[:80]
         secili = [f for f in firmalar
                   if (not suz or f["durum"] == suz)
+                  and (not surec or f["surec"] == surec)
                   and (not ara or ara in f["ad"].lower() or ara in f["anahtar"] or ara in f["eposta"])]
-        return firmalar, secili, ara, suz
+        return firmalar, secili, ara, suz, surec
 
     def _csv(self, dosya_adi, baslik, satirlar):
         tampon = io.StringIO()
@@ -457,7 +470,7 @@ class H(BaseHTTPRequestHandler):
                    extra=(("Content-Disposition", "attachment; filename=\"%s\"" % dosya_adi),))
 
     def _firmalar_csv(self, con, o, q):
-        _, secili, _, _ = self._firma_suz(q)
+        _, secili, _, _, _ = self._firma_suz(q)
         talepler = self._talep_sayilari()
         satirlar = [[f["ad"], f["anahtar"], f["eposta"], FIRMA_DURUM_AD[f["durum"]], f["rapor_sayisi"], len(talepler.get(f["anahtar"], [])),
                      KAYNAK_AD.get(f["kaynak"], f["kaynak"]), f["kayit_utc"], f["son_utc"], f["aciklama"]] for f in secili]
@@ -478,13 +491,14 @@ class H(BaseHTTPRequestHandler):
         self._csv("alig-talepler.csv", ["Zaman (UTC)", "Kişi", "Şirket", "E-posta", "Veritabanı", "Mesaj", "Durum", "Not"], satirlar)
 
     def _firmalar(self, con, o, q):
-        firmalar, secili, ara, suz = self._firma_suz(q)
+        firmalar, secili, ara, suz, surec = self._firma_suz(q)
         talepler = self._talep_sayilari()
         satirlar = []
         for f in secili:
             satirlar.append(["<a href=\"/yonetim/firmalar/%d\"><strong>%s</strong></a><br><span class=\"muted\">%s</span>" % (f["id"], e(f["ad"] or "(adsız)"), e(f["anahtar"])),
                              "<a href=\"mailto:%s\">%s</a> %s" % (e(f["eposta"]), e(f["eposta"]), eposta_etiketi(f)),
                              "<span class=\"pill pill-%s\">%s</span>" % (f["durum"], e(FIRMA_DURUM_AD[f["durum"]])),
+                             e(SUREC_AD[f["surec"]]),
                              e(f["rapor_sayisi"]), e(len(talepler.get(f["anahtar"], []))), e(KAYNAK_AD.get(f["kaynak"], f["kaynak"])),
                              e(ist(f["kayit_utc"])), e(ist(f["son_utc"])), self._durum_dugmesi(f, o, "liste")])
         ust = ("<form method=\"get\" action=\"/yonetim/firmalar\" class=\"inline searchbar\"><label class=\"vh\" for=\"ara\">Ara</label>"
@@ -492,9 +506,11 @@ class H(BaseHTTPRequestHandler):
                "<button class=\"btn btn-sm\" type=\"submit\">Ara</button></form>") % e(ara)
         ust += "<p class=\"filters\">Süz: <a href=\"/yonetim/firmalar\">Tümü (%d)</a> <a href=\"/yonetim/firmalar?durum=aktif\">Aktif (%d)</a> <a href=\"/yonetim/firmalar?durum=pasif\">Pasif (%d)</a></p>" % (
             len(firmalar), sum(1 for f in firmalar if f["durum"] == "aktif"), sum(1 for f in firmalar if f["durum"] == "pasif"))
+        ust += "<p class=\"filters\">Süreç: <a href=\"/yonetim/firmalar\">Tümü</a> " + " ".join(
+            "<a href=\"/yonetim/firmalar?%s\">%s (%d)</a>" % (e(urlencode({"surec": k})), e(v), sum(1 for f in firmalar if f["surec"] == k)) for k, v in SUREC_AD.items()) + "</p>"
         ust += "<p><a class=\"textlink\" href=\"/yonetim/firmalar.csv?%s\">Bu listeyi CSV olarak indir</a></p>" % e(urlencode({"ara": ara, "durum": suz}))
         depo.denetim_ekle(con, o["ad"], "firmalar goruntulendi")
-        self._sayfa("Firmalar", ust + tablo(["Firma", "E-posta", "Durum", "Tarama", "Talep", "İlk kaynak", "Kayıt", "Son etkinlik", "İşlem"], satirlar, "Firma kaydı yok."), o)
+        self._sayfa("Firmalar", ust + tablo(["Firma", "E-posta", "Durum", "Süreç", "Tarama", "Talep", "İlk kaynak", "Kayıt", "Son etkinlik", "İşlem"], satirlar, "Firma kaydı yok."), o)
 
     def _firma(self, con, o, fid):
         tc = tdepo.baglan(self.tarama_db)
@@ -509,9 +525,9 @@ class H(BaseHTTPRequestHandler):
         depo.denetim_ekle(con, o["ad"], "firma goruntulendi #%d" % fid)
         csrf = e(o["csrf"])
         ic = "<p><a href=\"/yonetim/firmalar\">Firmalara dön</a></p>"
-        ic += ("<dl class=\"facts\"><dt>Durum</dt><dd><span class=\"pill pill-%s\">%s</span></dd><dt>Tanımlayıcı</dt><dd>%s</dd><dt>E-posta</dt><dd><a href=\"mailto:%s\">%s</a> %s</dd>"
+        ic += ("<dl class=\"facts\"><dt>Durum</dt><dd><span class=\"pill pill-%s\">%s</span></dd><dt>Ticari süreç</dt><dd>%s</dd><dt>Tanımlayıcı</dt><dd>%s</dd><dt>E-posta</dt><dd><a href=\"mailto:%s\">%s</a> %s</dd>"
                "<dt>İlk kaynak</dt><dd>%s</dd><dt>Kayıt</dt><dd>%s</dd><dt>Son etkinlik</dt><dd>%s</dd><dt>Kalan ücretsiz tarama</dt><dd>%d / %d (30 gün)</dd></dl>") % (
-                   f["durum"], e(FIRMA_DURUM_AD[f["durum"]]), e(f["anahtar"]), e(f["eposta"]), e(f["eposta"]), eposta_etiketi(f), e(KAYNAK_AD.get(f["kaynak"], f["kaynak"])),
+                   f["durum"], e(FIRMA_DURUM_AD[f["durum"]]), e(SUREC_AD[f["surec"]]) + (" <span class=\"muted\">(%s)</span>" % e(ist(f["surec_utc"])) if f["surec_utc"] else ""), e(f["anahtar"]), e(f["eposta"]), e(f["eposta"]), eposta_etiketi(f), e(KAYNAK_AD.get(f["kaynak"], f["kaynak"])),
                    e(ist(f["kayit_utc"])), e(ist(f["son_utc"])), kalan, tdepo.SINIR_ADET)
         ic += "<h2>İşlemler</h2><div class=\"actions\">" + self._durum_dugmesi(f, o, "detay")
         ic += ("<form method=\"post\" action=\"/yonetim/firmalar/%d/sinir\" class=\"inline\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
@@ -525,6 +541,7 @@ class H(BaseHTTPRequestHandler):
         ic += ("<form method=\"post\" action=\"/yonetim/firmalar/%d/not\" class=\"form notform\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
                "<div class=\"field field-wide\"><label for=\"f-not\">Not</label><textarea id=\"f-not\" name=\"aciklama\" maxlength=\"500\" rows=\"3\">%s</textarea></div>"
                "<p><button class=\"btn btn-sm\" type=\"submit\">Notu kaydet</button></p></form>") % (fid, csrf, e(f["aciklama"]))
+        ic += self._surec_formu(f, csrf)
         rs = []
         for r in raporlar:
             b, pn = degerlendir(r["belge"])
@@ -543,6 +560,19 @@ class H(BaseHTTPRequestHandler):
                "<button class=\"btn btn-sm btn-ghost\" type=\"submit\">Kalıcı olarak sil</button></form>") % (fid, csrf, len(raporlar))
         self._sayfa(f["ad"] or "(adsız firma)", ic, o)
 
+    def _surec_formu(self, f, csrf):
+        """Ticari surec: yalniz gecerli sonraki durumlar secilir. Not kisisel veri icerebilir; saklama: firma kaydiyla birlikte silinir."""
+        ic = "<h2>Ticari süreç</h2><p>Durum: <strong>%s</strong>. Not: <span class=\"msg\">%s</span></p>" % (e(SUREC_AD[f["surec"]]), e(f["surec_notu"] or "-"))
+        sonraki = tdepo.SUREC_GECISLERI[f["surec"]]
+        if not sonraki:
+            return ic + "<p class=\"muted\">Süreç kapandı; durum değiştirilemez.</p>"
+        sec = "".join("<option value=\"%s\">%s</option>" % (k, e(SUREC_AD[k])) for k in sonraki)
+        return ic + ("<form method=\"post\" action=\"/yonetim/firmalar/%d/surec\" class=\"form notform\"><input type=\"hidden\" name=\"csrf\" value=\"%s\">"
+                     "<div class=\"field\"><label for=\"s-durum\">Yeni durum</label><select id=\"s-durum\" name=\"surec\">%s</select></div>"
+                     "<div class=\"field field-wide\"><label for=\"s-not\">Not (isteğe bağlı)</label><textarea id=\"s-not\" name=\"aciklama\" maxlength=\"500\" rows=\"2\"></textarea></div>"
+                     "<p><button class=\"btn btn-sm\" type=\"submit\">Durumu değiştir</button></p></form>"
+                     "<p class=\"muted\">Not kişisel veri içerebilir; firma kaydıyla birlikte silinir, denetim kaydına yazılmaz. Fiyat ve tutar tutulmaz.</p>") % (f["id"], csrf, sec)
+
     def _firma_islem(self, con, o, fid, islem, f):
         tc = tdepo.baglan(self.tarama_db)
         try:
@@ -553,6 +583,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(422, b"gecersiz durum\n", "text/plain; charset=utf-8")
             if islem == "izin" and f.get("izin") not in ("0", "1"):
                 return self._send(422, b"gecersiz izin\n", "text/plain; charset=utf-8")
+            if islem == "surec" and f.get("surec") not in tdepo.SUREC_GECISLERI.get(firma["surec"], ()):
+                return self._send(422, b"gecersiz surec gecisi\n", "text/plain; charset=utf-8")
             if islem == "sil" and f.get("emin") != "evet":
                 return self._send(422, b"onay kutusu isaretlenmeli\n", "text/plain; charset=utf-8")
             ek = ""
@@ -568,11 +600,16 @@ class H(BaseHTTPRequestHandler):
                 elif islem == "izin":
                     tdepo.firma_izin_yaz(t, fid, f["izin"] == "1")
                     olay = "firma #%d dogrudan baglanti izni: %s" % (fid, "verildi" if f["izin"] == "1" else "kaldirildi")
+                elif islem == "surec":
+                    eski, yeni = tdepo.firma_surec_gecis(t, fid, f["surec"], f.get("aciklama", ""))
+                    olay = "firma #%d surec: %s -> %s" % (fid, eski, yeni)
                 elif islem == "sinir":
                     olay = "firma #%d tarama hakki sifirlandi (%d kayit)" % (fid, tdepo.firma_sinir_sifirla(t, fid))
                 else:
                     olay = "firma #%d silindi (%d rapor%s)" % (fid, tdepo.firma_sil(t, fid), ek)
-                tdepo.denetim_ekle(t, "yonetici:" + o["ad"], olay)
+                tdepo.denetim_ekle(t, "yonetici:" + o["ad"], olay, {"firma": fid, "sonuc": f["surec"]} if islem == "surec" else None)
+        except tdepo.SurecHatasi:   # es zamanli degisim: gecis artik gecerli degil
+            return self._send(409, b"surec arada degisti\n", "text/plain; charset=utf-8")
         finally:
             tc.close()
         depo.denetim_ekle(con, o["ad"], olay)

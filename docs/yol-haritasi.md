@@ -51,6 +51,8 @@ Sıra `docs/master-prompt-v2.md` belgesindeki önceliklere göredir (P0 önce). 
 | 18 | P1 | Ana sayfa: hizmet kartları, "nasıl çalışır", güvenlik yaklaşımı, SSS | Kanıtsız iddia yok, boyut bütçesi içinde | **tamam** (7 hizmet kartı, sağlık taraması adımları, SSS; müşteri, SLA, sertifika, başarı oranı iddiası yok) |
 | 19 | P1 | Örnek rapor sayfası: test verisinden üretilmiş ve öyle etiketlenmiş | Sayfa, i18n, test | **tamam** (`/ornek-rapor/` yönetici özeti ve `/ornek-rapor-teknik/` teknik rapor, TR ve EN, üç temada; govde `tarama/uret_ornek_rapor.py` ile sentetik belgeden (nesne adları `ornek_*`) müşteri raporuyla aynı kod yolundan üretilir, `site/uretilen/` elle düzenlenmez, CI'da "ornek rapor guncel" denetimi; sayfa başında ve yazdırmada görünen "sentetik test verisinden üretildi" etiketi; silme ve doğrulama eylemi yok, silinme tarihi yazılmaz; ana sayfa ve sağlık taraması sayfası bağlı; `tests/test_ornek_rapor.py`) |
 | 20 | P1 | Yönetim paneli: gösterge sayıları ve ticari süreç durumları (basit durum makinesi ve not) | Test | bekliyor |
+| 19 | P1 | Örnek rapor sayfası: test verisinden üretilmiş ve öyle etiketlenmiş | Sayfa, i18n, test | bekliyor |
+| 20 | P1 | Yönetim paneli: gösterge sayıları ve ticari süreç durumları (basit durum makinesi ve not) | Test | **tamam** (Özet sayfasında Gösterge: son 7 ve 30 gün tarama, aktif/pasif firma, açık iletişim, portal ve Kip B talepleri, bekleyen posta, iki denetim zincirinin doğrulaması; salt okunur sorgular, okunamayan sayı "veri yok" yazılır, 0 sayılmaz. Firma başına süreç durum makinesi `tarama/depo.py` (`SUREC_GECISLERI`), firma sayfasında değişir, listede süzülür; geçiş iki denetim zincirine yazılır, not zincire yazılmaz; `tests/test_yonetim.py` `SurecDepoTests`, `SurecPanelTests`, `GostergeTests`) |
 | 21 | P1 | İş kuyruğu: yalnızca doğrudan bağlantı için, PostgreSQL tabanlı (`FOR UPDATE SKIP LOCKED`, `pg-gecis` dalında; v5 bölüm 9), ayrı işçi | Durum geçişleri idempotent, yeniden başlatmada toparlanır | bekliyor |
 | 22 | P2 | SQL Server: yetenek tablosu ve gerçek sunucu çıktısına göre düzeltme | Ali'nin gönderdiği `ok` / `ATLANDI` listesi | Ali'yi bekliyor |
 | 23 | P2 | LLM rapor özeti: varsayılan kapalı, kanıt üretemez, puanı değiştiremez | Sağlayıcı yokken rapor aynen çalışır | bekliyor |
@@ -110,6 +112,7 @@ v5'ten bilerek alınmayanlar ya da uyarlananlar:
 | İletişim talebi saklama | Oluşturulmadan 365 gün sonra silinir | `ALIG_SAKLAMA_TALEP_GUN` (`tarama/saklama.py`) |
 | Kip B parola | Saklanmaz, her taramada sorulur | tasarım kararı |
 | Kip B sınırları | İstek 30 dk, 3 deneme, saatte 5 istek, aynı anda 2 tarama | `tarama/depo.py` `ISTEK_*`, `tarama/calistirici.py` |
+| Ticari süreç durumları | `aday` -> `gorusuluyor` -> `teklif` -> `musteri`; her durumdan `kapandi` (kapandı son durumdur, yeniden açılmaz). Yalnız durum ve not; fiyat, tutar, müşteri adı yok. Not firma kaydıyla birlikte silinir | `tarama/depo.py` `SUREC_DURUMLARI`, `SUREC_GECISLERI` |
 | Kip B kimlik | E-posta doğrulaması yerine yönetici izni | panel, firma ayrıntısı |
 | Doğrudan bağlantı ve SQL Server | Kapalı | `ALIG_DOGRUDAN`, `ALIG_MSSQL` |
 | Müşteri portalı | Kapalı; e-posta doğrulaması açık değilse açılmaz | `ALIG_PORTAL`, `musteri_portali` |

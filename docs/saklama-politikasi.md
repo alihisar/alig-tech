@@ -8,7 +8,7 @@ Kaynak: `tarama/saklama.py` (tek yer). Süreler ortamdan ayarlanır: `ALIG_SAKLA
 | --- | --- | --- | --- |
 | `rapor` | 30 gün | tarama.sqlite | Oluşturulurken bitiş tarihi yazılır; günlük bakım ve müşteri/yönetici silme düğmesi siler |
 | `baglanti_istegi` | 1 gün | tarama.sqlite | Süresi dolan Kip B isteği (parola hiç saklanmaz) |
-| `firma` | 365 gün | tarama.sqlite | Son etkinlikten sonra ve etkin raporu yoksa; silme `sistem` olarak denetime yazılır, firma adı ve e-postası denetime yazılmaz |
+| `firma` | 365 gün | tarama.sqlite | Son etkinlikten sonra ve etkin raporu yoksa; silme `sistem` olarak denetime yazılır, firma adı ve e-postası denetime yazılmaz. Ticari süreç durumu ve notu (yönetim paneli) firma satırında durur ve firma kaydıyla birlikte silinir (elle silme ve saklama süresi); not kişisel veri içerebilir, denetim zincirine yazılmaz |
 | `talep` | 365 gün | form.sqlite, yonetim.sqlite | Oluşturulmasından sonra; durum notları da silinir, işlem yönetim zincirine yazılır |
 | `denetim` | süresiz | tüm zincirler | Silinmez: silme zinciri bozar. Zincir başı dışa aktarılarak korunur (`docs/runbook.md`) |
 
