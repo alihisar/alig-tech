@@ -18,6 +18,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
 MAX_BODY = 8192
+SECURITY_HEADERS = (
+    ("Cache-Control", "no-store"),
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "no-referrer"),
+    ("X-Frame-Options", "DENY"),
+    ("Permissions-Policy", "camera=(), microphone=(), geolocation=()"),
+    ("Content-Security-Policy", "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
+)
 DB_CHOICES = {"pg", "ms", "my", "multi", "unsure"}
 LIMITS = {"name": 120, "company": 160, "email": 200, "message": 2000}
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -93,8 +101,10 @@ def make_handler(db_path, limiter, salt, thanks="/tesekkurler/"):
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
+            # Security headers (ALIG-SEC-002); this process is standalone, so the values are repeated from tarama/basliklar.py.
+            # Responses are plain text or redirects, never HTML: nothing may load or embed.
+            for k, v in SECURITY_HEADERS:
+                self.send_header(k, v)
             for k, v in extra:
                 self.send_header(k, v)
             self.end_headers()

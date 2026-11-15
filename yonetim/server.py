@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 KOK = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KOK))
-from tarama import depo as tdepo, kurallar, puan, rapor as trapor, saklama  # noqa: E402
+from tarama import basliklar, depo as tdepo, kurallar, puan, rapor as trapor, saklama  # noqa: E402
 from yonetim import depo  # noqa: E402
 
 try:
@@ -123,14 +123,10 @@ class H(BaseHTTPRequestHandler):
         self.send_response(kod)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(govde)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("X-Robots-Tag", "noindex, nofollow")
         # The same protection when opened through an SSH tunnel (without nginx): no script and no inline style in the panel.
-        self.send_header("Content-Security-Policy", "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; "
-                                                    "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+        for k, v in basliklar.varsayilan(ctype, extra):   # security headers (ALIG-SEC-002)
+            self.send_header(k, v)
+        self.send_header("X-Robots-Tag", "noindex, nofollow")
         for k, v in extra:
             self.send_header(k, v)
         self.end_headers()

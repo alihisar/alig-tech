@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import importlib.util  # noqa: E402
 
-from tarama import baglanti, calistirici, depo, hata, hedef, portal, posta, puan, rapor, saklama, yukleme  # noqa: E402
+from tarama import baglanti, basliklar, calistirici, depo, hata, hedef, portal, posta, puan, rapor, saklama, yukleme  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("alig_form_server", Path(__file__).resolve().parent.parent / "form" / "server.py")
 _form = importlib.util.module_from_spec(_spec)
@@ -78,9 +78,8 @@ class H(BaseHTTPRequestHandler):
         self.send_response(kod)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(govde)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "no-referrer")
+        for k, v in basliklar.varsayilan(ctype, extra):   # security headers (ALIG-SEC-002)
+            self.send_header(k, v)
         for k, v in extra:
             self.send_header(k, v)
         self.end_headers()

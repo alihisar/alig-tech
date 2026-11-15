@@ -14,6 +14,7 @@ server {
     server_name {{ www_alani }};
     ssl_certificate     /etc/letsencrypt/live/{{ alan_adi }}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/{{ alan_adi }}/privkey.pem;
+    include snippets/alig-basliklar.conf;
     return 308 https://{{ alan_adi }}$request_uri;
 }
 
