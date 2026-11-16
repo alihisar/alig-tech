@@ -148,12 +148,12 @@ h1{font-family:var(--font-head);font-size:var(--fs-h1);font-weight:var(--w-h1);l
 .prose p{margin-top:1rem}
 
 /* console: its own (dark) colour context */
-.console{--fg:var(--term-fg);--muted:var(--term-muted);--line:var(--term-line);--line-strong:var(--term-line-strong);border:1px solid var(--term-line-strong);border-radius:var(--r-m);background:var(--term-bg);color:var(--term-fg);overflow:hidden;font-family:var(--font-sans);font-size:1rem;line-height:1.5}
+.console{--focus:var(--term-fg);--fg:var(--term-fg);--muted:var(--term-muted);--line:var(--term-line);--line-strong:var(--term-line-strong);border:1px solid var(--term-line-strong);border-radius:var(--r-m);background:var(--term-bg);color:var(--term-fg);overflow:hidden;font-family:var(--font-sans);font-size:1rem;line-height:1.5}
 .console > * + *{border-top:1px solid var(--term-line)}
 .console-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.25rem 1rem;padding:.75rem 1rem;font-size:.85rem}
 .console-title{font-weight:650}
 .console-note{color:var(--term-muted)}
-.console h3{margin-bottom:.5rem;font:inherit;font-weight:650}
+.console h2{margin-bottom:.5rem;font:inherit;font-weight:650}
 .ctl,.stream,.finding,.audit,.ctl-reset{padding:1rem}
 .hint{color:var(--term-muted);font-size:.9rem}
 .term{margin:0;padding:1rem;overflow-x:auto;font-family:var(--font-mono);font-size:.8125rem;line-height:1.55;color:var(--term-fg);tab-size:4}
