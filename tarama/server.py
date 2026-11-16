@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import importlib.util  # noqa: E402
 
-from tarama import baglanti, basliklar, calistirici, depo, hata, hedef, portal, posta, puan, rapor, saklama, yukleme  # noqa: E402
+from tarama import baglanti, basliklar, calistirici, depo, eol, hata, hedef, portal, posta, puan, rapor, saklama, yukleme  # noqa: E402
 from tarama import bakim as bakim_modulu  # noqa: E402  (the handler has an attribute named bakim)
 
 _spec = importlib.util.spec_from_file_location("alig_form_server", Path(__file__).resolve().parent.parent / "form" / "server.py")
@@ -462,6 +462,7 @@ def main(argv=None):
         depo.denetim_anahtari()
         saklama.dogrula()
         puan.yukle()   # the service does not start with an invalid score setting (PuanAyarHatasi is a ValueError)
+        eol.yukle()   # the same for the EOL setting (EolAyarHatasi is a ValueError)
         eposta_ayarla(os.environ, H)
         portal_ayarla(os.environ, H)
         bakim_modulu.ayarla(os.environ, H)

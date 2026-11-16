@@ -91,6 +91,7 @@ Rule statuses: the same documents were evaluated with today's rule engine (`test
 | PG-MAINT-006 | Pass | Pass | Pass | Pass |
 | PG-MAINT-007 | Warning | Warning | Warning | Warning |
 | PG-MAINT-008 | Pass | Pass | Pass | Pass |
+| PG-MAINT-009 | Pass | Pass | Pass | Pass |
 | PG-PERF-001 | Pass | Unknown: partially measured: the scan account lacks the required role (pg_monitor) | Pass | Pass |
 | PG-PERF-002 | Pass | Unavailable: no permission | Pass | Pass |
 | PG-PERF-003 | Warning | Warning | Warning | Pass |

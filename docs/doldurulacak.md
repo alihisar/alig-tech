@@ -33,7 +33,7 @@ Other open decisions (not in the text, in the configuration):
 - `pg_tablo_autovacuum`: autovacuum disabled at the table level: medium
 - `pg_replikasyon`: replica lag: >=60 s or >=1 GB medium, >=600 s or >=16 GB high; a replica not streaming is medium
 - `pg_gecici_dosya`: temporary files: daily >=10 GB low, >=100 GB medium; the measurement window is counted as at least 1 day, info if unknown
-- PostgreSQL end-of-support dates (`tarama/kurallar.py` `PG_EOL`): verify every year against postgresql.org/support/versioning.
+- PostgreSQL end-of-support dates (`tarama/eol.py` `VARSAYILAN`, retrieved 2026-11-16, used by PG-MAINT-009 and PG-MAINT-001): verify every year against https://www.postgresql.org/support/versioning/ (or override with `ALIG_EOL_AYARI`, `docs/runbook.md`). The 180-day warning window is our own choice (awaiting approval, not blocking).
 - History comparison: because reports are deleted after 30 days, only scans within this period are compared. For a longer history, a decision to keep a summary (score, audit statuses; no object names) after a report is deleted is needed, and it must enter the KVKK text.
 - New rule choices (awaiting approval, not blocking): a low-severity finding if pg_stat_statements is not loaded; info for temporary file use whose statistics start is unknown; PG-MAINT-003, PG-MAINT-005 and PG-BACKUP-001 do not apply on a standby server.
 - Version verification: `tarama/surum_dogrula.py` must be run on PostgreSQL 12, 13, 14, 15, 17 and 18 (in this environment permission to run the downloaded binaries was not granted). The result goes under `docs/surum-dogrulama.json` and `tests/veri/surum/`, and the version is added to the `katalog.SINANAN` list.

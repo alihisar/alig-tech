@@ -190,6 +190,20 @@ sudo systemctl restart alig-tarama alig-yonetim
 
 Fields: `agirlik` (weight: kritik, yuksek, orta, dusuk, bilgi; 0-1000), `kredi_uyari` (warning credit: orta, dusuk, bilgi; 0-1), `kategori_carpani` (category multiplier: guvenlik, performans, konfigurasyon, bakim, kapasite, ha_dr, yedek; 0-100). Status credits are fixed: Bilinmiyor (unknown) and Alınamadı (could not be obtained) always get 0. If the file is invalid (unknown field, out-of-range value, malformed JSON, duplicate key, all weights zero) `alig-tarama` and `alig-yonetim` do not start; the reason is shown by `journalctl -u alig-tarama -n 20`. The two services read the same file; the report and the panel show the same score. The score is not stored, it is computed each time a report is opened: when a coefficient changes, the score of old reports changes too. The effective values are on the System page in the panel.
 
+## End-of-life dates for PostgreSQL versions
+
+The EOL rule `PG-MAINT-009` (and `PG-MAINT-001`) read the table in `tarama/eol.py`: dates from https://www.postgresql.org/support/versioning/, retrieved 2026-11-16. To change the warning window or a date without a code change, write a JSON file and give only what you want to change:
+
+```sh
+sudoedit /etc/alig/eol.json
+#   {"pencere_gun": 90, "son_tarihler": {"14": "2027-06-30", "19": "2031-11-13"}}
+sudo chown root:alig-web /etc/alig/eol.json && sudo chmod 0640 /etc/alig/eol.json
+echo 'ALIG_EOL_AYARI=/etc/alig/eol.json' | sudo tee -a /etc/alig/env
+sudo systemctl restart alig-tarama alig-yonetim
+```
+
+`pencere_gun` (0-3650, default 180) is how many days before the final release date the informational warning starts; `son_tarihler` maps a major version to its final release date (YYYY-MM-DD, after the first release date; it replaces a date or adds a new major version). If the file is invalid `alig-tarama` and `alig-yonetim` do not start; the reason is in `journalctl -u alig-tarama -n 20`. A change applies to old reports too, since findings are computed when a report is opened.
+
 ## E-mail verification (off by default)
 
 When off, the report link is shown right after the upload and the e-mail address entered is not verified; in the panel the companies appear as "unverified". When on:

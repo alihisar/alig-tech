@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from tarama import kanit, katalog, kurallar, kurallar_mssql, puan, rapor  # noqa: E402
+from tarama import eol, kanit, katalog, kurallar, kurallar_mssql, puan, rapor  # noqa: E402
 
 HEDEF = ROOT / "docs" / "kural-katalogu.md"
 MATRIS = ROOT / "docs" / "surum-matrisi.md"
@@ -103,6 +103,22 @@ def _puan_bolumu():
     return p
 
 
+def _eol_bolumu():
+    v = eol.VARSAYILAN
+    p = ["### PostgreSQL end-of-life table (PG-MAINT-009)", "",
+         "Source: <%s>, retrieved %s. The final release is the last minor release the community publishes for a major version; "
+         "`tarama/eol.py` holds the table. Versions older than the first row are reported as no longer supported, without a date." % (eol.KAYNAK_URL, eol.ALINMA_TARIHI), "",
+         "| Major version | First release | Final release (EOL) |", "|---|---|---|"]
+    p += ["| %d | %s | %s |" % (m, d["ilk"], d["son"]) for m, d in sorted(v["tablo"].items())]
+    p += ["", "PG-MAINT-009 is informational and advisory only: it evaluates the end date against the scan date taken from the scan document "
+          "(there is no clock call in the evaluation), reports a version whose end date has passed, and also one whose end date is within "
+          "%d days (`pencere_gun`, default). Its risk level is Info, so it has weight 0 and does not lower the health score; it never "
+          "recommends an automatic change. The older PG-MAINT-001 reads the same table with its own severities (High after the end date, Medium within 90 days). "
+          "The window and the dates can be overridden without a code change with the JSON file given with `%s` "
+          "(`docs/runbook.md`)." % (v["pencere_gun"], eol.ORTAM), ""]
+    return p
+
+
 def uret():
     p = ["# Rule catalog", "",
          "<!-- This file is generated with `python3 tarama/uret_kurallar.py`; do not edit it by hand. -->", "",
@@ -129,6 +145,7 @@ def uret():
           "Rules evaluated only on the primary server: %s. Table statistics (dead rows, index usage) are not kept on a standby "
           "and archiving is made primary-only; these rules become Not applicable on a standby. The server role is read from the `pg_sunucu_rolu` "
           "check; if it cannot be read, these rules cannot be Pass." % ", ".join(sorted(k.kimlik for k in kurallar.KURALLAR if k.birincil)), "",
+          ] + _eol_bolumu() + [
           "## SQL Server, preview (%d rules)" % len(kurallar_mssql.KURALLAR), "", _tablo(kurallar_mssql.KURALLAR, katalog.MSSQL_BY_ID), ""]
     return "\n".join(p)
 
