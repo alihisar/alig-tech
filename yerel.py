@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "form"))
 import build as site_build  # noqa: E402
 import server as form  # noqa: E402
 from tarama import server as tarama  # noqa: E402
-from tarama import depo, puan  # noqa: E402
+from tarama import depo, eol, puan  # noqa: E402
 from yonetim import depo as ydepo  # noqa: E402
 from yonetim import server as yonetim  # noqa: E402
 import http.client  # noqa: E402
@@ -48,7 +48,8 @@ def main():
     depo.baglan(tarama.H.db_yolu).close()
     try:
         puan.yukle()   # if ALIG_PUAN_AYARI is given, those coefficients are used locally too
-    except puan.PuanAyarHatasi as ex:
+        eol.yukle()   # likewise ALIG_EOL_AYARI
+    except (puan.PuanAyarHatasi, eol.EolAyarHatasi) as ex:
         raise SystemExit("error: %s" % ex)
     if os.environ.get("ALIG_EPOSTA_DOGRULAMA") == "1":
         # Local email verification: messages wait in the outbox; to read them

@@ -7,13 +7,12 @@ Object names never enter the title/description text or the observation; they are
 """
 from datetime import datetime, timezone
 
-from tarama import kanit, katalog, yukleme
+from tarama import eol, kanit, katalog, yukleme
 
 ONEM = ("kritik", "yuksek", "orta", "dusuk", "bilgi")
 IS = ("kucuk", "orta", "buyuk")
 
-# EOL dates from the PostgreSQL version policy (postgresql.org/support/versioning). BELGE: verify the dates every year.
-PG_EOL = {13: "2025-11-13", 14: "2026-11-12", 15: "2027-11-11", 16: "2028-11-09", 17: "2029-11-08", 18: "2030-11-14"}
+# EOL dates: tarama/eol.py (PostgreSQL version policy, source URL and retrieval date recorded there; overridable with ALIG_EOL_AYARI).
 
 # Thresholds not in an official document (MUHENDISLIK)
 MUHENDISLIK = {
@@ -36,6 +35,14 @@ T = {  # check -> template. Each field is {"tr":..., "en":...}
         oneri={"tr": "Desteklenen bir ana sürüme geçiş planlayın. Önce test ortamında, uygulama uyumu ve geri dönüş adımlarıyla.", "en": "Plan an upgrade to a supported major version, first in a test environment with application checks and a rollback plan."},
         risk={"tr": "Orta. Ana sürüm geçişi bakım penceresi ister.", "en": "Medium. A major upgrade needs a maintenance window."},
         geri={"tr": "Eski küme geçişten sonra da korunursa dönülebilir.", "en": "Reversible while the old cluster is kept after the upgrade."}, is_="buyuk"),
+    "pg_surum_eol_bilgi": dict(
+        baslik={"tr": "PostgreSQL ana sürümünün destek durumu (bilgi)", "en": "PostgreSQL major version support status (informational)"},
+        neden={"tr": "Topluluk desteği biten ya da yaklaşan bir ana sürüme artık güvenlik ve veri bozulması düzeltmeleri yayımlanmaz ya da yakında yayımlanmayacaktır. Bu bulgu bilgi amaçlıdır ve sağlık puanını düşürmez.",
+               "en": "A major version whose community support has ended or is approaching no longer receives, or soon will not receive, security and corruption fixes. This finding is informational and does not lower the health score."},
+        oneri={"tr": "Desteklenen bir ana sürüme geçişi planlamayı değerlendirin; zamanlamaya ve yöntemine siz karar verirsiniz. Bu araç hiçbir değişiklik uygulamaz.",
+               "en": "Consider planning an upgrade to a supported major version; you decide the timing and method. This tool applies no changes."},
+        risk={"tr": "Bilgi. Önerilen adım yalnızca planlamadır; ana sürüm geçişi uygulanacağında bakım penceresi ister.", "en": "Informational. The suggested step is planning only; carrying out a major upgrade later needs a maintenance window."},
+        geri={"tr": "Uygulanmaz, bu bulgu bir değişiklik önermez.", "en": "Not applicable, this finding proposes no change."}, is_="buyuk"),
     "pg_xid_yasi": dict(
         baslik={"tr": "İşlem kimliği yaşı yüksek", "en": "Transaction ID age is high"},
         neden={"tr": "Yaş sınıra ulaşırsa veritabanı yazmayı durdurur. Dondurma (freeze) işleminin yetişmesi gerekir.", "en": "If the age reaches the limit the database stops accepting writes. Freezing must keep up."},
@@ -231,16 +238,37 @@ def _surum(r, g):
         raise kanit.Belirsiz("gecersiz_veri")
     major = r[0]["surum_num"] // 10000
     g.gozle(surum=major)
-    eol = PG_EOL.get(major)
-    if eol is None and major < min(PG_EOL):
+    tablo = eol.son_tarihler()
+    bitis = tablo.get(major)
+    if bitis is None and major < min(tablo):
         return [_f("pg_surum", "pg_surum_eol", "yuksek", {"surum": major, "destek_sonu": "gecmis"})]
-    if eol:
-        gun = (datetime.strptime(eol, "%Y-%m-%d").replace(tzinfo=timezone.utc) - g.taranan).days
+    if bitis:
+        gun = (datetime.strptime(bitis, "%Y-%m-%d").replace(tzinfo=timezone.utc) - g.taranan).days
         if gun < 0:
-            return [_f("pg_surum", "pg_surum_eol", "yuksek", {"surum": major, "destek_sonu": eol})]
+            return [_f("pg_surum", "pg_surum_eol", "yuksek", {"surum": major, "destek_sonu": bitis})]
         if gun <= 90:
-            return [_f("pg_surum", "pg_surum_eol", "orta", {"surum": major, "destek_sonu": eol, "kalan_gun": gun})]
+            return [_f("pg_surum", "pg_surum_eol", "orta", {"surum": major, "destek_sonu": bitis, "kalan_gun": gun})]
     return []
+
+
+@kural("PG-MAINT-009", "bakim", "bilgi", "HIGH", [K("pg_surum", "tek", ("surum_num",))],
+       _t("Ana sürüm destek durumu (bilgi)", "Major version end-of-life status (informational)"),
+       _t("Ana sürümün topluluk desteği, bitiş tarihine yapılandırılmış pencereden (varsayılan 180 gün) daha uzun süre var. "
+          "Tarihler postgresql.org sürüm politikasından alınmıştır (%s, alınma: %s)." % (eol.KAYNAK_URL, eol.ALINMA_TARIHI),
+          "Community support for the major version lasts longer than the configured window (default 180 days) before its end date. "
+          "Dates are from the postgresql.org versioning policy (%s, retrieved %s)." % (eol.KAYNAK_URL, eol.ALINMA_TARIHI)))
+def _surum_eol_bilgi(r, g):
+    if r[0]["surum_num"] < 90000:
+        raise kanit.Belirsiz("gecersiz_veri")
+    major = r[0]["surum_num"] // 10000
+    g.gozle(surum=major)
+    s = eol.degerlendir(major, g.taranan)   # the scan date comes from the document; no clock call here
+    if s is None:
+        return []
+    kanit_ = {"surum": major, "durum": s["durum"], "destek_sonu": s["destek_sonu"], "pencere_gun": eol.ETKIN["pencere_gun"]}
+    if s["kalan_gun"] is not None and s["durum"] == "yaklasiyor":
+        kanit_["kalan_gun"] = s["kalan_gun"]
+    return [_f("pg_surum", "pg_surum_eol_bilgi", "bilgi", kanit_)]
 
 
 @kural("PG-MAINT-002", "bakim", "kritik", "HIGH", [K("pg_xid_yasi", "en_az_bir", ("yas",))],

@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 KOK = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KOK))
 from tarama import bakim as bakim_modulu  # noqa: E402  (the handler has an attribute named bakim)
-from tarama import basliklar, depo as tdepo, kurallar, puan, rapor as trapor, saklama  # noqa: E402
+from tarama import basliklar, depo as tdepo, eol, kurallar, puan, rapor as trapor, saklama  # noqa: E402
 from yonetim import depo  # noqa: E402
 
 try:
@@ -855,8 +855,9 @@ def main(argv=None):
         depo.zincir.denetim_anahtari()
         saklama.dogrula()
         puan.yukle()   # the same environment file as the scan service: report and panel show the same score
+        eol.yukle()   # the same EOL setting as the scan service
         bakim_modulu.ayarla(os.environ, H)
-    except (depo.zincir.AnahtarHatasi, saklama.SaklamaHatasi, puan.PuanAyarHatasi, ValueError) as ex:
+    except (depo.zincir.AnahtarHatasi, saklama.SaklamaHatasi, puan.PuanAyarHatasi, eol.EolAyarHatasi, ValueError) as ex:
         raise SystemExit("error: %s" % ex)
     depo.baglan(a.db).close()
     print("admin panel listening on 127.0.0.1:%d" % a.port, flush=True)

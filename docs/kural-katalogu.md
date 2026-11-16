@@ -64,7 +64,7 @@ The weights, the warning credits and the category multipliers can be set from th
 
 Data condition: for *single row* exactly one row is expected in the source; for *at least one row* an empty result in the source means no data; for *empty result is valid* an empty result in the source means no problem. A row with a required value empty or of the wrong type does not enter the evaluation and makes the result partial. If an *additional* source does not arrive the rule still runs and reports the finding, but cannot give PASS. For a source that runs *in every database*, PASS requires that all connectable databases on the server were scanned (`pg_kapsam`); if a database was skipped or not selected, the result is partial.
 
-## PostgreSQL (23 rules)
+## PostgreSQL (24 rules)
 
 | ID | Check | Category | Risk | Confidence | Collection check | Source read | Pass condition |
 |---|---|---|---|---|---|---|---|
@@ -81,6 +81,7 @@ Data condition: for *single row* exactly one row is expected in the source; for 
 | PG-MAINT-006 | Autovacuum | Maintenance | High | HIGH | `pg_autovacuum` (at least one row) | `autovacuum`, `track_counts` | autovacuum and track_counts are on. |
 | PG-MAINT-007 | Autovacuum turned off per table | Maintenance | Medium | HIGH | `pg_tablo_autovacuum` (in every database, empty result is valid) | `pg_class` | No table has autovacuum_enabled turned off. |
 | PG-MAINT-008 | Multixact ID age (wraparound) | Maintenance | Critical | HIGH | `pg_xid_yasi` (at least one row) | `autovacuum_freeze_max_age`, `autovacuum_multixact_freeze_max_age`, `pg_database` | In every database the multixact ID age is below twice autovacuum_multixact_freeze_max_age and below 1.6 billion. |
+| PG-MAINT-009 | Major version end-of-life status (informational) | Maintenance | Info | HIGH | `pg_surum` (single row) | `server_version_num` | Community support for the major version lasts longer than the configured window (default 180 days) before its end date. Dates are from the postgresql.org versioning policy (https://www.postgresql.org/support/versioning/, retrieved 2026-11-16). |
 | PG-PERF-001 | Idle-in-transaction sessions | Performance | High | MEDIUM | `pg_bosta_islem` (empty result is valid) | `pg_stat_activity` | At scan time no transaction has been idle for more than 10 minutes. |
 | PG-PERF-002 | Query statistics (pg_stat_statements) | Performance | Low | HIGH | `pg_sorgu_istatistigi` (single row) | `pg_stat_statements.track`, `shared_preload_libraries` | pg_stat_statements is loaded through shared_preload_libraries and collecting (pg_stat_statements.track: top or all). |
 | PG-PERF-003 | Temporary files | Performance | Medium | MEDIUM | `pg_gecici_dosya` (at least one row) | `pg_stat_database` | No temporary files were written, or less than 10 GB per day on average in every database with a known statistics start; usage with an unknown start is shown as information. |
@@ -95,6 +96,21 @@ Data condition: for *single row* exactly one row is expected in the source; for 
 Information checks that are not a rule source: `pg_sunucu_rolu`, `pg_kume_kimligi`, `pg_hesap`, `pg_kapsam`, `pg_eklentiler`.
 
 Rules evaluated only on the primary server: PG-BACKUP-001, PG-MAINT-003, PG-MAINT-005. Table statistics (dead rows, index usage) are not kept on a standby and archiving is made primary-only; these rules become Not applicable on a standby. The server role is read from the `pg_sunucu_rolu` check; if it cannot be read, these rules cannot be Pass.
+
+### PostgreSQL end-of-life table (PG-MAINT-009)
+
+Source: <https://www.postgresql.org/support/versioning/>, retrieved 2026-11-16. The final release is the last minor release the community publishes for a major version; `tarama/eol.py` holds the table. Versions older than the first row are reported as no longer supported, without a date.
+
+| Major version | First release | Final release (EOL) |
+|---|---|---|
+| 13 | 2020-09-24 | 2025-11-13 |
+| 14 | 2021-09-30 | 2026-11-12 |
+| 15 | 2022-10-13 | 2027-11-11 |
+| 16 | 2023-09-14 | 2028-11-09 |
+| 17 | 2024-09-26 | 2029-11-08 |
+| 18 | 2025-09-25 | 2030-11-14 |
+
+PG-MAINT-009 is informational and advisory only: it evaluates the end date against the scan date taken from the scan document (there is no clock call in the evaluation), reports a version whose end date has passed, and also one whose end date is within 180 days (`pencere_gun`, default). Its risk level is Info, so it has weight 0 and does not lower the health score; it never recommends an automatic change. The older PG-MAINT-001 reads the same table with its own severities (High after the end date, Medium within 90 days). The window and the dates can be overridden without a code change with the JSON file given with `ALIG_EOL_AYARI` (`docs/runbook.md`).
 
 ## SQL Server, preview (20 rules)
 
