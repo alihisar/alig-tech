@@ -147,7 +147,7 @@
 .queue-empty{margin-top:1rem;color:var(--muted)}
 html:not(.demo-ready) .btns,html.demo-ready .nojs-note,html:not(.demo-ready) .audit-box{display:none}
 .nojs-note{color:var(--muted)}
-.audit-box{margin-top:3rem;padding:1.25rem;background:var(--term-bg);color:var(--term-fg);border-radius:var(--r-m);--muted:var(--term-muted)}
+.audit-box{margin-top:3rem;padding:1.25rem;background:var(--term-bg);color:var(--term-fg);border-radius:var(--r-m);--muted:var(--term-muted);--focus:var(--term-fg)}
 .audit-box h2{margin-top:0}
 .audit-box .note{color:var(--term-muted);font-size:.9rem}
 .audit-box .chain{margin-top:1rem}

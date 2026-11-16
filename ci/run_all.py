@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "build"))
 
 import build as site_build  # noqa: E402
+import check_a11y  # noqa: E402
 import check_banned  # noqa: E402
 import check_external  # noqa: E402
 import check_html  # noqa: E402
@@ -95,6 +96,18 @@ def main(argv=None):
     step("internal links", lambda: check_links.check(dist))
     step("external resources", lambda: check_external.check(dist))
     step("size budget", lambda: check_size.check(dist, args.budget))
+    def a11y():
+        # all three themes, both languages; the build is deterministic and fast, so each theme gets its own tree
+        problems = []
+        for theme in site_build.THEMES:
+            out = ROOT / "dist" / f"a11y-{theme}"
+            if site_build.main(["--theme", theme, "--out", str(out)]) != 0:
+                problems.append(f"theme {theme}: build failed")
+                continue
+            problems += [f"theme {theme}: {p}" for p in check_a11y.check(out, theme)]
+        return problems
+
+    step("accessibility", a11y)
     step("secret scan", lambda: check_secrets.check(dist))
     step("workflow pinning", lambda: check_workflows.check())
     step("banned patterns", lambda: check_banned.check(dist))

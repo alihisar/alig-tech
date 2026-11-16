@@ -56,7 +56,7 @@ python3 ci/uret_readme.py                   # updates the README automatic secti
 ```
 
 <!-- oto:basla denetimler -->
-`run_all.py` runs these 15 checks in order:
+`run_all.py` runs these 16 checks in order:
 
 1. build
 2. collector up to date
@@ -67,16 +67,17 @@ python3 ci/uret_readme.py                   # updates the README automatic secti
 7. internal links
 8. external resources
 9. size budget
-10. secret scan
-11. workflow pinning
-12. banned patterns
-13. language parity
-14. placeholders
-15. readme up to date
+10. accessibility
+11. secret scan
+12. workflow pinning
+13. banned patterns
+14. language parity
+15. placeholders
+16. readme up to date
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Unit tests: 853 tests (PostgreSQL tests are counted separately in the `postgresql tests` step: an external server if `ALIG_TEST_PG_HOST` is set, otherwise a temporary cluster with the system PostgreSQL 16; if neither exists, SKIP, and an error in `--release` mode).
+Unit tests: 888 tests (PostgreSQL tests are counted separately in the `postgresql tests` step: an external server if `ALIG_TEST_PG_HOST` is set, otherwise a temporary cluster with the system PostgreSQL 16; if neither exists, SKIP, and an error in `--release` mode).
 <!-- oto:bitis testler -->
 
 ## Directories
