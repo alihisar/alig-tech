@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Daily maintenance (systemd timer): SQLite backup, deleting old backups, deleting expired reports.
+"""Daily maintenance (systemd timer): SQLite backup, deleting old backups, deleting expired reports, expired admin sessions.
 
   python3 bakim.py --veri /var/lib/alig --yedek /var/backups/alig --sakla 14
 Backup: a consistent copy via the SQLite backup API, <name>-<UTC time>.sqlite.
@@ -299,6 +299,13 @@ def main(argv=None):
         portal_depo.temizle(con)   # expired portal code, session, attempt record and unverified account request
         con.close()
     print(f"saklama suresi dolan talep silindi: {talepleri_sil(veri)}")
+    yon = veri / "yonetim.sqlite"
+    if yon.exists():
+        y = ydepo.baglan(str(yon))
+        try:
+            print(f"suresi dolan yonetim oturumu silindi: {ydepo.temizle(y, denetle=True)}")  # also done at admin login
+        finally:
+            y.close()
     for ad in VERITABANLARI:
         kaynak = veri / ad
         if not kaynak.exists():

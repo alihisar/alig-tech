@@ -157,6 +157,53 @@ class SaklamaTests(unittest.TestCase):
         self.assertIn("1 talep silindi", y.execute("SELECT olay FROM denetim ORDER BY seq DESC LIMIT 1").fetchone()[0])
         self.assertIsNone(ydepo.denetim_dogrula(y))
 
+    def _yonetim_oturumu(self, veri, kod, olusturma):
+        y = ydepo.baglan(str(veri / "yonetim.sqlite"))
+        y.execute("INSERT INTO oturum VALUES(?,?,?,?,?)", (kod, "ali", "csrf", olusturma, olusturma))
+        y.commit()
+        return y
+
+    def test_bakim_suresi_dolan_yonetim_oturumlarini_siler_ve_denetler(self):
+        veri, yedek = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        y = self._yonetim_oturumu(veri, "eski1", "2000-01-01T00:00:00Z")
+        self._yonetim_oturumu(veri, "eski2", "2000-01-01T00:00:00Z")
+        self._yonetim_oturumu(veri, "taze", ydepo._z(ydepo._simdi()))
+        y.execute("INSERT INTO giris_denemesi(anahtar, zaman_utc) VALUES('k:ali','2000-01-01T00:00:00Z')")
+        y.commit()
+        y.close()
+        self.assertEqual(bakim.main(["--veri", str(veri), "--yedek", str(yedek)]), 0)
+        y = ydepo.baglan(str(veri / "yonetim.sqlite"))
+        self.assertEqual(y.execute("SELECT kod_sha256 FROM oturum").fetchall(), [("taze",)])
+        self.assertEqual(y.execute("SELECT count(*) FROM giris_denemesi").fetchone()[0], 0)
+        satir = y.execute("SELECT aktor, olay FROM denetim ORDER BY seq DESC LIMIT 1").fetchone()
+        self.assertEqual(satir, ("sistem", "suresi dolan 2 yonetim oturumu silindi"))
+        self.assertIsNone(ydepo.denetim_dogrula(y))
+
+    def test_bakim_yonetim_oturumu_yoksa_denetim_yazmaz_ve_dosya_olusturmaz(self):
+        veri, yedek = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        self.assertEqual(bakim.main(["--veri", str(veri), "--yedek", str(yedek)]), 0)
+        self.assertFalse((veri / "yonetim.sqlite").exists())
+        self._yonetim_oturumu(veri, "taze", ydepo._z(ydepo._simdi())).close()
+        self.assertEqual(bakim.main(["--veri", str(veri), "--yedek", str(yedek)]), 0)
+        y = ydepo.baglan(str(veri / "yonetim.sqlite"))
+        self.assertEqual(y.execute("SELECT count(*) FROM oturum").fetchone()[0], 1)
+        self.assertEqual(y.execute("SELECT count(*) FROM denetim").fetchone()[0], 0)
+
+    def test_yonetim_temizle_denetimsiz_cagri_davranisi_ayni(self):
+        veri = Path(tempfile.mkdtemp())
+        y = self._yonetim_oturumu(veri, "eski", "2000-01-01T00:00:00Z")
+        ydepo.temizle(y)  # the admin-login call: no audit record
+        self.assertEqual(y.execute("SELECT count(*) FROM oturum").fetchone()[0], 0)
+        self.assertEqual(y.execute("SELECT count(*) FROM denetim").fetchone()[0], 0)
+
+    def test_yonetim_oturum_denetimi_silmesiz_kalmaz(self):
+        veri = Path(tempfile.mkdtemp())
+        y = self._yonetim_oturumu(veri, "eski", "2000-01-01T00:00:00Z")
+        with mock.patch.object(ydepo, "denetim_ekle", side_effect=RuntimeError("denetim yazilamadi")):
+            with self.assertRaises(RuntimeError):
+                ydepo.temizle(y, denetle=True)
+        self.assertEqual(y.execute("SELECT count(*) FROM oturum").fetchone()[0], 1)
+
     def test_bakim_gecersiz_saklama_ayarinda_durur(self):
         veri, yedek = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
         with mock.patch.dict(os.environ, {"ALIG_SAKLAMA_FIRMA_GUN": "abc"}):

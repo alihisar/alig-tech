@@ -1,6 +1,7 @@
 [Unit]
 ConditionPathExists={{ kok_dizin }}/current
-Description=alig.tech daily maintenance (backup and expired reports)
+Description=alig.tech daily maintenance (backup, expired reports and admin sessions)
+OnFailure=alig-uyari.service
 
 [Service]
 Type=oneshot
