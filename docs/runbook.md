@@ -124,13 +124,51 @@ Drill: the same steps run automatically on a temporary PG16 cluster (`python3 -m
 
 ## Monitoring
 
-`alig-izleme.timer` runs the smoke test every 5 minutes (`http://127.0.0.1:8081`). On failure `alig-uyari.service` writes a critical entry to the system log. The notification path (e-mail or message) is `[doldurulacak: bildirim yöntemi]` (to be filled in: notification method); it is connected by changing `ExecStart` in `/etc/systemd/system/alig-uyari.service`.
+`alig-izleme.timer` runs every 5 minutes and starts `alig-izleme.service`, which does two things:
+
+1. `deploy/duman_testi.py` (smoke test, `http://127.0.0.1:8081`) as `ExecStart`.
+2. `deploy/izle.py` (the read-only monitoring list) as `ExecStopPost`, so it also runs when the smoke test failed and a failing health check does not hide the other findings.
+
+On a failure of either, `alig-uyari.service` writes a critical entry to the system log. **There is no alert channel configured**: the output of both is only a log (`journalctl -u alig-izleme`). The notification path (e-mail or message) is `[doldurulacak: bildirim yöntemi]` (to be filled in: notification method); it is connected by changing `ExecStart` in `/etc/systemd/system/alig-uyari.service`, outside the repository code.
+
+`deploy/izle.py` is stdlib only and read-only: databases are opened with `mode=ro`, files and directories are only listed, nothing is written or changed on any system. The unit has no write path. One log line per check (`OK`, `WARN`, `CRIT`, `UNKNOWN` = could not be read, never shown as OK, `SKIP` = not configured) and a summary line; only `CRIT` makes the exit code 1 and fails the unit.
+
+| Check | What is read | WARN | CRIT |
+| --- | --- | --- | --- |
+| `health` | `GET /healthz` and `/api/tarama/saglik` on `--taban` must answer `200` with body `ok` | - | unreachable, other status or body |
+| `disk` | free space of the data and the backup directory | below 15% free | below 5% free |
+| `outbox` | pending and failed mail in the `tarama.sqlite` outbox | 20 or more pending, or the oldest pending is older than 60 minutes | - |
+| `pending_requests` | open contact requests (`form.sqlite` minus the ones closed in `yonetim.sqlite`) and open portal requests | oldest open request older than 3 days | - |
+| `audit_chain` | hash chain of the scan and admin audit logs (`ALIG_DENETIM_ANAHTARI` is read from `/etc/alig/env` by the unit) | keyed records and no key available | a broken chain (the record number is logged) |
+| `backup_age` | newest `<name>-<UTC time>.sqlite` in the backup directory, for every database present in the data directory | newest backup older than 36 hours | older than 72 hours, or none |
+| `cert_expiry` | `notAfter` of the certificate served on `127.0.0.1:443` for `--sertifika-ad` (chain and name verified) | 21 days or fewer | 7 days or fewer, expired, or not verifiable |
+
+The thresholds are defaults chosen as starting points (the maintenance job runs daily, certbot renews 30 days before expiry); they are not agreed service levels and can be changed in `deploy/izle.py` (`Ayar`). Limits: without an exported chain head (`python3 tarama/depo.py bas`) a chain that was cut at the end is not detected, the same limit as `bakim.py geri-yukle`; the chain check reads the whole chain every 5 minutes (fine at current sizes, revisit if the audit tables grow large); a check that is not configured (`SKIP`) or unreadable (`UNKNOWN`) is not a pass. Not tested on a real server: the unit with `ProtectSystem=strict` reading a live WAL database (if SQLite cannot attach read-only, the check says `UNKNOWN`, it does not fail silently as `OK`) and the certificate read against the real nginx.
+
+Run it by hand through the unit (read-only, safe on the live server; it needs the audit key from `/etc/alig/env`, which the unit reads):
 
 ```sh
+sudo systemctl start alig-izleme.service
+journalctl -u alig-izleme -n 30
 systemctl list-timers 'alig-*'
-journalctl -u alig-izleme -n 50
 journalctl -u alig-form -u alig-tarama -n 100
 ```
+
+## Scheduled jobs and owners
+
+One table for everything that runs on a schedule or in the background. "Code owner" is the module that implements the job; "Responsible person" is who acts when it fails and is left to be filled in (no name is assumed).
+
+| Job | What it does | Unit / trigger | Code owner | Failure shows as | Responsible person |
+| --- | --- | --- | --- | --- | --- |
+| Daily maintenance | SQLite backup of the three databases, deletes old backups, expired reports, expired company and request records (retention periods) | `alig-bakim.timer` 02:17 UTC (random delay up to 10 min, `Persistent`) starts `alig-bakim.service` | `deploy/bakim.py` | `systemctl status alig-bakim`, `journalctl -u alig-bakim`; the unit has no `OnFailure`, a missed run is caught by the `backup_age` check | [doldurulacak: person] |
+| Mail retry | Sends the outbox; a failed message is retried on the next pass of a 5-second loop and given up after 5 attempts (status `basarisiz`, text deleted); only installed when e-mail verification is on | `alig-posta.service` (long running, `Restart=on-failure`, `RestartSec=10`) | `tarama/posta.py`, `tarama/depo.py` (`posta_sonuc`) | `journalctl -u alig-posta`, rows with status `basarisiz`, `outbox` check (pending and failed counts) | [doldurulacak: person] |
+| Session cleanup (portal) | Deletes expired portal codes, sessions, login attempts and unverified account requests; an expired session is also refused when it is read | inside daily maintenance (`alig-bakim.service`) | `tarama/portal_depo.py` (`temizle`) | same as daily maintenance | [doldurulacak: person] |
+| Session cleanup (admin panel) | Deletes expired admin sessions and old login attempts; an expired session is also refused when it is read. It runs at an admin login, not on a timer and not in `bakim.py` | on each admin login of `alig-yonetim.service` | `yonetim/depo.py` (`temizle`) | no unit of its own; stale rows only wait for the next login and are never accepted | [doldurulacak: person] |
+| Monitoring | Smoke test and the read-only checks above | `alig-izleme.timer` every 5 minutes starts `alig-izleme.service` | `deploy/duman_testi.py`, `deploy/izle.py` | `alig-uyari.service` (system log entry; no other channel configured) | [doldurulacak: person] |
+| Certificate renewal | Renews the TLS certificate | `certbot.timer` (system package timer) | certbot package (not repository code) | `certbot renew --dry-run`, `systemctl list-timers certbot*`, `cert_expiry` check | [doldurulacak: person] |
+| Log rotation | Rotates and deletes the nginx logs after `log_saklama_gun` days | system `logrotate` with `/etc/logrotate.d/alig` | `deploy/ansible/roles/web/templates/logrotate-alig.j2` | system `logrotate` status, `disk` check | [doldurulacak: person] |
+
+The PostgreSQL backup (`db/yedek.py`) is run by hand today and has no timer; when it is scheduled after the migration it gets a row here.
 
 ## Admin panel
 
