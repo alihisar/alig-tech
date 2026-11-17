@@ -16,13 +16,13 @@ The code of the PostgreSQL items is developed on the `pg-gecis` branch (GEL-K1);
 | 1 (16 Nov) | ALIG-SEC-002 (done) | ALIG-OPS-002 (done) | none |
 | 2 (17 Nov) | ALIG-SCAN-002 (done) | ALIG-UX-001 (done) | SCAN-002: EOL dates are verified from an official source |
 | 3 (18 Nov) | ALIG-OPS-001 (done) | ALIG-TEST-001 (done) | OPS-001: the alert channel is with Ali, the code is independent of the channel |
-| 4 (19 Nov) | ALIG-DB-003b | ALIG-DB-003c | DB-K1 |
+| 4 (19 Nov) | ALIG-DB-003b | ALIG-DB-003c | DB-K1 decided (B); 003c waits for 003b |
 | 5 (20 Nov) | ALIG-DB-003d | ALIG-DB-003e | DB-K1 |
 | 6 (21 Nov) | 21 | ALIG-DB-006 | DB-K1 |
 | 7 (22 Nov) | ALIG-DB-004 (A-C, rehearsal) | ALIG-CI-002 | DB-K1; CI-002: 003c-e must be finished |
 | - | 22, ALIG-DB-004 Phase D (cutover), live PostgreSQL 18 installation, PG18 verification | | WEB-K6, DB-K4, DB-K2 |
 
-If DB-K1 is not given, the items of days 4-7 are skipped; the night task picks a new unblocked item.
+DB-K1 was decided on 2026-11-17 (option B); the PostgreSQL items run on the `pg-gecis` branch (GEL-K1). 003b goes first because 003c-e depend on it.
 
 ## Next items
 
