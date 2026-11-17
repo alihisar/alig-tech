@@ -164,13 +164,16 @@ Tool: `db/yedek.py` (stdlib; calls the PostgreSQL CLI tools as subprocesses; not
 | PostgreSQL connection | PASS | PASS on PG16 (prototype) |
 | Parameterized SQL | PASS | PASS on PG16 (prototype) |
 | Transaction rollback | PASS | PASS on PG16 (prototype) |
+| Audit chain: same format on both backends, shared verifier | PASS | PASS on PG16 (`tests/test_yonetim_pg.py`: identical inputs give identical rows on SQLite and PostgreSQL, keyed and keyless; a chain written by one verifies under the other and keeps growing; tampering, deletion, wrong key and a cut tail are detected) |
+| Audit chain concurrent writers | ONE INTACT CHAIN | PASS on PG16 (`tests/test_yonetim_pg.py`: 8 connections x 25 writes, 200 contiguous records with no fork; a second writer waits on an open transaction's tail lock; rollback leaves no gap; with the lock removed the same test fails with 23505, so the test does detect a fork) |
+| Admin store on PostgreSQL (login, TOTP replay, sessions, cleanup, status, counts) | PASS | PASS on PG16 at store level (`yonetim/depo_pg.py`, 49 tests); not wired into `yonetim/server.py` |
 | Foreign key, uniqueness, CHECK | PASS | PASS on PG16 (`tests/test_pg_sema.py`; including company deletion cascade) |
 | Parallel quota consumption | ATOMIC | NOT_RUN |
 | Idempotency | PASS | NOT_RUN (only the table constraint PASS on PG16: the same key cannot be inserted a second time; rejecting different content is application code, ALIG-DB-003c) |
 | Company isolation | PASS | NOT_RUN (tested on SQLite: `tests/test_portal.py`) |
 | RLS bypass attempt | DENY | NOT_APPLICABLE (DB-K3: portal off, RLS later) |
 | PostgreSQL connection interruption | SAFE FAILURE | PASS on PG16 (prototype) |
-| DML with the read-only role, DDL with the application role | DENY | PASS on PG16 (42501; UPDATE/DELETE/TRUNCATE on the audit tables are also DENY) |
+| DML with the read-only role, DDL with the application role | DENY | PASS on PG16 (42501; UPDATE/DELETE/TRUNCATE on the audit tables are also DENY, also tested through `ortak/pg.py` as `alig_app` in `tests/test_yonetim_pg.py`) |
 | Schema migration: all files, re-run, a changed old file | PASS | PASS on PG16 (`db/uygula.py`) |
 | Migration row count and digest | MATCH | NOT_RUN |
 | Restore | VERIFIED | The drill passed on PG16 (`tests/test_pg_yedek.py`: full backup, `pg_verifybackup`, PITR restore to a timestamp, audit chain intact, corrupt backup rejected, full target rejected, dry run); not VERIFIED on a live server |
