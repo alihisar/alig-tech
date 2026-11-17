@@ -24,6 +24,7 @@ import importlib.util  # noqa: E402
 
 from tarama import baglanti, basliklar, calistirici, depo, eol, hata, hedef, portal, posta, puan, rapor, saklama, yukleme  # noqa: E402
 from tarama import bakim as bakim_modulu  # noqa: E402  (the handler has an attribute named bakim)
+from ortak import pg, pg_ayar  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("alig_form_server", Path(__file__).resolve().parent.parent / "form" / "server.py")
 _form = importlib.util.module_from_spec(_spec)
@@ -447,6 +448,22 @@ def portal_ayarla(ortam, H):
     return True
 
 
+def pg_ayarla(ortam, H):
+    """PostgreSQL store switch (ALIG-DB-003c). The SQLite store stays the default: it is replaced only when an ALIG_DB_* setting is present
+    (ortak/pg_ayar.py). Then this process, the portal and the outbox worker use tarama/depo_pg.py and tarama/portal_depo_pg.py, and
+    H.db_yolu holds the connection settings instead of a file path. Returns the settings dict, or None (SQLite). pg_ayar.PgAyarHatasi
+    (a ValueError) if PostgreSQL is configured but the settings are wrong: there is no silent fallback to SQLite."""
+    global depo
+    ayar = pg_ayar.yukle(ortam)
+    if ayar is None:
+        return None
+    from tarama import depo_pg, portal_depo_pg
+    depo = depo_pg
+    portal.depo, portal.portal_depo = depo_pg, portal_depo_pg
+    H.db_yolu = ayar
+    return ayar
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=os.environ.get("ALIG_TARAMA_DB", "tarama.sqlite"))
@@ -454,6 +471,10 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=8091)
     a = ap.parse_args(argv)
     H.db_yolu = a.db
+    try:
+        pg_ayarla(os.environ, H)
+    except ValueError as ex:   # PgAyarHatasi: PostgreSQL is configured wrongly; SQLite is NOT used instead
+        raise SystemExit("error: %s" % ex)
     if os.environ.get("ALIG_DOGRUDAN") == "1" and not dogrudan_ayarla(os.environ, H):
         print("WARNING: ALIG_DOGRUDAN=1 but ALIG_CALISTIRICI_SOKETI is missing; direct connection stayed OFF", flush=True)
     if os.environ.get("ALIG_MSSQL") == "1":
@@ -468,7 +489,10 @@ def main(argv=None):
         bakim_modulu.ayarla(os.environ, H)
     except (depo.AnahtarHatasi, saklama.SaklamaHatasi, ValueError) as ex:
         raise SystemExit("error: %s" % ex)
-    depo.baglan(a.db).close()
+    try:
+        depo.baglan(H.db_yolu).close()
+    except pg.PgHata as ex:   # PostgreSQL is configured but not reachable: stop with a clear error, never fall back to SQLite
+        raise SystemExit("error: PostgreSQL is configured but cannot be used: %s" % ex)
     print("listening %s:%d" % (a.host, a.port), flush=True)
     ThreadingHTTPServer((a.host, a.port), H).serve_forever()
 

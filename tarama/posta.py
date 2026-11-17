@@ -25,6 +25,7 @@ from email.utils import formataddr, make_msgid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from ortak import pg, pg_ayar  # noqa: E402
 from tarama import depo  # noqa: E402
 
 ILETI = {
@@ -194,8 +195,25 @@ def main(argv=None):
     except PostaAyarHatasi as ex:
         print("error: %s" % ex, file=sys.stderr)
         return 2
+    global depo
+    db = a.db
+    try:
+        pgayar = pg_ayar.yukle()
+    except ValueError as ex:   # PostgreSQL configured wrongly: no silent fallback to SQLite
+        print("error: %s" % ex, file=sys.stderr)
+        return 2
+    if pgayar is not None:   # ALIG_DB_*: the outbox lives in PostgreSQL (tarama/depo_pg.py)
+        from tarama import depo_pg
+        depo, db = depo_pg, pgayar
     while True:
-        con = depo.baglan(a.db)
+        try:
+            con = depo.baglan(db)
+        except pg.PgHata as ex:
+            print("error: PostgreSQL is configured but cannot be used: %s" % ex, file=sys.stderr)
+            if not a.surekli:
+                return 1
+            time.sleep(a.aralik)
+            continue
         try:
             isle(con, g)
         finally:
