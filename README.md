@@ -77,7 +77,7 @@ python3 ci/uret_readme.py                   # updates the README automatic secti
 <!-- oto:bitis denetimler -->
 
 <!-- oto:basla testler -->
-Unit tests: 993 tests (PostgreSQL tests are counted separately in the `postgresql tests` step: an external server if `ALIG_TEST_PG_HOST` is set, otherwise a temporary cluster with the system PostgreSQL 16; if neither exists, SKIP, and an error in `--release` mode).
+Unit tests: 1047 tests (PostgreSQL tests are counted separately in the `postgresql tests` step: an external server if `ALIG_TEST_PG_HOST` is set, otherwise a temporary cluster with the system PostgreSQL 16; if neither exists, SKIP, and an error in `--release` mode).
 <!-- oto:bitis testler -->
 
 ## Directories

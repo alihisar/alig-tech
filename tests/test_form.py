@@ -14,15 +14,9 @@ import server  # noqa: E402
 GOOD = {"name": "Ada", "company": "Ornek AS", "email": "ada@example.com", "db": "pg", "message": "merhaba", "website": ""}
 
 
-class FormTests(unittest.TestCase):
-    def setUp(self):
-        self.db = str(Path(tempfile.mkdtemp()) / "f.sqlite")
-        server.connect(self.db).close()
-        self.limiter = server.RateLimiter(per_window=50)
-        self.srv = ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(self.db, self.limiter, "tuz"))
-        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
-        self.addCleanup(self.srv.shutdown)
-        self.addCleanup(self.srv.server_close)
+class FormOrtak:
+    """Behaviour tests shared by the SQLite store (FormTests) and the PostgreSQL store (tests/test_form_pg.py).
+    A backend provides setUp() (self.srv, self.limiter) and rows() -> [(name, db, created_utc 'YYYY-MM-DDTHH:MM:SSZ', ip_hash)]."""
 
     def post(self, data, path="/api/iletisim", ctype="application/x-www-form-urlencoded", raw=None):
         c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
@@ -31,13 +25,6 @@ class FormTests(unittest.TestCase):
         r = c.getresponse()
         r.read()
         return r
-
-    def rows(self):
-        con = server.connect(self.db)
-        try:
-            return con.execute("SELECT name,db,created_utc,ip_hash FROM contact").fetchall()
-        finally:
-            con.close()
 
     def test_valid_saved_utc_and_hashed_ip(self):
         r = self.post(GOOD)
@@ -54,11 +41,6 @@ class FormTests(unittest.TestCase):
         r = c.getresponse()
         self.assertEqual(r.getheader("Location"), "/en/tesekkurler/")
 
-    def test_wal_mode(self):
-        con = server.connect(self.db)
-        self.assertEqual(con.execute("PRAGMA journal_mode").fetchone()[0], "wal")
-        con.close()
-
     def test_invalid_fields_rejected(self):
         for bad in ({**GOOD, "email": "x"}, {**GOOD, "name": " "}, {**GOOD, "db": "oracle"}, {**GOOD, "message": "a" * 2001}):
             self.assertEqual(self.post(bad).status, 422)
@@ -67,11 +49,6 @@ class FormTests(unittest.TestCase):
     def test_honeypot_silent(self):
         self.assertEqual(self.post({**GOOD, "website": "http://spam"}).status, 303)
         self.assertEqual(self.rows(), [])
-
-    def test_rate_limit(self):
-        self.limiter.n = 3
-        codes = [self.post(GOOD).status for _ in range(4)]
-        self.assertEqual(codes, [303, 303, 303, 429])
 
     def test_wrong_type_size_path(self):
         self.assertEqual(self.post(GOOD, ctype="application/json").status, 415)
@@ -82,6 +59,34 @@ class FormTests(unittest.TestCase):
         c = http.client.HTTPConnection("127.0.0.1", self.srv.server_port)
         c.request("GET", "/healthz")
         self.assertEqual(c.getresponse().status, 200)
+
+
+class FormTests(FormOrtak, unittest.TestCase):
+    def setUp(self):
+        self.db = str(Path(tempfile.mkdtemp()) / "f.sqlite")
+        server.connect(self.db).close()
+        self.limiter = server.RateLimiter(per_window=50)
+        self.srv = ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(self.db, self.limiter, "tuz"))
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.addCleanup(self.srv.shutdown)
+        self.addCleanup(self.srv.server_close)
+
+    def rows(self):
+        con = server.connect(self.db)
+        try:
+            return con.execute("SELECT name,db,created_utc,ip_hash FROM contact").fetchall()
+        finally:
+            con.close()
+
+    def test_wal_mode(self):
+        con = server.connect(self.db)
+        self.assertEqual(con.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+        con.close()
+
+    def test_rate_limit(self):
+        self.limiter.n = 3
+        codes = [self.post(GOOD).status for _ in range(4)]
+        self.assertEqual(codes, [303, 303, 303, 429])
 
     def test_limiter_window(self):
         t = [0.0]
@@ -103,6 +108,7 @@ class FormTests(unittest.TestCase):
         import threading
         rl = server.RateLimiter(5, 3600)
         b, gecen = threading.Barrier(50), []
+
         def is_():
             b.wait()
             if rl.allow("1.2.3.4"):
@@ -111,7 +117,6 @@ class FormTests(unittest.TestCase):
         [x.start() for x in ts]
         [x.join() for x in ts]
         self.assertEqual(len(gecen), 5)
-
 
 if __name__ == "__main__":
     unittest.main()

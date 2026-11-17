@@ -165,7 +165,10 @@ Tool: `db/yedek.py` (stdlib; calls the PostgreSQL CLI tools as subprocesses; not
 | Parameterized SQL | PASS | PASS on PG16 (prototype) |
 | Transaction rollback | PASS | PASS on PG16 (prototype) |
 | Foreign key, uniqueness, CHECK | PASS | PASS on PG16 (`tests/test_pg_sema.py`; including company deletion cascade) |
-| Parallel quota consumption | ATOMIC | NOT_RUN |
+| Parallel quota consumption | ATOMIC | NOT_RUN (quota itself is ALIG-DB-003c). The rate-limit counter (`ortak/sinir_pg.py`) is ATOMIC: PASS on PG16 with 60 concurrent threads and 6 OS processes, never above the limit (`tests/test_sinir_pg.py`) |
+| Rate limit on critical endpoints | 429 + Retry-After, atomic, shared by all processes | PASS on PG16 for the limiter and the contact form (`tests/test_sinir_pg.py`, `tests/test_form_pg.py`); NOT_RUN for the other endpoints (not wired yet) |
+| Company deletion + contact requests + KVKK request in one transaction | ATOMIC | PASS on PG16 (`tests/test_silme_pg.py`: failure injected mid-way leaves nothing half-deleted); not yet called by `yonetim/server.py` |
+| Contact form on PostgreSQL | PASS | PASS on PG16 (`tests/test_form_pg.py` runs the shared form tests of `tests/test_form.py`; 503 + Retry-After when the database is unusable, no SQLite fallback) |
 | Idempotency | PASS | NOT_RUN (only the table constraint PASS on PG16: the same key cannot be inserted a second time; rejecting different content is application code, ALIG-DB-003c) |
 | Company isolation | PASS | NOT_RUN (tested on SQLite: `tests/test_portal.py`) |
 | RLS bypass attempt | DENY | NOT_APPLICABLE (DB-K3: portal off, RLS later) |

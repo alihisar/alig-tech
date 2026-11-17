@@ -13,6 +13,7 @@ import importlib.util
 import os
 import re
 import sqlite3
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -23,6 +24,13 @@ from urllib.parse import parse_qs
 _spec = importlib.util.spec_from_file_location("alig_bakim", Path(__file__).resolve().parent.parent / "tarama" / "bakim.py")
 _bakim = importlib.util.module_from_spec(_spec)   # maintenance mode (ALIG-OPS-002) is shared with the other services
 _spec.loader.exec_module(_bakim)
+
+try:   # PostgreSQL mode (ALIG-DB-003e): ortak/ is one level above this directory; with no PostgreSQL layer the tuple stays empty
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from ortak.pg import PgHata as _PgHata
+    _PG_HATA = (_PgHata,)
+except ImportError:
+    _PG_HATA = ()
 
 MAX_BODY = 8192
 SECURITY_HEADERS = (
@@ -96,7 +104,9 @@ class RateLimiter:
             return True
 
 
-def make_handler(db_path, limiter, salt, thanks="/tesekkurler/", bakim=False, bakim_bekle=_bakim.BEKLE_VARSAYILAN):
+def make_handler(db_path, limiter, salt, thanks="/tesekkurler/", bakim=False, bakim_bekle=_bakim.BEKLE_VARSAYILAN, pg=None):
+    """pg: an form.iletisim_pg.IletisimPg when PostgreSQL is configured (then db_path and SQLite are not used and there is no fallback);
+    limiter is then a form.iletisim_pg.FormSinir. A PostgreSQL failure is 503 + Retry-After."""
     class H(BaseHTTPRequestHandler):
         server_version = "aligform"
         sys_version = ""
@@ -123,6 +133,8 @@ def make_handler(db_path, limiter, salt, thanks="/tesekkurler/", bakim=False, ba
 
         def do_GET(self):
             if self.path == "/healthz":
+                if pg is not None:
+                    return self._send(200, b"ok\n") if pg.saglik() else self._send(503, b"db\n", extra=(("Retry-After", "30"),))
                 try:
                     connect(db_path).close()
                     return self._send(200, b"ok\n")
@@ -144,8 +156,13 @@ def make_handler(db_path, limiter, salt, thanks="/tesekkurler/", bakim=False, ba
             if length < 0 or length > MAX_BODY:
                 return self._send(413, b"cok buyuk\n")
             ip = self.headers.get("X-Real-IP") or self.client_address[0]
-            if not limiter.allow(ip):
-                return self._send(429, b"cok fazla istek\n", extra=(("Retry-After", "3600"),))
+            try:
+                izin = limiter.allow(ip)
+            except _PG_HATA:
+                return self._send(503, b"db\n", extra=(("Retry-After", "30"),))
+            if not izin:
+                tekrar = limiter.tekrar_sn() if pg is not None else 3600
+                return self._send(429, b"cok fazla istek\n", extra=(("Retry-After", str(tekrar)),))
             form = parse_qs(self.rfile.read(length).decode("utf-8", "replace"), keep_blank_values=True)
             if (form.get("website") or [""])[0].strip():
                 return self._send(303, extra=(("Location", self._thanks()),))
@@ -153,6 +170,12 @@ def make_handler(db_path, limiter, salt, thanks="/tesekkurler/", bakim=False, ba
             if errors:
                 return self._send(422, ("gecersiz alan: " + ",".join(errors) + "\n").encode())
             ip_hash = hashlib.sha256((salt + ip).encode()).hexdigest()[:16]
+            if pg is not None:
+                try:
+                    pg.kaydet(data, ip_hash)
+                except _PG_HATA:
+                    return self._send(503, b"db\n", extra=(("Retry-After", "30"),))
+                return self._send(303, extra=(("Location", self._thanks()),))
             con = connect(db_path)
             try:
                 con.execute("INSERT INTO contact(created_utc,name,company,email,db,message,ip_hash) VALUES(?,?,?,?,?,?,?)",
@@ -163,6 +186,23 @@ def make_handler(db_path, limiter, salt, thanks="/tesekkurler/", bakim=False, ba
             self._send(303, extra=(("Location", self._thanks()),))
     H.bakim, H.bakim_bekle = bakim, bakim_bekle
     return H
+
+
+def _pg_ayar(ortam):
+    """Connection kwargs for ortak.pg.Baglanti.baglan from ortak/pg_ayar.py (ALIG-DB-003c), or None when PostgreSQL is not configured
+    (or that module does not exist yet: then the SQLite runtime is the only store)."""
+    try:
+        from ortak import pg_ayar
+    except ImportError:
+        return None
+    return pg_ayar.yukle(ortam)
+
+
+def _pg_modul():
+    spec = importlib.util.spec_from_file_location("alig_iletisim_pg", Path(__file__).resolve().parent / "iletisim_pg.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
 
 
 def main(argv=None):
@@ -178,8 +218,20 @@ def main(argv=None):
         raise SystemExit("error: %s" % ex)
     if not args.salt:
         raise SystemExit("ALIG_FORM_SALT (or --salt) is required: the salt for the IP digest")
-    connect(args.db).close()
-    srv = ThreadingHTTPServer((args.host, args.port), make_handler(args.db, RateLimiter(), args.salt, bakim=bakim_acik, bakim_bekle=bakim_sn))
+    pg_ayar = _pg_ayar(os.environ)
+    if pg_ayar is None:
+        connect(args.db).close()
+        isleyici = make_handler(args.db, RateLimiter(), args.salt, bakim=bakim_acik, bakim_bekle=bakim_sn)
+    else:   # PostgreSQL is configured: NEVER fall back to SQLite; an unusable database stops the start (docs/postgresql-gecis.md section 9)
+        from ortak import pg as _pgmod, sinir_pg
+        iletisim_pg = _pg_modul()
+        baglan = lambda: _pgmod.Baglanti.baglan(**pg_ayar)   # noqa: E731
+        depo_pg = iletisim_pg.IletisimPg(baglan)
+        if not depo_pg.saglik():
+            raise SystemExit("error: PostgreSQL is configured but not reachable; refusing to fall back to SQLite")
+        isleyici = make_handler(None, iletisim_pg.FormSinir(sinir_pg.SinirPg(baglan, tuz=args.salt)), args.salt,
+                                bakim=bakim_acik, bakim_bekle=bakim_sn, pg=depo_pg)
+    srv = ThreadingHTTPServer((args.host, args.port), isleyici)
     print(f"listening on {args.host}:{args.port}", flush=True)
     srv.serve_forever()
 
