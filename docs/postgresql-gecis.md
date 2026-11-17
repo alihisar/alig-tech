@@ -164,6 +164,12 @@ Tool: `db/yedek.py` (stdlib; calls the PostgreSQL CLI tools as subprocesses; not
 | PostgreSQL connection | PASS | PASS on PG16 (`tests/test_pg_prototip.py`, `tests/test_pg_baglanti.py`; Unix socket only, TCP and TLS not run) |
 | Parameterized SQL | PASS | PASS on PG16 (`tests/test_pg_prototip.py`; an injection attempt stays a value) |
 | Transaction rollback | PASS | PASS on PG16 (`tests/test_pg_baglanti.py`: rollback on an SQL error and on an application exception, the connection is reusable afterwards, uncommitted rows invisible to others, read-only transaction refuses writes `25006`, isolation level applied) |
+| PostgreSQL connection | PASS | PASS on PG16 (prototype) |
+| Parameterized SQL | PASS | PASS on PG16 (prototype) |
+| Transaction rollback | PASS | PASS on PG16 (prototype) |
+| Audit chain: same format on both backends, shared verifier | PASS | PASS on PG16 (`tests/test_yonetim_pg.py`: identical inputs give identical rows on SQLite and PostgreSQL, keyed and keyless; a chain written by one verifies under the other and keeps growing; tampering, deletion, wrong key and a cut tail are detected) |
+| Audit chain concurrent writers | ONE INTACT CHAIN | PASS on PG16 (`tests/test_yonetim_pg.py`: 8 connections x 25 writes, 200 contiguous records with no fork; a second writer waits on an open transaction's tail lock; rollback leaves no gap; with the lock removed the same test fails with 23505, so the test does detect a fork) |
+| Admin store on PostgreSQL (login, TOTP replay, sessions, cleanup, status, counts) | PASS | PASS on PG16 at store level (`yonetim/depo_pg.py`, 49 tests); not wired into `yonetim/server.py` |
 | Foreign key, uniqueness, CHECK | PASS | PASS on PG16 (`tests/test_pg_sema.py`; including company deletion cascade) |
 | Parallel quota consumption | ATOMIC | NOT_RUN |
 | Idempotency | PASS | NOT_RUN (only the table constraint PASS on PG16: the same key cannot be inserted a second time; rejecting different content is application code, ALIG-DB-003c) |
@@ -171,6 +177,8 @@ Tool: `db/yedek.py` (stdlib; calls the PostgreSQL CLI tools as subprocesses; not
 | RLS bypass attempt | DENY | NOT_APPLICABLE (DB-K3: portal off, RLS later) |
 | PostgreSQL connection interruption | SAFE FAILURE | PASS on PG16 (`tests/test_pg_baglanti.py`: backend killed with `pg_terminate_backend` outside and in the middle of a transaction: `BaglantiHatasi`, nothing committed, the connection refuses reuse; a read-only retry with a fresh connection succeeds; `tests/test_pg_prototip.py`: server stopped). Not run: a real network interruption, a COMMIT cut on a real server (the outcome-unknown path is covered only with a fake libpq) |
 | DML with the read-only role, DDL with the application role | DENY | PASS on PG16 (42501; UPDATE/DELETE/TRUNCATE on the audit tables are also DENY) |
+| PostgreSQL connection interruption | SAFE FAILURE | PASS on PG16 (prototype) |
+| DML with the read-only role, DDL with the application role | DENY | PASS on PG16 (42501; UPDATE/DELETE/TRUNCATE on the audit tables are also DENY, also tested through `ortak/pg.py` as `alig_app` in `tests/test_yonetim_pg.py`) |
 | Schema migration: all files, re-run, a changed old file | PASS | PASS on PG16 (`db/uygula.py`) |
 | Migration row count and digest | MATCH | NOT_RUN |
 | Restore | VERIFIED | The drill passed on PG16 (`tests/test_pg_yedek.py`: full backup, `pg_verifybackup`, PITR restore to a timestamp, audit chain intact, corrupt backup rejected, full target rejected, dry run); not VERIFIED on a live server |
