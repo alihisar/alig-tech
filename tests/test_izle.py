@@ -468,6 +468,17 @@ class BirimTelleriTests(unittest.TestCase):
         # ExecStopPost runs even when the smoke test failed, so a failing health check does not hide disk/backup findings
         self.assertRegex(self.servis, r"(?m)^ExecStopPost=/usr/bin/python3 .*deploy/izle\.py")
 
+    def test_bakim_birimi_basarisizlikta_uyari_birimini_baslatir(self):
+        bakim = (SERVISLER / "templates" / "alig-bakim.service.j2").read_text()
+        self.assertRegex(bakim, r"(?m)^OnFailure=alig-uyari\.service$")
+        self.assertEqual(bakim.count("OnFailure="), 1)
+        self.assertEqual(self.servis.count("OnFailure="), 1)
+        # OnFailure belongs to [Unit], before [Service], as in the monitoring unit
+        self.assertLess(bakim.index("OnFailure="), bakim.index("[Service]"))
+        self.assertIn("alig-uyari.service", (SERVISLER / "tasks" / "main.yml").read_text())
+        # hardening and the write paths of the maintenance unit are untouched
+        self.assertIn("ReadWritePaths={{ veri_dizini }} {{ yedek_dizini }}", bakim)
+
     def test_yazma_yetkisi_yok_sertlestirme_korunur(self):
         for ayar in ("NoNewPrivileges=true", "ProtectSystem=strict", "ProtectHome=true", "PrivateTmp=true"):
             self.assertIn(ayar, self.servis)

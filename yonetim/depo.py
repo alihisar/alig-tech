@@ -167,10 +167,21 @@ def cikis(con, kod):
     con.commit()
 
 
-def temizle(con):
-    con.execute("DELETE FROM giris_denemesi WHERE zaman_utc<?", (_z(_simdi() - timedelta(days=1)),))
-    con.execute("DELETE FROM oturum WHERE olusturma_utc<?", (_z(_simdi() - timedelta(hours=OTURUM_EN_COK_SAAT)),))
-    con.commit()
+def temizle(con, denetle=False):
+    """Deletes old login attempts and expired sessions. With denetle=True (daily maintenance) the deletion and a
+    'sistem' audit record with the number of sessions go in one transaction; nothing is recorded when none expired.
+    The admin-login call keeps the default (no audit record). Returns the number of sessions deleted."""
+    if not denetle:
+        con.execute("DELETE FROM giris_denemesi WHERE zaman_utc<?", (_z(_simdi() - timedelta(days=1)),))
+        n = con.execute("DELETE FROM oturum WHERE olusturma_utc<?", (_z(_simdi() - timedelta(hours=OTURUM_EN_COK_SAAT)),)).rowcount
+        con.commit()
+        return n
+    with zincir.islem(con) as c:
+        c.execute("DELETE FROM giris_denemesi WHERE zaman_utc<?", (_z(_simdi() - timedelta(days=1)),))
+        n = c.execute("DELETE FROM oturum WHERE olusturma_utc<?", (_z(_simdi() - timedelta(hours=OTURUM_EN_COK_SAAT)),)).rowcount
+        if n:
+            denetim_ekle(c, "sistem", "suresi dolan %d yonetim oturumu silindi" % n)
+    return n
 
 
 # --- request statuses ---
