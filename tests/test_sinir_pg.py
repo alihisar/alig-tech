@@ -1,4 +1,4 @@
-"""ALIG-DB-003e: atomic rate limiter on PostgreSQL (ortak/sinir_pg.py, db/sema/0006_sinir_sayac.sql).
+"""ALIG-DB-003e: atomic rate limiter on PostgreSQL (ortak/sinir_pg.py, db/sema/0007_sinir_sayac.sql).
 Real concurrency: threads with their own connections and separate OS processes against a temporary PostgreSQL 16 cluster.
 SKIPped (never PASS) when PostgreSQL 16 or libpq is missing."""
 import subprocess

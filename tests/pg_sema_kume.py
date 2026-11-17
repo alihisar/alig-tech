@@ -1,4 +1,4 @@
-"""ALIG-DB-003e test helper: a temporary PostgreSQL 16 cluster with the real schema (db/sema/0001-0006) applied by db/uygula.py.
+"""ALIG-DB-003e test helper: a temporary PostgreSQL 16 cluster with the real schema (db/sema/0001-0007) applied by db/uygula.py.
 
 SemaKumesi is a mixin for unittest.TestCase classes: setUpClass opens the cluster (trust authentication on the Unix socket, this test cluster
 only) and applies every migration as the postgres superuser; app_ayar() gives Baglanti kwargs for the NON-superuser application role alig_app.

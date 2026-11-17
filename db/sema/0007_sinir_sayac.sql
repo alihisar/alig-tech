@@ -1,4 +1,4 @@
--- 0006: atomic rate-limit window counters (ALIG-DB-003e, ortak/sinir_pg.py).
+-- 0007: atomic rate-limit window counters (ALIG-DB-003e, ortak/sinir_pg.py).
 -- One row per (bucket, client digest, fixed window). The application increments the counter with a single
 -- INSERT ... ON CONFLICT DO UPDATE ... WHERE adet < limit RETURNING statement, so concurrent requests cannot exceed the limit.
 -- anahtar_sha256 is a digest of the client address (or account key), never the plain value. Expired windows are deleted by the application.

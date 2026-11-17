@@ -116,6 +116,25 @@ does not fit directly. The equivalent on PostgreSQL: in the same transaction `pg
 record and the audit record are in the same transaction; two parallel uploads cannot exceed the limit (test: two concurrent clients). If the connection drops in the middle of a transaction, success is not declared, it is
 reconciled with the idempotency record.
 
+### 4.1 Store implementation and settings (ALIG-DB-003c)
+
+`tarama/depo_pg.py` and `tarama/portal_depo_pg.py` have the same public functions as the SQLite stores. A process uses them only when an
+`ALIG_DB_*` variable is present (`ortak/pg_ayar.py`, the one place that parses them); otherwise the SQLite store stays. If PostgreSQL is
+configured but the settings are wrong or the server is unreachable at start, the process stops with a clear error; it never falls back to SQLite.
+
+| Variable | Meaning |
+| --- | --- |
+| `ALIG_DB_HOST` | required; a directory starting with `/` is a Unix socket directory, otherwise a TCP host |
+| `ALIG_DB_PORT`, `ALIG_DB_NAME`, `ALIG_DB_USER` | default `5432`, `aligtech`, `alig_app` (`postgres` is rejected) |
+| `ALIG_DB_PAROLA_DOSYASI` | file with the password (mode 0600); required over TCP; the password is never in the environment |
+| `ALIG_DB_SSLMODE`, `ALIG_DB_SSLROOTCERT` | TCP only: `verify-full` (the only accepted value) and the CA file (required) |
+
+Locks (advisory, transaction scoped, released by commit, rollback or a dropped connection). Order everywhere: company row, quota,
+e-mail registration, audit chain. Quota: `pg_advisory_xact_lock(7431, hashtext(company key digest))` is taken before the window is counted and
+held until the transaction ends. Audit chain: `pg_advisory_xact_lock(7432, 1)` (scan chain; `2` is reserved for the admin chain). The
+quota stays a sliding window; `kota_al` does lock + count + insert in one transaction, and the existing upload code
+(`kullanim_tekrar`, `kullanim_say`, `kullanim_ekle`) takes the same lock whenever it runs inside a transaction.
+
 ## 5. Migration phases (ALIG-DB-004)
 
 A inventory (row count, chain verification) -> B schema and migration role -> C rehearsal on a copy (row count, canonical
@@ -177,12 +196,18 @@ Tool: `db/yedek.py` (stdlib; calls the PostgreSQL CLI tools as subprocesses; not
 | Contact form on PostgreSQL | PASS | PASS on PG16 (`tests/test_form_pg.py` runs the shared form tests of `tests/test_form.py`; 503 + Retry-After when the database is unusable, no SQLite fallback) |
 | Idempotency | PASS | NOT_RUN (only the table constraint PASS on PG16: the same key cannot be inserted a second time; rejecting different content is application code, ALIG-DB-003c) |
 | Company isolation | PASS | NOT_RUN (tested on SQLite: `tests/test_portal.py`) |
+| Parallel quota consumption | ATOMIC | ATOMIC on PG16 (`tests/test_pg_depo_yerel.py` `PgKotaTests`: 16 concurrent connections x 4 rounds, forked processes, several companies at once, the real upload transaction `_yukleme_isle`; allowance never exceeded; a lock-free control run does exceed it) |
+| Idempotency | PASS | PASS on PG16 for the store function `idempotency_kaydet` (new / same request returns the stored result / same key with different content rejected; concurrent same key gives one new; rolled back with the business transaction; `PgIdempotencyTests`). NOT_RUN: reading an `Idempotency-Key` from HTTP requests (not wired yet) and the same-document repeat of the quota, which is PASS (`kota_al` returns `tekrar`) |
+| Company isolation | PASS | PASS on PG16 (the existing isolation tests of `tests/test_portal.py` re-run on `tarama/portal_depo_pg.py`: `tests/test_pg_depo.py` `PgIzolasyonTests`, plus a static guard on the PostgreSQL portal source) |
 | RLS bypass attempt | DENY | NOT_APPLICABLE (DB-K3: portal off, RLS later) |
 | PostgreSQL connection interruption | SAFE FAILURE | PASS on PG16 (`tests/test_pg_baglanti.py`: backend killed with `pg_terminate_backend` outside and in the middle of a transaction: `BaglantiHatasi`, nothing committed, the connection refuses reuse; a read-only retry with a fresh connection succeeds; `tests/test_pg_prototip.py`: server stopped). Not run: a real network interruption, a COMMIT cut on a real server (the outcome-unknown path is covered only with a fake libpq) |
 | DML with the read-only role, DDL with the application role | DENY | PASS on PG16 (42501; UPDATE/DELETE/TRUNCATE on the audit tables are also DENY) |
 | PostgreSQL connection interruption | SAFE FAILURE | PASS on PG16 (prototype) |
 | DML with the read-only role, DDL with the application role | DENY | PASS on PG16 (42501; UPDATE/DELETE/TRUNCATE on the audit tables are also DENY, also tested through `ortak/pg.py` as `alig_app` in `tests/test_yonetim_pg.py`) |
 | Schema migration: all files, re-run, a changed old file | PASS | PASS on PG16 (`db/uygula.py`) |
+| Schema migration: all files, re-run, a changed old file | PASS | PASS on PG16 (`db/uygula.py`; 0006 added by ALIG-DB-003c) |
+| Existing scan and portal store tests on PostgreSQL | PASS | PASS on PG16 (`tests/test_pg_depo.py`: DepoTests, portal Kayit/Giris/Izolasyon/PortalIslem, OncekiRapor, outbox, and the HTTP server classes of the scan, portal, history and Mode B tests; 17 SQLite-specific tests skipped with a reason each and re-tested natively where it matters). Run as the superuser; least privilege run: `PgUygulamaRoluTests` (alig_app) |
+| Audit chain: concurrent writers, tail lock | PASS | PASS on PG16 (`PgZincirTests`: 6 threads + 3 processes, no lost record or branch; tamper detection; the application role cannot UPDATE/DELETE the chain, SQLSTATE 42501) for the scan chain; the admin chain is ALIG-DB-003d |
 | Migration row count and digest | MATCH | NOT_RUN |
 | Restore | VERIFIED | The drill passed on PG16 (`tests/test_pg_yedek.py`: full backup, `pg_verifybackup`, PITR restore to a timestamp, audit chain intact, corrupt backup rejected, full target rejected, dry run); not VERIFIED on a live server |
 | Secret masking | PASS | PASS on PG16 (`tests/test_pg_baglanti.py`: a wrong password is in neither the error text, repr nor the `alig.pg` log; `gizli=True` masks a parameter value echoed by the server). A value echoed by the server without `gizli=True` is not masked, by design |
