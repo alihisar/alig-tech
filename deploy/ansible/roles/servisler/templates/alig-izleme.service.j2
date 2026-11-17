@@ -1,12 +1,18 @@
 [Unit]
 ConditionPathExists={{ kok_dizin }}/current
-Description=alig.tech smoke test (local, outside TLS)
+Description=alig.tech monitoring: smoke test (local, outside TLS) and read-only checks (deploy/izle.py)
 OnFailure=alig-uyari.service
 
 [Service]
 Type=oneshot
 User={{ servis_kullanici }}
+# Only for ALIG_DENETIM_ANAHTARI (audit chain verification); the scripts below only read.
+EnvironmentFile=/etc/alig/env
 ExecStart=/usr/bin/python3 {{ kok_dizin }}/current/deploy/duman_testi.py http://127.0.0.1:{{ yerel_izleme_portu }}
+# ExecStopPost also runs when the smoke test failed, so a failing health check does not hide disk, backup or audit chain
+# findings. izle.py is read-only (no write path is granted to this unit) and only logs; a CRIT result fails the unit and
+# starts alig-uyari.service like the smoke test does.
+ExecStopPost=/usr/bin/python3 {{ kok_dizin }}/current/deploy/izle.py --veri {{ veri_dizini }} --yedek {{ yedek_dizini }} --taban http://127.0.0.1:{{ yerel_izleme_portu }} --sertifika-ad {{ alan_adi }}
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
