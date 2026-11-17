@@ -1,6 +1,6 @@
 # Migration to PostgreSQL (ALIG-DB-001)
 
-Source: `docs/master-prompt-v5.md` (includes v4.1). This document is the architecture and migration plan; no code tied to the application has been written yet (only the driver evaluation prototype `ortak/pg.py` exists, section 2).
+Source: `docs/master-prompt-v5.md` (includes v4.1). This document is the architecture and migration plan; the shared connection layer `ortak/pg.py` (ALIG-DB-003b, section 2) and the schema (003a) exist, but no application code uses them yet.
 Source: `docs/master-prompt-v5.md` (includes v4.1). This document is the architecture and migration plan. The schema and roles (ALIG-DB-003a) were written under `db/` and tested on PostgreSQL 16; the application code still uses SQLite.
 PASS in the status columns is written only for tests that were run on a real PostgreSQL.
 
@@ -161,20 +161,22 @@ Tool: `db/yedek.py` (stdlib; calls the PostgreSQL CLI tools as subprocesses; not
 | Test | Expected | Status |
 | --- | --- | --- |
 | SQLite runtime dependency | NONE | FAIL (SQLite is used today; ALIG-CI-001 adds a check after cutover) |
-| PostgreSQL connection | PASS | PASS on PG16 (prototype) |
-| Parameterized SQL | PASS | PASS on PG16 (prototype) |
-| Transaction rollback | PASS | PASS on PG16 (prototype) |
+| PostgreSQL connection | PASS | PASS on PG16 (`tests/test_pg_prototip.py`, `tests/test_pg_baglanti.py`; Unix socket only, TCP and TLS not run) |
+| Parameterized SQL | PASS | PASS on PG16 (`tests/test_pg_prototip.py`; an injection attempt stays a value) |
+| Transaction rollback | PASS | PASS on PG16 (`tests/test_pg_baglanti.py`: rollback on an SQL error and on an application exception, the connection is reusable afterwards, uncommitted rows invisible to others, read-only transaction refuses writes `25006`, isolation level applied) |
 | Foreign key, uniqueness, CHECK | PASS | PASS on PG16 (`tests/test_pg_sema.py`; including company deletion cascade) |
 | Parallel quota consumption | ATOMIC | NOT_RUN |
 | Idempotency | PASS | NOT_RUN (only the table constraint PASS on PG16: the same key cannot be inserted a second time; rejecting different content is application code, ALIG-DB-003c) |
 | Company isolation | PASS | NOT_RUN (tested on SQLite: `tests/test_portal.py`) |
 | RLS bypass attempt | DENY | NOT_APPLICABLE (DB-K3: portal off, RLS later) |
-| PostgreSQL connection interruption | SAFE FAILURE | PASS on PG16 (prototype) |
+| PostgreSQL connection interruption | SAFE FAILURE | PASS on PG16 (`tests/test_pg_baglanti.py`: backend killed with `pg_terminate_backend` outside and in the middle of a transaction: `BaglantiHatasi`, nothing committed, the connection refuses reuse; a read-only retry with a fresh connection succeeds; `tests/test_pg_prototip.py`: server stopped). Not run: a real network interruption, a COMMIT cut on a real server (the outcome-unknown path is covered only with a fake libpq) |
 | DML with the read-only role, DDL with the application role | DENY | PASS on PG16 (42501; UPDATE/DELETE/TRUNCATE on the audit tables are also DENY) |
 | Schema migration: all files, re-run, a changed old file | PASS | PASS on PG16 (`db/uygula.py`) |
 | Migration row count and digest | MATCH | NOT_RUN |
 | Restore | VERIFIED | The drill passed on PG16 (`tests/test_pg_yedek.py`: full backup, `pg_verifybackup`, PITR restore to a timestamp, audit chain intact, corrupt backup rejected, full target rejected, dry run); not VERIFIED on a live server |
-| Secret masking | PASS | PASS on PG16 (prototype; the password is not in the error text or repr) |
+| Secret masking | PASS | PASS on PG16 (`tests/test_pg_baglanti.py`: a wrong password is in neither the error text, repr nor the `alig.pg` log; `gizli=True` masks a parameter value echoed by the server). A value echoed by the server without `gizli=True` is not masked, by design |
+| Error classification (serialization, deadlock, permission, timeout, constraint) | PASS | PASS on PG16 (`tests/test_pg_baglanti.py`: `40001`, `40P01` (exactly one deadlock victim), `42501`, `57014` per-transaction statement timeout, `55P03` lock timeout, `23503`/`23514`) |
+| Retry only when safe | PASS | PASS on PG16 for the layer (`tekrarli_islem`: refused without read-only or an idempotency key; a serialization failure is retried and the write lands once; bounded attempts and backoff are unit tests). The application-level idempotency check is 003c |
 
 Test layout (ALIG-CI-001): PostgreSQL tests use the shared temporary cluster `tests/pg_yardimci.py` (initdb, free port,
 Unix socket, `trust` or `scram-sha-256`, role and database, stop and delete; even if the process dies with SIGKILL a watchdog process
