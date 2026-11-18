@@ -137,7 +137,7 @@ quota stays a sliding window; `kota_al` does lock + count + insert in one transa
 
 ### 4.2 Outbox (ALIG-DB-006)
 
-Table `posta` (migration `0008_outbox.sql`). States: `bekliyor` (due at `sonraki_utc`), `gonderiliyor` (claimed, lease `kilit_utc`), `gonderildi`, `basarisiz` (dead).
+Table `posta` (migration `0009_outbox.sql`). States: `bekliyor` (due at `sonraki_utc`), `gonderiliyor` (claimed, lease `kilit_utc`), `gonderildi`, `basarisiz` (dead).
 
 1. **Intent in the business transaction.** `depo_pg.posta_ekle(con, ..., anahtar)` is called on the connection that is inside `islem()` (upload verification, portal registration). Roll back the business change and the message never existed. `UNIQUE (mesaj_anahtari)` + `ON CONFLICT DO NOTHING`: the same key stores one message. Nothing is sent inside the transaction.
 2. **Claim, then commit.** `posta_pg.talep_et`: one short transaction selects due rows `FOR UPDATE SKIP LOCKED`, sets `gonderiliyor`, `deneme = deneme + 1`, a lease, and commits. Workers never claim the same row; a row is claimed by exactly one worker until its lease expires.

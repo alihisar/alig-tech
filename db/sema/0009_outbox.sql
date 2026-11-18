@@ -1,4 +1,4 @@
--- 0008: transactional outbox (ALIG-DB-006). Expand-only on alig.posta; existing rows keep working.
+-- 0009: transactional outbox (ALIG-DB-006). Expand-only on alig.posta; existing rows keep working.
 -- * mesaj_anahtari: idempotency key of the message. UNIQUE, so enqueueing the same business event twice stores ONE message
 --   (INSERT ... ON CONFLICT DO NOTHING). The same key is sent to the receiver in the Message-ID and X-Alig-Idempotency-Key headers,
 --   so a receiver can drop a message that was delivered twice (at-least-once delivery, see docs/postgresql-gecis.md section 4.2).

@@ -1,4 +1,4 @@
-"""ALIG-DB-006: transactional outbox on PostgreSQL (tarama/posta_pg.py, depo_pg.posta_ekle, db/sema/0008_outbox.sql).
+"""ALIG-DB-006: transactional outbox on PostgreSQL (tarama/posta_pg.py, depo_pg.posta_ekle, db/sema/0009_outbox.sql).
 
 Real PostgreSQL 16 (temporary cluster, application role alig_app), real concurrency (threads, each with its own connection), a fake
 sender. No mail is sent anywhere (WEB-K1 is undecided). SKIPPED without PG16 / libpq; SKIPPED is not PASS.
