@@ -208,6 +208,7 @@ Tool: `db/yedek.py` (stdlib; calls the PostgreSQL CLI tools as subprocesses; not
 | Schema migration: all files, re-run, a changed old file | PASS | PASS on PG16 (`db/uygula.py`; 0006 added by ALIG-DB-003c) |
 | Existing scan and portal store tests on PostgreSQL | PASS | PASS on PG16 (`tests/test_pg_depo.py`: DepoTests, portal Kayit/Giris/Izolasyon/PortalIslem, OncekiRapor, outbox, and the HTTP server classes of the scan, portal, history and Mode B tests; 17 SQLite-specific tests skipped with a reason each and re-tested natively where it matters). Run as the superuser; least privilege run: `PgUygulamaRoluTests` (alig_app) |
 | Audit chain: concurrent writers, tail lock | PASS | PASS on PG16 (`PgZincirTests`: 6 threads + 3 processes, no lost record or branch; tamper detection; the application role cannot UPDATE/DELETE the chain, SQLSTATE 42501) for the scan chain; the admin chain is ALIG-DB-003d |
+| Job queue (item 21): no job claimed twice, fair order, lease/heartbeat/reclaim, bounded retry and dead letter, idempotent transitions, restart recovery | PASS | PASS on PG16 (`tests/test_is_kuyrugu_pg.py`, 39 tests: 8 threads x 200 jobs and 4 OS processes x 60 jobs, every job exactly once; strict round robin across companies; per-company cap never exceeded in 10 races of 8 concurrent claimers; lease expiry hands the job over and the stale lease is rejected; heartbeat keeps a long job; dead letter after `azami_deneme`; 8 concurrent completions give one `tamam`; a worker killed with SIGKILL is recovered; no payload column, no secret in any row; mutation check: without `SKIP LOCKED` and the company lock three of these tests fail). Not run: PG18, TCP/TLS, a real scan, a real systemd runner |
 | Migration row count and digest | MATCH | NOT_RUN |
 | Restore | VERIFIED | The drill passed on PG16 (`tests/test_pg_yedek.py`: full backup, `pg_verifybackup`, PITR restore to a timestamp, audit chain intact, corrupt backup rejected, full target rejected, dry run); not VERIFIED on a live server |
 | Secret masking | PASS | PASS on PG16 (`tests/test_pg_baglanti.py`: a wrong password is in neither the error text, repr nor the `alig.pg` log; `gizli=True` masks a parameter value echoed by the server). A value echoed by the server without `gizli=True` is not masked, by design |
@@ -243,3 +244,42 @@ therefore `PRODUCTION_READY = false`.
 | Form, upload, portal, admin, report | 503 + Retry-After, a safe error page, no data loss |
 
 There is no fallback to SQLite at any endpoint. Maintenance mode (`ALIG_BAKIM`, ALIG-OPS-002) uses the same page.
+
+## 10. Job queue for Mode B (roadmap item 21)
+
+Code: `ortak/is_kuyrugu_pg.py`, `db/sema/0008_is_kuyrugu.sql`, the `--kuyruk` switch of `tarama/calistirici.py`. Off by default: without
+`--kuyruk` the runner keeps its in-process semaphore, and Mode B itself stays closed (`ALIG_DOGRUDAN`). It exists only on PostgreSQL (no SQLite twin).
+
+**What is in the queue.** A row is a reference: `firma_id` and `istek_id` (the `baglanti_istegi` row), a type, a state and counters. There is no payload column. The
+customer's login secret reaches the runner only over the local socket, as today, and stays in the memory of the runner process (`Kabul`: a closure parked next to
+the waiting connection thread). The queue cannot carry it by construction: the text columns (`tur`, `sahip`, `isci`, `son_hata`) are bound by CHECK constraints to
+short identifier shapes, and workers store an error CODE, never an exception text (a test inserts a value with spaces and the table refuses it). The consequence
+is deliberate: a job whose inputs were lost (runner restart) cannot be retried, so Mode B jobs have `azami_deneme=1` and a `sahip`; a restart dead-letters them
+(`yeniden_basladi`) and the customer submits the request again. Retries, back-off and reclaim are real and tested, and are meant for jobs that can be replayed from a
+reference alone (for a future scheduled scan the stored-credential question stays the separate decision listed in `docs/kip-b-tasarim.md`).
+
+**States.** `bekliyor` -> `calisiyor` (leased) -> `tamam` or `olu` (dead letter). A failure or an expired lease returns the job to `bekliyor` with an equal-jitter
+exponential back-off (`taban * 2^(deneme-1)`, capped, times 0.5 to 1) while `deneme < azami_deneme`; otherwise it becomes `olu`. All times are the database clock.
+
+**Claim.** One transaction: expired leases are given back; then the company row in `is_kuyrugu_sira` that was served longest ago (never served first) and has an eligible job and
+fewer than `firma_basina` running jobs is locked with `FOR UPDATE ... SKIP LOCKED`; its oldest eligible job is locked with `FOR UPDATE SKIP LOCKED` and updated (`deneme+1`,
+`kira_no+1`, lease end). The company lock serialises claims of one company, so the per-company cap holds under concurrency (the count is repeated under the lock with a fresh snapshot),
+while a claimer that finds a company locked takes the next one. Order is therefore round robin by company, then FIFO inside a company; a company with 100 jobs cannot hold more than
+`firma_basina` workers or run ahead of a company with one.
+
+**Idempotent transitions.** `kira_no` is a fencing token. `tamam`, `basarisiz` and `nabiz` change a row only when `id`, `kira_no`, worker and state `calisiyor` all match. A repeat of the same call returns
+`zaten` and changes nothing; a call with a stale token (the job was reclaimed, dead-lettered or finished by another attempt) raises `KiraKaybedildi`. Eight concurrent completions of one lease give exactly one `tamam`. Delivery is
+at least once: a stalled worker can still be running when its job is reclaimed, so handlers must be safe to repeat (a late completion is rejected, the work may have run twice).
+
+**Crash recovery.** (1) A lease that is not renewed by the heartbeat (a separate thread and connection, every lease/3) expires and the next claim gives the job back. (2) A worker that restarts under the same name gives its own leases back at once
+(`isci_birak` at the start of `Isci.calis`). (3) Jobs owned by a runner instance (`sahip`) are dead-lettered at that runner's start (`sahip_temizle`). Tested with a worker process killed with SIGKILL.
+
+**Polling or LISTEN/NOTIFY: polling with a jittered interval (default 1 s x uniform(0.5, 1.5); the next poll is immediate after a job).** Reasons: (a) `ortak/pg.py` binds only `PQexecParams`-style calls;
+libpq does export `PQconsumeInput`, `PQnotifies` and `PQsocket`, so ctypes could do it, but it would add a second connection mode with a wait loop on the socket (select, interrupt, reconnect, a connection that must stay outside a transaction
+for notices to arrive), a new thread-safety surface in the layer the other items build on, and new code on the TLS and keepalive path. (b) NOTIFY is lossy (nothing is queued for a disconnected listener), so a poll would still be needed for startup, reconnect, back-off
+that becomes due and expired leases: NOTIFY could only shorten latency, never replace the poll. (c) The load is small: a scan takes minutes, is started by a person and is limited to a few per company; the poll is one indexed statement per idle worker per second, and the added start latency of about 1 s is
+irrelevant next to a scan. (d) The jitter keeps several workers from polling in step. Revisit only if the queue gets short, latency-sensitive jobs.
+
+**Limits and open points.** The waiting-queue limits (`azami_bekleyen`, `firma_azami`) are soft (checked before the insert). The runner with `--kuyruk` needs database access (`ALIG_DB_*`, today the `alig_app` role): the design wanted the runner away from our databases, so
+a dedicated role limited to the two queue tables and the request row is recommended before this is enabled. One runner instance per `sahip` name. Finished rows leave with their request (daily request cleanup, cascade); the application role has no DELETE. Not run: PG18, TCP/TLS, a real systemd runner, several runner hosts, a real scan through the queue
+(tests use a fake scan function), the web process end to end (`tarama/server.py` passes `firma_id` and `istek_id` to `uzaktan_tara`; that call is covered only by the socket-level test).

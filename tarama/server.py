@@ -361,7 +361,7 @@ class H(BaseHTTPRequestHandler):
             try:
                 if self.calistirici_soketi:
                     belge = calistirici.uzaktan_tara(self.calistirici_soketi, h, i["veritabani"], i["kullanici"], f["parola"],
-                                                     i["kanit"], maskele=bool(i["maskele"]), **ek)
+                                                     i["kanit"], maskele=bool(i["maskele"]), firma_id=i["firma_id"], istek_id=i["id"], **ek)
                 else:
                     belge = self.tara(h, i["veritabani"], i["kullanici"], f["parola"], i["kanit"], psql=self.psql,
                                       sslmode=self.sslmode, maskele=bool(i["maskele"]), **ek)
