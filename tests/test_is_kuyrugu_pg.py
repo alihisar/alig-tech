@@ -106,6 +106,27 @@ class KuyrukTests(pg_sema_kume.SemaKumesi, unittest.TestCase):
         self.addCleanup(b.kapat)
         return b
 
+    def isci_calistir(self, isleyici, isci="wk", **kw):
+        """Starts a k.Isci in its own thread with a connection factory that the WORKER owns.
+
+        The worker (and its heartbeat thread) open, use and close these connections themselves, so the test must not close them
+        while the worker may still be inside a query: addCleanup(b.kapat) from yeni_baglanti would run (LIFO) BEFORE the
+        durdur.set / join cleanups and race the worker with EszamanliKullanimHatasi. Here the stop and join come first and a
+        last-resort close (idempotent) of everything the factory handed out runs only after the thread has ended."""
+        acilanlar = []
+        self.addCleanup(lambda: [b.kapat() for b in list(acilanlar)])   # registered first, so it runs last
+
+        def baglan():
+            b = pg.Baglanti.baglan(**self.app_ayar())
+            acilanlar.append(b)
+            return b
+        w = k.Isci(baglan, isci, isleyici, **kw)
+        t = threading.Thread(target=w.calis)
+        t.start()
+        self.addCleanup(t.join, 10)
+        self.addCleanup(w.durdur.set)   # runs before the join
+        return w
+
     def satir(self, id_):
         r = self.con.sorgu("SELECT durum, deneme, kira_no, son_hata, isci, uygun_utc > clock_timestamp() FROM alig.is_kuyrugu WHERE id = $1", (id_,))
         return r[0]
@@ -435,13 +456,8 @@ class KuyrukTests(pg_sema_kume.SemaKumesi, unittest.TestCase):
 
     # ---- worker loop
     def kos(self, isleyici, sure=3.0, **kw):
-        w = k.Isci(lambda: self.yeni_baglanti(), kw.pop("isci", "wk"), isleyici, kira_sn=kw.pop("kira_sn", 30), bos_bekleme_s=0.05,
-                   taban_s=0, tavan_s=0, **kw)
-        t = threading.Thread(target=w.calis)
-        t.start()
-        self.addCleanup(t.join, 10)
-        self.addCleanup(w.durdur.set)
-        return w
+        return self.isci_calistir(isleyici, kw.pop("isci", "wk"), kira_sn=kw.pop("kira_sn", 30), bos_bekleme_s=0.05,
+                                  taban_s=0, tavan_s=0, **kw)
 
     def bekle(self, kosul, sn=15):
         son = time.time() + sn
@@ -484,11 +500,7 @@ class KuyrukTests(pg_sema_kume.SemaKumesi, unittest.TestCase):
         def isle(is_, gecerli):
             basladi.set()
             birak.wait(10)   # runs 2.5x longer than its lease; the heartbeat has to keep it
-        w = k.Isci(lambda: self.yeni_baglanti(), "uzun", isle, kira_sn=1.0, nabiz_sn=0.3, bos_bekleme_s=0.05)
-        t = threading.Thread(target=w.calis)
-        t.start()
-        self.addCleanup(t.join, 10)
-        self.addCleanup(w.durdur.set)
+        self.isci_calistir(isle, "uzun", kira_sn=1.0, nabiz_sn=0.3, bos_bekleme_s=0.05)
         self.assertTrue(basladi.wait(10))
         time.sleep(2.5)
         self.assertIsNone(k.al(self.yeni_baglanti(), "diger", kira_sn=30))
@@ -508,11 +520,7 @@ class KuyrukTests(pg_sema_kume.SemaKumesi, unittest.TestCase):
                     break
                 time.sleep(0.05)
             gordu.append(gecerli())
-        w = k.Isci(lambda: self.yeni_baglanti(), "w", isle, kira_sn=1.0, nabiz_sn=0.2, bos_bekleme_s=0.05)
-        t = threading.Thread(target=w.calis)
-        t.start()
-        self.addCleanup(t.join, 10)
-        self.addCleanup(w.durdur.set)
+        self.isci_calistir(isle, "w", kira_sn=1.0, nabiz_sn=0.2, bos_bekleme_s=0.05)
         self.assertTrue(self.bekle(lambda: gordu))
         self.assertEqual(gordu, [False])
         self.assertEqual(self.satir(a)[0], "calisiyor")   # the stale worker recorded nothing
