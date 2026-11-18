@@ -94,12 +94,19 @@ def dogrulama_iletisi(dil, baglanti, saat=depo.BEKLEME_SAAT):
     return konu, metin.format(baglanti=baglanti, saat=saat)
 
 
-def _ileti(gonderen, alici, konu, metin):
+def _ileti(gonderen, alici, konu, metin, anahtar=None):
+    """anahtar: idempotency key of the outbox message. When given, the Message-ID is derived from it (stable across retries, so a receiver
+    that dedupes on Message-ID drops a second delivery) and it is repeated in X-Alig-Idempotency-Key."""
     m = EmailMessage()
     m["From"] = formataddr(("alig.tech", gonderen))
     m["To"] = alici
     m["Subject"] = konu
-    m["Message-ID"] = make_msgid(domain=gonderen.rpartition("@")[2] or None)
+    alan = gonderen.rpartition("@")[2] or "alig.tech"
+    if anahtar:
+        m["Message-ID"] = "<alig-%s@%s>" % (anahtar, alan)
+        m["X-Alig-Idempotency-Key"] = anahtar
+    else:
+        m["Message-ID"] = make_msgid(domain=alan)
     m["Date"] = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
     m["Auto-Submitted"] = "auto-generated"
     m.set_content(metin)
@@ -112,7 +119,7 @@ class SmtpGonderici:
         self.kullanici, self.parola, self.zaman_asimi = kullanici, parola, zaman_asimi
         self._smtp, self._smtp_ssl = smtp, smtp_ssl
 
-    def gonder(self, alici, konu, metin):
+    def gonder(self, alici, konu, metin, anahtar=None):
         baglam = ssl.create_default_context()  # the server certificate and name are verified
         if self.port == 465:
             s = self._smtp_ssl(self.sunucu, self.port, timeout=self.zaman_asimi, context=baglam)
@@ -125,7 +132,7 @@ class SmtpGonderici:
                 s.ehlo()
             if self.kullanici:
                 s.login(self.kullanici, self.parola)
-            s.send_message(_ileti(self.gonderen, alici, konu, metin))
+            s.send_message(_ileti(self.gonderen, alici, konu, metin, anahtar))
         finally:
             try:
                 s.quit()
@@ -139,12 +146,12 @@ class DosyaGonderici:
     def __init__(self, dizin, gonderen="tarama@alig.tech"):
         self.dizin, self.gonderen = Path(dizin), gonderen
 
-    def gonder(self, alici, konu, metin):
+    def gonder(self, alici, konu, metin, anahtar=None):
         self.dizin.mkdir(parents=True, exist_ok=True)
         ad = self.dizin / ("%s-%d.eml" % (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S"), time.monotonic_ns()))
         fd = os.open(ad, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as f:
-            f.write(bytes(_ileti(self.gonderen, alici, konu, metin)))
+            f.write(bytes(_ileti(self.gonderen, alici, konu, metin, anahtar)))
 
 
 def gonderici_kur(ortam=None):
@@ -202,8 +209,9 @@ def main(argv=None):
     except ValueError as ex:   # PostgreSQL configured wrongly: no silent fallback to SQLite
         print("error: %s" % ex, file=sys.stderr)
         return 2
-    if pgayar is not None:   # ALIG_DB_*: the outbox lives in PostgreSQL (tarama/depo_pg.py)
-        from tarama import depo_pg
+    pg_modu = pgayar is not None
+    if pg_modu:   # ALIG_DB_*: the outbox lives in PostgreSQL (tarama/depo_pg.py); the transactional worker is tarama/posta_pg.py
+        from tarama import depo_pg, posta_pg
         depo, db = depo_pg, pgayar
     while True:
         try:
@@ -215,7 +223,14 @@ def main(argv=None):
             time.sleep(a.aralik)
             continue
         try:
-            isle(con, g)
+            if pg_modu:
+                posta_pg.isle(con, g)
+            else:
+                isle(con, g)
+        except pg.PgHata as ex:   # the claimed rows are released by their lease; the next round picks them up
+            print("error: outbox round failed: %s" % type(ex).__name__, file=sys.stderr)
+            if not a.surekli:
+                return 1
         finally:
             con.close()
         if not a.surekli:

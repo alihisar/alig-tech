@@ -93,7 +93,7 @@ The existing table names are kept (the English names in v5 section 7 are a logic
 | audit_events | denetim (two chains) | no UPDATE/DELETE in the application role; the chain tail is ordered with a lock; the canonical format does not change |
 | contact_requests | contact | |
 | verification_requests | portal_kod and the company verification code | single use |
-| outbox_events | posta | the intent to send in the same transaction as the business data |
+| outbox_events | posta | the intent to send in the same transaction as the business data (section 4.2) |
 | idempotency_keys | new | in upload and scan start; the same key with different content is rejected |
 | schema_migrations | instead of `PRAGMA user_version` | |
 
@@ -134,6 +134,20 @@ e-mail registration, audit chain. Quota: `pg_advisory_xact_lock(7431, hashtext(c
 held until the transaction ends. Audit chain: `pg_advisory_xact_lock(7432, 1)` (scan chain; `2` is reserved for the admin chain). The
 quota stays a sliding window; `kota_al` does lock + count + insert in one transaction, and the existing upload code
 (`kullanim_tekrar`, `kullanim_say`, `kullanim_ekle`) takes the same lock whenever it runs inside a transaction.
+
+### 4.2 Outbox (ALIG-DB-006)
+
+Table `posta` (migration `0008_outbox.sql`). States: `bekliyor` (due at `sonraki_utc`), `gonderiliyor` (claimed, lease `kilit_utc`), `gonderildi`, `basarisiz` (dead).
+
+1. **Intent in the business transaction.** `depo_pg.posta_ekle(con, ..., anahtar)` is called on the connection that is inside `islem()` (upload verification, portal registration). Roll back the business change and the message never existed. `UNIQUE (mesaj_anahtari)` + `ON CONFLICT DO NOTHING`: the same key stores one message. Nothing is sent inside the transaction.
+2. **Claim, then commit.** `posta_pg.talep_et`: one short transaction selects due rows `FOR UPDATE SKIP LOCKED`, sets `gonderiliyor`, `deneme = deneme + 1`, a lease, and commits. Workers never claim the same row; a row is claimed by exactly one worker until its lease expires.
+3. **Send after commit.** The sender is called with no transaction and no row lock held. A send is not started when less than 60 s of the lease remains (the row is given back, the attempt is not counted).
+4. **Mark.** `gonderildi` (text wiped, the link is secret) or a retry/dead decision, in a second transaction. The statement matches the claimed attempt number, so a worker whose lease expired cannot overwrite a newer attempt.
+5. **Retry.** Exponential backoff 30 s x 2^(n-1), cap 1 h; after 5 attempts (`POSTA_DENEME`) the message is dead and its text wiped. All recipients refused or a 5xx answer to the data goes dead at once. Authentication or network failures are transient. The attempt is counted at claim time, so a worker that keeps crashing on one message cannot loop forever.
+
+**Guarantee: at-least-once, not exactly-once.** If the process dies after the mail server accepted the message and before step 4 commits, the lease expires and the message is sent again: at most one extra delivery per attempt, bounded by the attempt limit. The same applies to a send that outlives its lease. Defence: every attempt of one message carries the same key as `Message-ID: <alig-KEY@domain>` and `X-Alig-Idempotency-Key`; the receiving side can drop a repeat. A receiver that ignores both will show the duplicate. Concurrent workers never double-send in normal operation (tested); the duplicate case needs a crash or a lease overrun. Leases and backoff use the database clock.
+
+Retention (`suresi_dolanlari_sil`) removes only `gonderildi` and `basarisiz` rows, never a row in flight. The previous `depo_pg.posta_bekleyenler`/`posta_sonuc` functions (no lease, no backoff) remain for the shared SQLite-era tests only; `tarama/posta.py` uses `posta_pg` when PostgreSQL is configured. Real sending is off until WEB-K1.
 
 ## 5. Migration phases (ALIG-DB-004)
 
@@ -206,6 +220,7 @@ Tool: `db/yedek.py` (stdlib; calls the PostgreSQL CLI tools as subprocesses; not
 | DML with the read-only role, DDL with the application role | DENY | PASS on PG16 (42501; UPDATE/DELETE/TRUNCATE on the audit tables are also DENY, also tested through `ortak/pg.py` as `alig_app` in `tests/test_yonetim_pg.py`) |
 | Schema migration: all files, re-run, a changed old file | PASS | PASS on PG16 (`db/uygula.py`) |
 | Schema migration: all files, re-run, a changed old file | PASS | PASS on PG16 (`db/uygula.py`; 0006 added by ALIG-DB-003c) |
+| Outbox: intent in the business transaction, send after commit, retry, duplicate has no effect | PASS | PASS on PG16 (`tests/test_posta_pg.py`, 24 tests as `alig_app`: rollback removes the message; claim committed and no lock while sending; backoff, dead state, permanent refusal; crash before send and after send; stale mark ignored; 8 concurrent workers x 60 messages never double-send; same-key enqueue stores one). Guarantee is at-least-once (section 4.2). NOT_RUN: real SMTP, kill -9 of a worker, several hosts |
 | Existing scan and portal store tests on PostgreSQL | PASS | PASS on PG16 (`tests/test_pg_depo.py`: DepoTests, portal Kayit/Giris/Izolasyon/PortalIslem, OncekiRapor, outbox, and the HTTP server classes of the scan, portal, history and Mode B tests; 17 SQLite-specific tests skipped with a reason each and re-tested natively where it matters). Run as the superuser; least privilege run: `PgUygulamaRoluTests` (alig_app) |
 | Audit chain: concurrent writers, tail lock | PASS | PASS on PG16 (`PgZincirTests`: 6 threads + 3 processes, no lost record or branch; tamper detection; the application role cannot UPDATE/DELETE the chain, SQLSTATE 42501) for the scan chain; the admin chain is ALIG-DB-003d |
 | Migration row count and digest | MATCH | NOT_RUN |

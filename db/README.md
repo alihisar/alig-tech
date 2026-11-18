@@ -16,6 +16,7 @@ there is no Python connection code; the schema is installed with SQL files and v
 | `sema/0005_yetkiler.sql` | Table and column privileges | `alig_migrator` |
 | `sema/0007_sinir_sayac.sql` | `sinir_sayac`: atomic rate-limit window counters (ALIG-DB-003e), with its own privileges | `alig_migrator` |
 | `sema/0006_firma_surec.sql` | `firma.surec`, `surec_notu`, `surec_utc` (commercial process; missing from 0002, found by ALIG-DB-003c) | `alig_migrator` |
+| `sema/0008_outbox.sql` | `posta`: `mesaj_anahtari` (UNIQUE idempotency key), `sonraki_utc` (backoff), `kilit_utc` (lease), state `gonderiliyor` (ALIG-DB-006) | `alig_migrator` |
 | `uygula.py` | A tool that applies the migration files in order (standard library only, a `psql` subprocess) | operator |
 | `yedek.py` | Physical backup (`pg_basebackup`), verification, restore into an empty directory/PITR, retention (ALIG-DB-005; `docs/postgresql-gecis.md` section 6, `docs/runbook.md`) | operator (with the `alig_backup` role) |
 
