@@ -336,7 +336,7 @@ class PgSemaTests(unittest.TestCase):
                                   "WHERE n.nspname='alig' AND c.relkind='r'"), self.tek("postgres", "SELECT count(*) FROM pg_tables WHERE schemaname='alig'"))
         # every table is in the known list: if an unknown table is added this test forces a review of the new table's privileges
         beklenen = sorted("""baglanti_istegi contact denetim esitleme firma firma_silinen giris_denemesi giris_ip idempotency_anahtari
-            kullanici kullanim oturum portal_deneme portal_kod portal_kullanici portal_oturum portal_talep posta rapor
+            is_kuyrugu is_kuyrugu_sira kullanici kullanim oturum portal_deneme portal_kod portal_kullanici portal_oturum portal_talep posta rapor
             schema_migrations sinir_sayac talep_durum yonetim_denetim""".split())
         self.assertEqual(self.tek("postgres", "SELECT string_agg(tablename, ' ' ORDER BY tablename) FROM pg_tables WHERE schemaname='alig'").split(), beklenen)
         # no objects outside the schema; PUBLIC holds no privilege on any alig table
