@@ -26,6 +26,8 @@ with the SQLite store until that store is removed (then they move to a shared mo
 import contextlib
 import inspect
 import json
+import re
+import secrets
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -81,6 +83,7 @@ ZINCIR_TARAMA = 1
 ZINCIR_YONETIM = 2     # reserved for yonetim/depo_pg.py (ALIG-DB-003d)
 KILIT_KAYIT = 7433     # advisory lock class: portal registration per e-mail address
 PgHata = pg.PgHata
+MESAJ_ANAHTARI = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
 
 
 # ---- connection --------------------------------------------------------------------------------------------------
@@ -552,8 +555,18 @@ def portal_talep_durum_yaz(con, tid, durum):
 
 # ---- outbox (sent by tarama/posta.py) ----------------------------------------------------------------------------
 
-def posta_ekle(con, alici, konu, metin):
-    con.execute("INSERT INTO posta(alici, konu, metin, olusturma_utc) VALUES(?,?,?,?)", (alici.strip().lower()[:200], konu, metin, simdi()))
+def posta_ekle(con, alici, konu, metin, anahtar=None):
+    """Writes the intent to send. The row is part of the CALLER'S transaction: call it on the connection that is inside islem() together with
+    the business change, and it commits or rolls back with it (outside islem() it is its own transaction). Nothing is sent here; the
+    worker (tarama/posta_pg.py) sends after commit.
+    anahtar: idempotency key of the message (letters, digits . _ -, up to 100). Enqueueing the same key again stores nothing and returns
+    None; without a key a random one is generated. The key travels to the receiver in the message headers. Returns the new message id."""
+    anahtar = secrets.token_hex(16) if anahtar is None else anahtar
+    if not isinstance(anahtar, str) or not MESAJ_ANAHTARI.match(anahtar):
+        raise ValueError("invalid message key")
+    r = con.execute("INSERT INTO posta(alici, konu, metin, olusturma_utc, mesaj_anahtari) VALUES(?,?,?,?,?) "
+                    "ON CONFLICT (mesaj_anahtari) DO NOTHING RETURNING id", (alici.strip().lower()[:200], konu, metin, simdi(), anahtar)).fetchone()
+    return r[0] if r else None
 
 
 def posta_say(con, alici, saat=24):
@@ -602,7 +615,7 @@ def suresi_dolanlari_sil(con):
         c.execute("DELETE FROM kullanim WHERE zaman_utc <= ?", (_pencere_esigi(None),))
         c.execute("DELETE FROM baglanti_istegi WHERE bitis_utc <= ?", ((datetime.now(timezone.utc) - timedelta(days=1)).strftime(BICIM),))
         pg_ = (datetime.now(timezone.utc) - timedelta(days=saklama.gun("posta"))).strftime(BICIM)
-        c.execute("DELETE FROM posta WHERE olusturma_utc <= ? AND durum != 'bekliyor'", (pg_,))
+        c.execute("DELETE FROM posta WHERE olusturma_utc <= ? AND durum IN ('gonderildi', 'basarisiz')", (pg_,))
         return n
 
 
